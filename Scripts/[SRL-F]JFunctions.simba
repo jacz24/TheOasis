@@ -3,8 +3,8 @@
 {$ENDIF}
 const
   VERSIONURL            = 'https://raw.githubusercontent.com/jacz24/TheOasis/main/Version';
-  JUPDATEURL            = '';
-  COOKERUPDATEURL       = 'https://raw.githubusercontent.com/ineedbots/srl-osr-scripts/master/utils.simba';
+  JUPDATEURL            = 'https://raw.githubusercontent.com/jacz24/TheOasis/main/Scripts/%5BSRL-F%5DJFunctions.simba';
+  COOKERUPDATEURL       = 'https://raw.githubusercontent.com/jacz24/TheOasis/main/Scripts/JAIOCooker.simba';
   JVERSION              = 'JVERSION';
 type
   TScriptColor = record
