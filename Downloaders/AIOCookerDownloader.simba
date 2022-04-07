@@ -1,0 +1,36 @@
+program AIOCookerDownloader;
+{$I SRL-F/OSR.simba}
+const
+  BotPage    = 'https://raw.githubusercontent.com/jacz24/TheOasis/main/Scripts/JAIOCooker.simba';
+  ScriptPage = 'https://raw.githubusercontent.com/jacz24/TheOasis/main/Scripts/%5BSRL-F%5DJFunctions.simba';
+  Local      = False; // For Quick Action Testing and uploading
+
+procedure DownloadToFile(const URL, Filename: string);
+var
+  Client: Int32;
+begin
+  WriteLn('[Bot]: ' + 'Downloading To: ' + Filename);
+  Client := InitializeHTTPClient(False);
+  try
+    GetHTTPPageEx(Client, URL, Filename);
+  finally
+    FreeHTTPClient(Client);
+  end;
+end;
+procedure DownloadLocal();
+begin
+  if (Local) then
+  begin
+    DownloadToFile(BotPage, AppPath+'\Resources\JAIOCooker.simba');
+    DownloadToFile(ScriptPage, AppPath+'\Resources\[SRL-F]JFunctions.simba');
+  end;
+  if (not Local) then
+  begin
+    DownloadToFile(BotPage, AppPath+'\Resources\JAIOCooker.simba');
+    DownloadToFile(ScriptPage, AppPath+'\Resources\[SRL-F]JFunctions.simba');
+  end;
+end;
+begin
+  DownloadLocal();
+
+end.

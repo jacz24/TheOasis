@@ -460,14 +460,14 @@ begin
 end;
 
 begin
-  Bot.Version              := 2;
+  Bot.Version              := 0;
   if (UPDATE) then
   begin
     Script.UpdateOn        := UPDATE;
     Script.LocalBotVersion := Bot.Version;
     Script.BotType         := 'COOKERVERSION';
     Script.Setup();
-    Script.ScriptUpdateHandler(); // Handles All Updating For CookerAIO
+    //Script.ScriptUpdateHandler(); // Handles All Updating For CookerAIO
   end;
   TerminateScript('Just doin updating');
   if RSClient.IsLoggedIn() then

@@ -1,3 +1,4 @@
+// TO KEEP EVERYTHING TOGETHER
 {$IFNDEF SRL_OSR}
 {$I SRL-F/OSR.simba}
 {$ENDIF}
@@ -201,7 +202,7 @@ begin
   if (not IsJUpdated()) then
   begin
     Script.WriteMsg('JFunctions Not Updated! Updating Script...');
-    //DownloadToFile(JUPDATEURL,AppPath+'\Resources\[SRL-F]JFunctions.simba');
+    DownloadToFile(JUPDATEURL,AppPath+'\Resources\[SRL-F]JFunctions.simba');
   end else Script.WriteMsg('JFunctions Already Latest Version!');
   if (BotType = '') then
   begin
@@ -212,7 +213,7 @@ begin
   begin
     Script.WriteMsg(BotType + ' Not Updated! Updating Script...');
     if (BotType = 'COOKERVERSION') then
-      //DownloadToFile(JUPDATEURL,AppPath+'\Resources\[SRL-F]JFunctions.simba');
+      DownloadToFile(COOKERUPDATEURL,AppPath+'\Resources\JAIOCooker.simba');
 
     //TerminateScript('Error: 101');
   end else Exit(True);
@@ -221,29 +222,16 @@ procedure TScript.ScriptUpdateHandler();
 begin
   if (DownloadScript()) then
       Script.WriteMsg('Congrats You Are Running The Latest Version!');
-
-  if (Script.BotType = 'COOKERVERSION') then
-  begin
-    Script.WriteMsg('Checking Updates For Cooker');
-    if (DownloadScript()) then
-      Script.WriteMsg('Congrats You Are Running The Latest Version!');
-  end;
-
-  if (Script.BotType = 'MINERVERSION') then
-  begin
-    Script.WriteMsg('Checking Updates For Miner');
-    if (DownloadScript()) then
-      Script.WriteMsg('Congrats You Are Running The Latest Version!');
-  end;
 end;
 procedure TScript.Setup();
 begin
   Script.WriteMsg('Setting Up JFunctions!');
-  Script.ScriptVersion := 12; // Current Local JFunction Version
+  Script.ScriptVersion := 1; // Current Local JFunction Version
 
   if (Script.UpdateOn) then
   begin
   Script.WriteMsg('Update Enabled: ' + Script.BotType);
+  ScriptUpdateHandler();
   end else Script.WriteMsg('Updating Is OFF, IDK WHY YOU WOULD WANT TO RUN THIS');
 end;
 
