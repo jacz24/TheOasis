@@ -1,12 +1,12 @@
 program JAIOCooker;
-{$I SRL-F/OSR.simba}
-{$I Resources/[SRL-F]JFunctions.simba} // Custom Functions
 {$DEFINE SRL_USE_REMOTEINPUT}
-//{$DEFINE SRL_DISABLE_REMOTEINPUT} // [SRL-F]JaczFuncs.simba SRL_DISABLE_REMOTEINPUT
+{$I SRL-F/OSR.simba}
+
+{$I Resources/[SRL-F]JFunctions.simba} // Custom Functions
 
 Const
 (* General settings *)
-  FOODNAME   = 'monkfish'; // lower case! For Ex: dark crab, monkfish, meat
+  FOODNAME   = 'giant seaweed'; // lower case! For Ex: dark crab, monkfish, meat
   LOCATION   = 'Hosidius'; // Hosidius, RogueDen
   MAXRUNTIME = 124;      // Max run time (in minutes)
   UPDATE     = True;     // Turns Updating On (Recommended) {True, False}
@@ -83,7 +83,12 @@ begin
   FireFinder.ColorClusters += [Self.FireLogCol, Self.FlameCol, 3];
   FireFinder.ClusterDistance := 4;
   ATPA := MainScreen.FindObject(FireFinder);
-  if ATPA.Len < 1 then TerminateScript('No Fire Found!');
+  if ATPA.Len < 1 then
+  begin
+  if Bank.IsOpen() then Bank.Close();
+  ATPA := MainScreen.FindObject(FireFinder);
+  if ATPA.Len < 1 then if not Script.AttemptToFindObject(FireFinder, 3) then TerminateScript('Cant find Fire!');
+  end;
   ATPA.SortByMiddle(Mainscreen.Center);
 
   for i:=0 to min(4, high(ATPA)) do
@@ -100,12 +105,15 @@ var
   RangeFinder: TRSObjectFinder;
 begin
   RangeFinder.ColorClusters += [CTS2(5330526, 23, 0.29, 0.25), CTS2(6777783, 9, 0.06, 1.54), 3]; // Couldron & Grill
-  RangeFinder.ClusterDistance := 8;
+  RangeFinder.ClusterDistance := 6;
+  RangeFinder.Grow := 2;
+  RangeFinder.Erode := 3;
   ATPA := MainScreen.FindObject(RangeFinder);
   if ATPA.Len < 1 then
   begin
   if Bank.IsOpen() then Bank.Close();
-  if not Script.AttemptToFindObject(RangeFinder, 3) then TerminateScript('Cant find range!');
+  ATPA := MainScreen.FindObject(RangeFinder);
+  if ATPA.Len < 1 then if not Script.AttemptToFindObject(RangeFinder, 3) then TerminateScript('Cant find range!');
   end;
   ATPA.SortByMiddle(Mainscreen.Center);
 
@@ -123,9 +131,11 @@ var
   ATPA: T2DPointArray;
   ChestFinder: TRSObjectFinder;
 begin
+  if MainScreen.IsUpText(['Bank','chest']) then Exit(True);
   ChestFinder.ColorClusters += [CTS2(2316655, 3, 0.07, 0.31), CTS2(2440263, 6, 0.24, 0.53),10];//[Self.InnerBankCol, Self.OutterBankCol, 3];
-  //ChestFinder.Grow := 2;
-  ChestFinder.ClusterDistance := 10;
+  ChestFinder.Grow := 2;
+  ChestFinder.Erode:= 3;
+  ChestFinder.ClusterDistance := 6;
 
   ATPA := MainScreen.FindObject(ChestFinder);
   if ATPA.Len < 1 then
@@ -152,6 +162,8 @@ var
   ATPA: T2DPointArray;
   BankFinder: TRSObjectFinder;
 begin
+  if MainScreen.IsUpText(['Emerald','Benedict']) then Exit(True);
+
   BankFinder.ColorClusters += [Self.BankCol, Self.WhiteBankCol, 7];
   //BankFinder.Grow := 2;
   BankFinder.ClusterDistance := 4;
@@ -159,6 +171,7 @@ begin
   ATPA := MainScreen.FindObject(BankFinder);
   if ATPA.Len < 1 then
   begin
+  if Bank.IsOpen() then Bank.Close();
   if not Script.AttemptToFindObject(BankFinder, 3) then TerminateScript('Cant find bank!');
   end;
   ATPA.SortByMiddle(Mainscreen.Center);
@@ -166,7 +179,7 @@ begin
   for i:=0 to min(4, high(ATPA)) do
   begin
     Mouse.HumanMove(ATPA[i].Mean());
-    if MainScreen.IsUpText(['Bank','Emerald']) then Exit(True);
+    if MainScreen.IsUpText(['Emerald','Benedict']) then Exit(True);
   end;
 end;
 
@@ -189,17 +202,24 @@ begin
       TerminateScript('No bank pin provided');
     end;
   if (Bank.IsOpen() or DepositBox.IsOpen()) then Script.WriteMsg('Bank Open!');
-    wait(45, 70);
+  Bank.DepositAll();
+  if (not WaitUntil(not Inventory.IsFull(), 75, 5000)) then Exit;
+  if (Self.RawFoodName <> 'Giant seaweed') then
+  begin
+    Bank.WithdrawItem([Self.RawFoodName, BANK_WITHDRAW_ALL], True);
+  end else
+    Bank.WithdrawItem([Self.RawFoodName, 4], True);
+  Script.BankAntiban(20);
+  if (not WaitUntil(Inventory.FindItem(Self.RawFoodName), 75, 5000)) then Exit;
 end;
-
-
 
 procedure TBot.DoAB();
 begin
   Antiban.DismissRandom();
   if Antiban.DoAntiban() then
     if (not RSClient.IsLoggedIn) then
-      Login.LoginPlayer();
+      if Login.GetPlayer.Password <> '' then
+        Login.LoginPlayer();
 end;
 
 procedure TBot.SetupAntiban();
@@ -210,7 +230,6 @@ begin
   Antiban.AddTask((ONE_MINUTE*5)*Self.ABTimeMod,  @Antiban.HoverMSPlayers);
   Antiban.AddTask((ONE_MINUTE*6)*Self.ABTimeMod,  @Antiban.HoverMSItems);
   Antiban.AddTask((ONE_MINUTE*6)*Self.ABTimeMod,  @Antiban.HoverMSNPCs);
-
   Antiban.AddTask((ONE_MINUTE*15)*Self.ABTimeMod, @Antiban.HoverSkills);
   Antiban.AddBreak(ONE_MINUTE*18, ONE_SECOND*40, 0.2, 0.0);
   Antiban.AddTask((ONE_MINUTE*24)*Self.ABTimeMod,  @Antiban.RandomRotate);
@@ -353,18 +372,23 @@ begin
   end;
 end;
 
-procedure TBot.Run()
+procedure TBot.HandleBanking();
 begin
-  Script.WriteMsg('Starting Run');
-  if not RSClient.IsLoggedIn() then Login.AddPlayer(PNAME,PPASS,PPIN);
-  if not Login.LoginPlayer() then TerminateScript('Failed to login!');
 
-  repeat
-    //Self.WritePosition(); // For Debugging Position
-    Wait(200, 400);
-    // Run To Bank If You Have No Raw Fish In Inventory
-    if LOCATION = 'Hosidius' then
-    begin
+    if (Self.FindBank()) then
+      begin
+        if MainScreen.IsUpText(['Talk','to']) then
+        begin
+          ChooseOption.Open;
+          ChooseOption.Select('Bank');
+        end else
+          Mouse.Click(MOUSE_LEFT);
+        if (not WaitUntil(Bank.IsOpen(), 75, 5000)) then Script.WriteMsg('Bank Not Open!');
+      end;
+end
+
+procedure TBot.DoHosidius()
+begin
     Self.DoAB();
     // Bank If Interface Is Open And No Raw Fish
     if not Inventory.FindItem(Self.RawFoodName) and not Bank.IsOpen() then
@@ -374,14 +398,8 @@ begin
       if (not WaitUntil(Bank.IsOpen(), 75, 5000)) then Script.WriteMsg('Bank Open!');
     end;
 
-    if not Inventory.FindItem(Self.RawFoodName) and Bank.IsOpen() then
-    begin
-      Bank.DepositAll();
-      Wait(50, 250);
-      Bank.ClickItem(Self.RawFoodName);
-      Script.BankAntiban(20);
-      if (not WaitUntil(Inventory.IsFull(), 75, 5000)) then Break;
-    end;
+    if not Inventory.FindItem(Self.RawFoodName) and Bank.IsOpen() then DoBanking();
+
     if Inventory.FindItem(Self.RawFoodName) and Bank.IsOpen() then
     begin
       if (Self.FindRange()) then Mouse.Click(MOUSE_LEFT);
@@ -401,53 +419,81 @@ begin
         if (not WaitUntil(Make.IsOpen, 75, 5000)) then Exit;
           if Make.IsOpen() then
             Make.Select(0, MAKE_QUANTITY_ALL, False);
-    end;
-    end;
+    end else
+    if Inventory.CountItem(Self.RawFoodName) < Inventory.CountItem(Self.CookedFoodName) then
+      if SRL.Dice(5) then
+        if not MainScreen.IsUpText(['Use','Bank']) then Self.FindChest();
+end;
 
-    if LOCATION = 'RogueDen' then
-    begin
-      Self.DoAB();
-      //Self.WriteMsg('Cooking In Rogues Den!');
+
+procedure TBot.DoRogue()
+begin
+    Self.DoAB();
     // Bank If Interface Is Open And No Raw Fish
-      if not Inventory.FindItem(Self.RawFoodName) and not Bank.IsOpen() then
-      begin
-        Script.WriteMsg('Looking to deposit at bank');
-        Self.FindBank();
-        Mouse.Click(MOUSE_LEFT);
-        if (not WaitUntil(Bank.IsOpen(), 75, 5000)) then TerminateScript('Bank Error');
-      end;
-
-      if not Inventory.FindItem(Self.RawFoodName) and Bank.IsOpen() then
-      begin
-        Self.DoBanking();
-        Bank.DepositAll();
-
-      //Bank.ClickItem(Self.RawFoodName);
-        Bank.WithdrawItem([Self.RawFoodName, BANK_WITHDRAW_ALL, False], True);
-        if (not WaitUntil(Inventory.IsFull(), 75, 5000)) then TerminateScript('Out Of Food!');
-      end;
-
-      if Inventory.FindItem(Self.RawFoodName) and Bank.IsOpen() then
-      begin
-        Self.FindFire();
-        Mouse.Click(MOUSE_LEFT);
-        if MainScreen.DidRedClick() then
-          if (not WaitUntil(Make.IsOpen, 75, 5000)) then Exit;
-            if Make.IsOpen() then
-              Make.Select(0, MAKE_QUANTITY_ALL, False);
-      end;
-    // Cook when we have raw fish and we aren't cooking
-    if Inventory.FindItem(Self.RawFoodName) and not Self.IsCooking() and not Bank.IsOpen() then
+    if not Inventory.FindItem(Self.RawFoodName) and not Bank.IsOpen() then
     begin
-      //Self.WriteMsg('time to cook!');
-      Inventory.ClickItem(Self.RawFoodName);
-      Self.FindFire();
-      Mouse.Click(MOUSE_LEFT);
+      Script.WriteMsg('Looking to deposit at bank');
+      Self.HandleBanking();
+    end;
+
+    if not Inventory.FindItem(Self.RawFoodName) and Bank.IsOpen() then
+    begin
+      Self.DoBanking();
+    end;
+    if Inventory.FindItem(Self.RawFoodName) and Bank.IsOpen() then
+    begin
+      if (Self.FindFire()) then Mouse.Click(MOUSE_LEFT);
       if MainScreen.DidRedClick() then
         if (not WaitUntil(Make.IsOpen, 75, 5000)) then Exit;
           if Make.IsOpen() then
             Make.Select(0, MAKE_QUANTITY_ALL, False);
     end;
+
+    if Inventory.FindItem(Self.RawFoodName) and not Self.IsCooking() and not Bank.IsOpen() then
+    begin
+      if (Self.RawFoodName = 'Giant seaweed') then
+      begin
+        if Inventory.IsFull() then
+        begin
+          Self.HandleBanking();
+          Self.DoBanking();
+        end;
+      end;
+      //Self.WriteMsg('time to cook!');
+      //Inventory.ClickItem(Self.RawFoodName);
+      if (Self.FindFire()) then Mouse.Click(MOUSE_LEFT);
+
+      if MainScreen.DidRedClick() then
+        if (not WaitUntil(Make.IsOpen, 75, 5000)) then Exit;
+          if Make.IsOpen() then
+            Make.Select(0, MAKE_QUANTITY_ALL, False);
+    end else
+      if Inventory.CountItem(Self.RawFoodName) < Inventory.CountItem(Self.CookedFoodName) then
+        if SRL.Dice(5) then
+          if not MainScreen.IsUpText(['Emerald','Benedict']) then Self.FindBank();
+end;
+
+procedure TBot.Run()
+begin
+  Script.WriteMsg('Starting Run');
+  if Login.GetPlayer.Password <> '' then
+    if not RSClient.IsLoggedIn() then
+    begin
+    Login.AddPlayer(PNAME,PPASS,PPIN);
+    if not Login.LoginPlayer() then TerminateScript('Failed to login!');
+    end;
+
+  repeat
+    //Self.WritePosition(); // For Debugging Position
+    Wait(250, 500);
+    // Run To Bank If You Have No Raw Fish In Inventory
+    if LOCATION = 'Hosidius' then
+    begin
+      Self.DoHosidius();
+    end;
+    if LOCATION = 'RogueDen' then
+    begin
+      Self.DoRogue();
     end;
   Self.Report();
   //Self.DrawReport();
@@ -469,7 +515,6 @@ begin
     Script.Setup();
     //Script.ScriptUpdateHandler(); // Handles All Updating For CookerAIO
   end;
-  TerminateScript('Just doin updating');
   if RSClient.IsLoggedIn() then
     Bot.init();
   Bot.Run();

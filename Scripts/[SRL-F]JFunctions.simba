@@ -58,11 +58,12 @@ begin
   end;
 end;
 
-function TScript.AttemptToFindObject(ObjFinder: TRSObjectFinder; Attempts: Int32): Boolean;
+function TScript.AttemptToFindObject(ObjFinder: TRSObjectFinder; TotalAttempts: Int32): Boolean;
 var
   ATPA: T2DPointArray;
+  Attempts: Int32;
 begin
-  for Attempts:=0 to Attempts do
+  for Attempts:=0 to TotalAttempts do
   begin
     self.WriteMsg('Attempt: ' + IntToStr(Attempts));
     Antiban.RandomRotate();
