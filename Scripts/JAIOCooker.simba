@@ -132,9 +132,9 @@ var
 begin
   if MainScreen.IsUpText(['Bank','chest']) then Exit(True);
   ChestFinder.ColorClusters += [CTS2(2316655, 3, 0.07, 0.31), CTS2(2440263, 6, 0.24, 0.53),10];//[Self.InnerBankCol, Self.OutterBankCol, 3];
-  ChestFinder.Grow := 2;
-  ChestFinder.Erode:= 3;
-  ChestFinder.ClusterDistance := 6;
+  ChestFinder.Grow := 3;
+  //ChestFinder.Erode:= 3;
+  ChestFinder.ClusterDistance := 4;
 
   ATPA := MainScreen.FindObject(ChestFinder);
   if ATPA.Len < 1 then
@@ -192,27 +192,27 @@ end;
 function TBot.DoBanking(): Boolean;
 begin
   Script.WriteMsg('In DoBanking');
-  //if BankPin.IsOpen() then
-  //  if Login.Players[0].Pin <> '' then
-  //    BankPin.Enter(Login.GetPlayer.Pin)
-  //  else
-  //  begin
-  //    BankPin.ClickCloseButton();
-  //    Logout.ClickLogout();
-  //    TerminateScript('No bank pin provided');
-  //  end;
+  if BankPin.IsOpen() then
+    if Login.Players[0].Pin <> '' then
+      BankPin.Enter(Login.GetPlayer.Pin)
+   else
+    begin
+      Bank.ClickCloseButton();
+      Logout.ClickLogout();
+      TerminateScript('No bank pin provided');
+    end;
   Script.WriteMsg('Depositing all!');
   if Bank.DepositAll() then Script.WriteMsg('Depositing Succesful!');
 
   Script.WriteMsg('Withdrawing Items!');
-  //if (not WaitUntil(not Inventory.IsFull(), 75, 5000)) then Exit(False);
   if (Self.RawFoodName <> 'Giant seaweed') then
   begin
     Bank.WithdrawItem([Self.RawFoodName, BANK_WITHDRAW_ALL], True);
   end else
     Bank.WithdrawItem([Self.RawFoodName, 4], True);
   Script.BankAntiban(20);
-  if (not WaitUntil(Inventory.FindItem(Self.RawFoodName), 75, 5000)) then Exit(True);
+  Wait(250,450);
+  //if (not WaitUntil(Bank., 75, 5000)) then Exit(True);
 end;
 
 procedure TBot.DoAB();
@@ -393,6 +393,7 @@ procedure TBot.DoHosidius();
 begin
     Script.WriteMsg('Hosidius');
     Self.DoAB();
+    if Bank.IsOpen() then Bank.CLose();
     // Open Bank If Interface Is Not Open And No Raw Fish
     if not Inventory.FindItem(Self.RawFoodName) and not Bank.IsOpen() then
     begin
@@ -401,15 +402,9 @@ begin
       if (WaitUntil(Bank.IsOpen(), 75, 5000)) then
       begin
       Script.WriteMsg('Bank Open Hurray! Depositing');
-      Script.WriteMsg('Bank Open Hurray! Depositing');
-      Script.WriteMsg('Bank Open Hurray! Depositing');
-      Script.WriteMsg('Bank Open Hurray! Depositing');
       Self.DoBanking();
       end;
     end;
-
-    // Deposit and Grab new uncooked food from the bank
-    //if not Inventory.FindItem(Self.RawFoodName) and Bank.IsOpen() then self.DoBanking();
 
     // Find the range and cook if bank is open and we have raw food in invent
     if Inventory.FindItem(Self.RawFoodName) and Bank.IsOpen() then
@@ -501,7 +496,7 @@ begin
 
   repeat
     //Self.WritePosition(); // For Debugging Position
-    Wait(50, 150);
+    Wait(150, 250);
     // Run To Bank If You Have No Raw Fish In Inventory
     if LOCATION = 'Hosidius' then
     begin
@@ -511,7 +506,7 @@ begin
     begin
       Self.DoRogue();
     end;
-  Self.Report();
+  //Self.Report();
   until(false);
 end;
 
