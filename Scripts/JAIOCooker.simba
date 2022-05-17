@@ -1,21 +1,20 @@
-program JAIOCooker;
-{$DEFINE SRL_USE_REMOTEINPUT}
+program JAIOCookerOnline;
 {$I SRL-F/OSR.simba}
-
-{$I Resources/[SRL-F]JFunctions.simba} // Custom Functions
-
+{$DEFINE SRL_USE_REMOTEINPUT}
+{$I [SRL-F]JFunctions.simba} // Custom Functions
+{$DEFINE SRL_USE_REMOTEINPUT}
 Const
 (* General settings *)
-  FOODNAME   = 'giant seaweed'; // lower case! For Ex: dark crab, monkfish, meat
+  FOODNAME   = 'shark'; // lower case! For Ex: shark, dark crab, monkfish, meat
   LOCATION   = 'Hosidius'; // Hosidius, RogueDen
   MAXRUNTIME = 124;      // Max run time (in minutes)
   UPDATE     = True;     // Turns Updating On (Recommended) {True, False}
   MSWalking  = False;   // Honestly we won't even need Walking
   DEBUGMODE  = True;    // True for displaying your 'cooking tile'
 (* Player settings *)
-  PNAME        = '';    // Username
-  PPASS        = '';    // Password
-  PPIN         = '';    // PIN
+  PNAME        = 'test@bigboi.com';    // Username
+  PPASS        = 'ILoveTesting';    // Password
+  PPIN         = '6969';    // PIN
 (* Break settings *)
   BREAKAFTER   = '115'; // Break after how long (in minutes)
   BREAKFOR     = '15';  // Break for how long (in minutes)
@@ -185,32 +184,35 @@ end;
 
 function TBot.IsCooking(): Boolean;
 begin
-  if SRL.GetPixelShift(Inventory.Bounds, 2400) > 50 then
+  if SRL.GetPixelShift(Inventory.Bounds, 2600) > 24 then
     Exit(True);
   //WriteMsg(IntToStr(SRL.GetPixelShift(Inventory.Bounds, 2400)));
 end;
 
 function TBot.DoBanking(): Boolean;
 begin
-  if BankPin.IsOpen() then
-    if Login.Players[0].Pin <> '' then
-      BankPin.Enter(Login.GetPlayer.Pin)
-    else
-    begin
-      BankPin.ClickCloseButton();
-      Logout.ClickLogout();
-      TerminateScript('No bank pin provided');
-    end;
-  if (Bank.IsOpen() or DepositBox.IsOpen()) then Script.WriteMsg('Bank Open!');
-  Bank.DepositAll();
-  if (not WaitUntil(not Inventory.IsFull(), 75, 5000)) then Exit;
+  Script.WriteMsg('In DoBanking');
+  //if BankPin.IsOpen() then
+  //  if Login.Players[0].Pin <> '' then
+  //    BankPin.Enter(Login.GetPlayer.Pin)
+  //  else
+  //  begin
+  //    BankPin.ClickCloseButton();
+  //    Logout.ClickLogout();
+  //    TerminateScript('No bank pin provided');
+  //  end;
+  Script.WriteMsg('Depositing all!');
+  if Bank.DepositAll() then Script.WriteMsg('Depositing Succesful!');
+
+  Script.WriteMsg('Withdrawing Items!');
+  //if (not WaitUntil(not Inventory.IsFull(), 75, 5000)) then Exit(False);
   if (Self.RawFoodName <> 'Giant seaweed') then
   begin
     Bank.WithdrawItem([Self.RawFoodName, BANK_WITHDRAW_ALL], True);
   end else
     Bank.WithdrawItem([Self.RawFoodName, 4], True);
   Script.BankAntiban(20);
-  if (not WaitUntil(Inventory.FindItem(Self.RawFoodName), 75, 5000)) then Exit;
+  if (not WaitUntil(Inventory.FindItem(Self.RawFoodName), 75, 5000)) then Exit(True);
 end;
 
 procedure TBot.DoAB();
@@ -330,6 +332,7 @@ begin
   Mouse.MissChance        := 7;
   Mouse.Brake             := True;
   Mouse.Distribution      := MOUSE_DISTRIBUTION_GAUSS;
+  ItemFinder.Similarity   := 0.9999;
 
   Self.DeclarePlayers();
   Self.SetupAntiban();
@@ -374,7 +377,6 @@ end;
 
 procedure TBot.HandleBanking();
 begin
-
     if (Self.FindBank()) then
       begin
         if MainScreen.IsUpText(['Talk','to']) then
@@ -387,21 +389,32 @@ begin
       end;
 end
 
-procedure TBot.DoHosidius()
+procedure TBot.DoHosidius();
 begin
+    Script.WriteMsg('Hosidius');
     Self.DoAB();
-    // Bank If Interface Is Open And No Raw Fish
+    // Open Bank If Interface Is Not Open And No Raw Fish
     if not Inventory.FindItem(Self.RawFoodName) and not Bank.IsOpen() then
     begin
-      Script.WriteMsg('Looking to deposit at bank');
+      Script.WriteMsg('Looking for chest!');
       if (Self.FindChest()) then Mouse.Click(MOUSE_LEFT);
-      if (not WaitUntil(Bank.IsOpen(), 75, 5000)) then Script.WriteMsg('Bank Open!');
+      if (WaitUntil(Bank.IsOpen(), 75, 5000)) then
+      begin
+      Script.WriteMsg('Bank Open Hurray! Depositing');
+      Script.WriteMsg('Bank Open Hurray! Depositing');
+      Script.WriteMsg('Bank Open Hurray! Depositing');
+      Script.WriteMsg('Bank Open Hurray! Depositing');
+      Self.DoBanking();
+      end;
     end;
 
-    if not Inventory.FindItem(Self.RawFoodName) and Bank.IsOpen() then DoBanking();
+    // Deposit and Grab new uncooked food from the bank
+    //if not Inventory.FindItem(Self.RawFoodName) and Bank.IsOpen() then self.DoBanking();
 
+    // Find the range and cook if bank is open and we have raw food in invent
     if Inventory.FindItem(Self.RawFoodName) and Bank.IsOpen() then
     begin
+      Script.WriteMsg('Find Range And Cook');
       if (Self.FindRange()) then Mouse.Click(MOUSE_LEFT);
       if MainScreen.DidRedClick() then
         if (not WaitUntil(Make.IsOpen, 75, 5000)) then Exit;
@@ -409,10 +422,11 @@ begin
             Make.Select(0, MAKE_QUANTITY_ALL, False);
     end;
 
+    // Cook If Raw food found and not cooking and book is not open
     if Inventory.FindItem(Self.RawFoodName) and not Self.IsCooking() and not Bank.IsOpen() then
     begin
-      //Self.WriteMsg('time to cook!');
-      //Inventory.ClickItem(Self.RawFoodName);
+      Script.WriteMsg('Cooking Time! Found: ' + Self.RawFoodName);
+      Inventory.ClickItem(Self.RawFoodName);
       if (Self.FindRange()) then Mouse.Click(MOUSE_LEFT);
 
       if MainScreen.DidRedClick() then
@@ -422,7 +436,7 @@ begin
     end else
     if Inventory.CountItem(Self.RawFoodName) < Inventory.CountItem(Self.CookedFoodName) then
       if SRL.Dice(5) then
-        if not MainScreen.IsUpText(['Use','Bank']) then Self.FindChest();
+        if not MainScreen.IsUpText(['Bank','chest']) then Self.FindChest();
 end;
 
 
@@ -475,17 +489,19 @@ end;
 
 procedure TBot.Run()
 begin
+  if Bank.IsOpen() then Bank.Close();
+
   Script.WriteMsg('Starting Run');
   if Login.GetPlayer.Password <> '' then
     if not RSClient.IsLoggedIn() then
     begin
-    Login.AddPlayer(PNAME,PPASS,PPIN);
-    if not Login.LoginPlayer() then TerminateScript('Failed to login!');
+      Login.AddPlayer(PNAME,PPASS,PPIN);
+      if not Login.LoginPlayer() then TerminateScript('Failed to login!');
     end;
 
   repeat
     //Self.WritePosition(); // For Debugging Position
-    Wait(250, 500);
+    Wait(50, 150);
     // Run To Bank If You Have No Raw Fish In Inventory
     if LOCATION = 'Hosidius' then
     begin
@@ -496,7 +512,6 @@ begin
       Self.DoRogue();
     end;
   Self.Report();
-  //Self.DrawReport();
   until(false);
 end;
 

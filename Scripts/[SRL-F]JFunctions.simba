@@ -2,6 +2,7 @@
 {$IFNDEF SRL_OSR}
 {$I SRL-F/OSR.simba}
 {$ENDIF}
+{$DEFINE SRL_USE_REMOTEINPUT}
 const
   VERSIONURL            = 'https://raw.githubusercontent.com/jacz24/TheOasis/main/Version';
   JUPDATEURL            = 'https://raw.githubusercontent.com/jacz24/TheOasis/main/Scripts/%5BSRL-F%5DJFunctions.simba';
@@ -224,6 +225,23 @@ begin
   if (DownloadScript()) then
       Script.WriteMsg('Congrats You Are Running The Latest Version!');
 end;
+
+procedure TScript.DisplayMSTile(Tile: TRectangle; SizeMod: Int32=0);
+begin
+  if SizeMod > 0 then
+    Tile.Expand(SizeMod);
+  if MainScreen.Bounds.Contains(Tile.Bounds) then
+  begin
+    RSClient.Image.Clear(Mainscreen.Bounds);
+    RSClient.Image.DrawRect(Tile, clAqua);
+
+    //if Self.ScreenReport then
+    //  if (Mainscreen.Mode = ERSClientMode.RESIZABLE_CLASSIC) or
+    //     (Mainscreen.Mode = ERSClientMode.RESIZABLE_MODERN) then
+    //      Self.DrawReport();
+  end;
+end;
+
 procedure TScript.Setup();
 begin
   Script.WriteMsg('Setting Up JFunctions!');
