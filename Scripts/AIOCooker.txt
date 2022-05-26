@@ -1,0 +1,61 @@
+[Center]
+[img]https://i.imgur.com/QT2LGOu.png[/img]
+Current version: [B]1.0[/B]
+Last updated: [B]5/24/2022[/B]
+[/Center]
+
+[SIZE=5][B][U]Core features:[/U][/B][/SIZE]
+[list]
+[*]Auto cooks and banks at supported locations
+[*]Efficient but with decent anti-ban
+[*]Easy to setup!
+[*]Optimized to run [I]efficiently[/I] and reduce CPU usage
+[*]Should work with every layout (If you have problems experiment with the layout and client size)
+[*]Intended to utilize the official OSRS client (any client size) & Runelite (client size can be a factor)
+[*][B]100% [COLOR="Lime"]c[/COLOR][COLOR="DeepSkyBlue"]o[/COLOR][COLOR="DarkOrange"]l[/COLOR][COLOR="Red"]o[/COLOR][COLOR="Magenta"]r[/COLOR][/B]
+[/list]
+
+[SIZE=5][B][U]Extra features:[/U][/B][/SIZE]
+[list]
+[*]Break system
+[*]Anti-ban including custom content
+[*]Soda ash from Giant seaweed or seaweed
+[*]Runelite Menu-Entry Swapper Supported: One-Click Banking!
+[/list]
+
+[SIZE=5][B][U]Supported locations:[/U][/B][/SIZE]
+[list]
+[*][B]Hosidius[/B] [All cook able foods with a few exceptions]
+[*][B]Rogues' Den[/B] [All cook able foods with a few exceptions]
+[*][B]Possibly Other Locations with chests near ranges?[/B]
+[/list]
+
+[SIZE=5][B][U]Requirements:[/U][/B][/SIZE]
+[list]
+[*][URL="https://github.com/ollydev/Simba/releases"]Simba 1400+[/URL] (only tested using 32bit version)
+[*][URL="https://villavu.com/forum/showthread.php?t=177730"]SRL-F[/URL]
+[*]Highly recommend using the official client with the default client size when it first opens!
+[/list]
+
+[SIZE=5][B][U]How to use:[/U][/B][/SIZE]
+[list]
+[*]For best results setup your camera:[URL="https://i.imgur.com/gb0GDyI.png"] something like this[/URL] or [URL="https://i.imgur.com/QeJEAyB.png"]this[/URL] a good camera setup really helps
+[*]Edit the script settings in Const to your liking
+[*]Set FOODNAME to whatever you want to cook: lower case! For Example: shark, dark crab, monkfish, meat, tuna
+[*]Run the script while logged in
+[*]In-game brightness set to max
+[*]XP bar size set to small and either Cooking Or Total XP
+[*]Have your player near your desired cooking area
+[*]Make sure you have your cooking gauntlets on!
+[/list]
+
+[SIZE=5][B][U]SPECIAL THANKS![/U][/B][/SIZE]
+[list]
+[*][COLOR="DeepSkyBlue"]FLIGHT:[/COLOR] He inspired me to make this script and the majority of the code is from his! Heck even the thread is inspired by his.
+[*][COLOR="Red"]HOODZ:[/COLOR] For His Original Cooking [URL="https://villavu.com/forum/showthread.php?t=114088"]Release[/URL]
+[*][COLOR="DarkOrange"]SLACKY:[/COLOR] SRL is incredible XD
+[/list]
+
+I plan on updating it soon but for the meantime I thought I would release something for the community.
+This has worked well for my grind to 99. It's been tested on a good amount of food sand I think it has reached a good point where only slight bugs exist.
+I made it on a large client size but I found the default client size to work well. If you wanna help add features or get the latest updates [URL="https://github.com/jacz24/TheOasis/blob/main/Scripts/JAIOCooker.simba"]feel free to check out the Github![/URL]
