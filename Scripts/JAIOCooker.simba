@@ -24,13 +24,12 @@ Const
 
 Type
   TBot = record
-  RawFoodName,
-  CookedFoodName, BurntFoodName,
+  RawFoodName,CookedFoodName, BurntFoodName,
   COOKED, BURNT, RAW, BotType                    : String;
   NumCooked, Version,
-  ABTimeMod, StartXP, XPGained, TotalB, TotalC         : Int32;
-  TotalCookedCount, TotalBurntCount          : TIntegerArray;
-  FireLogCol, FlameCol, BankCol, InnerBankCol, OutterBankCol,
+  ABTimeMod, StartXP, XPGained, TotalB, TotalC   : Int32;
+  FireLogCol, FlameCol, BankCol,
+   InnerBankCol, OutterBankCol,
   RangeCol, GrillCol, OvenCol, WhiteBankCol      : TCTS2Color;
   RSW               : TRSWalker;
 
