@@ -4,20 +4,21 @@ program JAIOCookerOnline;
 
 Const
 (* General settings *)
-  FOODNAME   = 'shark'; // lower case! For Ex: shark, dark crab, monkfish, meat
+  FOODNAME   = 'shark'; // lower case! For Ex: shark, dark crab, monkfish, meat, tuna
   LOCATION   = 'RogueDen'; // Hosidius, RogueDen
-  MAXRUNTIME = 124;      // Max run time (in minutes)
+  MAXRUNTIME = 224;      // Max run time (in minutes)
   UPDATE     = True;     // Turns Updating On (Recommended) {True, False}
   MSWalking  = False;   // Honestly we won't even need Walking
   DEBUGMODE  = True;    // True for displaying your 'cooking tile'
   SLOW       = False;    // If True will be more consistent but slower and dumber
 (* Player settings *)
-  PNAME        = 'test@bigboi.com';    // Username
-  PPASS        = 'ILoveTesting';    // Password
-  PPIN         = '6969';    // PIN
+  PNAME        = '';    // Username
+  PPASS        = '';    // Password
+  PPIN         = '';    // PIN
 (* Break settings *)
-  BREAKAFTER   = '115'; // Break after how long (in minutes)
-  BREAKFOR     = '15';  // Break for how long (in minutes)
+  TAKEBREAKS   = True; // Turn breaks on/off with True or False
+  BREAKAFTER   = 115; // Break after how long (in minutes)
+  BREAKFOR     = 15;  // Break for how long (in minutes)
 
 
 
@@ -25,37 +26,31 @@ Type
   TBot = record
   RawFoodName,
   CookedFoodName, BurntFoodName,
-  COOKED, BURNT, RAW, BotType          : String;
-  NumCooked, Version, ABTimeMod         : Int32;
-  TrueRunTime       : TStopwatch;
+  COOKED, BURNT, RAW, BotType                    : String;
+  NumCooked, Version,
+  ABTimeMod, StartXP, XPGained, TotalB, TotalC         : Int32;
+  TotalCookedCount, TotalBurntCount          : TIntegerArray;
   FireLogCol, FlameCol, BankCol, InnerBankCol, OutterBankCol,
-  RangeCol, GrillCol, OvenCol, WhiteBankCol           : TCTS2Color;
+  RangeCol, GrillCol, OvenCol, WhiteBankCol      : TCTS2Color;
   RSW               : TRSWalker;
+
+  ShutdownTime                                   : Int64;
+  TrueRunTime                                    : TStopwatch;
   end;
 var
   Bot: TBot;
 
 procedure TBot.Report();
 begin
+  Self.XPGained := Max(0,(XPBar.Read()-Self.StartXP));
   ClearDebug();
-  {
-  if Self.TakeBreaks then
-    ProgressReport(RESULT_REPORTBOX, 'AIO-Fisher', 'Flight', Self.Version,
-                   ['Runtime', 'XP gained', 'Fishing for', 'Fish caught', 'Until break', 'Until shutdown'],
-                   [SRL.MsToTime(Self.TrueRunTime.ElapsedTime, Time_Short),
-                    ToStr(Round(Self.XPGained,2),'(', Max(0,Round(Self.XPGained / (Self.TrueRunTime.ElapsedTime/1000/60/60))),' / hr)'),
-                    Self.FishingFor,
-                    ToStr(Self.TotalCount, '(', Max(0,Round(Self.TotalCount / (Self.TrueRunTime.ElapsedTime/1000/60/60))),' / hr)'),
-                    Antiban.TimeUntilBreak(Antiban.Breaks[0]),
-                    SRL.MsToTime(Self.ShutdownTime-GetTimeRunning, Time_Short)])
-  else
-  }
-  ProgressReport(RESULT_REPORTBOX, 'AIO-Cooker', 'Jacz', IntToStr(Self.Version),
-  ['Runtime', 'XP Gained', 'Cooking For', 'Fish Cooked', 'Fish Burnt', 'Until Shutdown'],
-  [69420, 69, 420, 24, 0, 'Will']);
-    //ProgressReport(RESULT_REPORTBOX, 'AIO-Miner', 'Jacz', Self.Version,
-    //               ['Runtime', 'XP gained', 'Mining for', 'Ores Mined', 'Until shutdown'],
-    //               [SRL.MsToTime(Self.TrueRunTime.ElapsedTime, Time_Short)])
+  ProgressReport(RESULT_REPORTBOX, 'AIO-Miner', 'Jacz', IntToStr(Self.Version),
+    ['Cooking', 'Take Breaks', 'Runtime', 'XP gained', 'Food Cooked', 'Food Burnt', 'Until Break', 'Until Shutdown'],
+    [Self.RawFoodName, BoolToStr(TAKEBREAKS), SRL.MsToTime(Self.TrueRunTime.ElapsedTime, Time_Short),
+    ToStr(Round(Self.XPGained,2)),
+    ToStr(Self.TotalC, '(', Max(0,Round(Self.TotalC / (Self.TrueRunTime.ElapsedTime/1000/60/60))),' / hr)'),
+    ToStr(Self.TotalB, '(', Max(0,Round(Self.TotalB / (Self.TrueRunTime.ElapsedTime/1000/60/60))),' / hr)'),
+    Antiban.TimeUntilBreak(Antiban.Breaks[0]), SRL.MsToTime(Self.ShutdownTime-GetTimeRunning, Time_Short)])
 
   //if Self.ScreenReport then // TODO ADD Drawing reports
   //  Self.DrawReport();
@@ -73,31 +68,7 @@ begin
   Destination := [];
 end;
 
-function TBot.FindFire(): Boolean;
-var
-  i: Int32;
-  ATPA: T2DPointArray;
-  FireFinder: TRSObjectFinder;
-begin
-  if (SLOW) then if Bank.IsOpen() then Bank.Close();
-  FireFinder.ColorClusters += [Self.FireLogCol, Self.FlameCol, 3];
-  FireFinder.ClusterDistance := 4;
-  ATPA := MainScreen.FindObject(FireFinder);
-  if ATPA.Len < 1 then
-  begin
-  if Bank.IsOpen() then Bank.Close();
-  ATPA := MainScreen.FindObject(FireFinder);
-  if ATPA.Len < 1 then if not Bot.AttemptToFindObject(FireFinder, 3) then TerminateScript('Cant find Fire!');
-  end;
-  ATPA.SortByMiddle(Mainscreen.Center);
 
-  for i:=0 to min(4, high(ATPA)) do
-  begin
-    Mouse.HumanMove(ATPA[i].Mean());
-    if MainScreen.IsUpText(['Cook','Fire']) then Exit(True);
-  end;
-  if Bank.IsOpen() then Bank.Close();
-end;
 
 // Combination of miss mouse + slowing near the target destination
 procedure TMouse.HumanMove(Point: TPoint);
@@ -145,6 +116,32 @@ begin
       Self.WriteMsg('Found!');
       Exit(True);
   end;
+end;
+
+function TBot.FindFire(): Boolean;
+var
+  i: Int32;
+  ATPA: T2DPointArray;
+  FireFinder: TRSObjectFinder;
+begin
+  if (SLOW) then if Bank.IsOpen() then Bank.Close();
+  FireFinder.ColorClusters += [Self.FireLogCol, Self.FlameCol, 3];
+  FireFinder.ClusterDistance := 4;
+  ATPA := MainScreen.FindObject(FireFinder);
+  if ATPA.Len < 1 then
+  begin
+  if Bank.IsOpen() then Bank.Close();
+  ATPA := MainScreen.FindObject(FireFinder);
+  if ATPA.Len < 1 then if not Bot.AttemptToFindObject(FireFinder, 3) then TerminateScript('Cant find Fire!');
+  end;
+  ATPA.SortByMiddle(Mainscreen.Center);
+
+  for i:=0 to min(4, high(ATPA)) do
+  begin
+    Mouse.HumanMove(ATPA[i].Mean());
+    if MainScreen.IsUpText(['Cook','Fire']) then Exit(True);
+  end;
+  if Bank.IsOpen() then Bank.Close();
 end;
 
 function TBot.FindRange(): Boolean;
@@ -241,6 +238,8 @@ begin
 end;
 
 function TBot.DoBanking(): Boolean;
+var
+  i,c,d : Int32;
 begin
   Bot.WriteMsg('In DoBanking');
   if BankPin.IsOpen() then
@@ -252,6 +251,17 @@ begin
       Logout.ClickLogout();
       TerminateScript('No bank pin provided');
     end;
+  if Bank.IsOpen(250) then
+  begin
+    c := Inventory.CountItem(Self.CookedFoodName);
+    Inc(Self.TotalC,c);
+    d := Inventory.CountItem(Self.BurntFoodName);
+    Inc(Self.TotalB,d);
+
+      //Inc(Self.XPGained, c*Self.XPMods[i]);
+
+
+  end;
   Bot.WriteMsg('Depositing all!');
   if Bank.DepositAll() then Bot.WriteMsg('Depositing Succesful!');
 
@@ -329,12 +339,15 @@ begin
   Antiban.Skills += ERSSKILL.COOKING;
   Antiban.AddTask((ONE_MINUTE*1)*Self.ABTimeMod,  @Antiban.SmallRandomMouse);
   Antiban.AddTask((ONE_MINUTE*2)*Self.ABTimeMod,  @Self.DoLoseFocus);
-  //Antiban.AddTask((ONE_MINUTE*5)*Self.ABTimeMod,  @Antiban.HoverMSPlayers);
   Antiban.AddTask((ONE_MINUTE*6)*Self.ABTimeMod,  @Antiban.HoverMSItems);
-  //Antiban.AddTask((ONE_MINUTE*6)*Self.ABTimeMod,  @Antiban.HoverMSNPCs);
   Antiban.AddTask((ONE_MINUTE*15)*Self.ABTimeMod, @Antiban.HoverSkills);
   Antiban.AddBreak(ONE_MINUTE*18, ONE_SECOND*40, 0.2, 0.0);
-  //Antiban.AddTask((ONE_MINUTE*24)*Self.ABTimeMod,  @Antiban.RandomRotate);
+  if (SLOW) then
+  begin
+    Antiban.AddTask((ONE_MINUTE*24)*Self.ABTimeMod,  @Antiban.RandomRotate);
+    Antiban.AddTask((ONE_MINUTE*6)*Self.ABTimeMod,  @Antiban.HoverMSNPCs);
+    Antiban.AddTask((ONE_MINUTE*5)*Self.ABTimeMod,  @Antiban.HoverMSPlayers);
+  end;
 end;
 
 
@@ -346,8 +359,8 @@ end;
 
 procedure TBot.UpdateReportVars();
 begin
-
-
+  //Self.TotalCookedCount := Inventory.CountItem(Self.CookedFoodName);
+  //Self.TotalBurntCount := Inventory.CountItem(Self.BurntFoodName);
 end;
 
 procedure TBot.DoEdgeCases()
@@ -443,7 +456,16 @@ begin
   ItemFinder.Similarity   := 0.9999;
 
   Self.DeclarePlayers();
+  Self.StartXP            := XPBar.Read();
+  Self.ShutdownTime       := (MAXRUNTIME * 60000) + Random(- (MAXRUNTIME * 6000), (MAXRUNTIME * 6000));
+  if TAKEBREAKS then
+    Antiban.AddBreak(ONE_MINUTE*BREAKAFTER,
+                     ONE_MINUTE*BREAKFOR, 0.2, 1.0);
+
+
   Self.SetupAntiban();
+  Self.TrueRunTime.Start();
+
   Self.RAW    := 'Raw ';
   Self.COOKED := 'Cooked ';
   Self.BURNT  := 'Burnt ';
@@ -500,7 +522,14 @@ begin
           ChooseOption.Open;
           ChooseOption.Select('Bank');
         end else
+        begin
+          if SRL.Dice(1) then
+          begin
+            ChooseOption.Open;
+            ChooseOption.Select('Bank');
+          end;
           Mouse.Click(MOUSE_LEFT);
+        end;
         if (not WaitUntil(Bank.IsOpen(), 75, 5000)) then self.WriteMsg('Bank Not Open!');
       end;
 end
@@ -514,6 +543,7 @@ begin
     if not Inventory.FindItem(Self.RawFoodName) and not Bank.IsOpen() then
     begin
       self.WriteMsg('Looking for chest!');
+
       if (Self.FindChest()) then Mouse.Click(MOUSE_LEFT);
       if (WaitUntil(Bank.IsOpen(), 75, 5000)) then
       begin
@@ -532,7 +562,10 @@ begin
       if MainScreen.DidRedClick() then
         if (not WaitUntil(Make.IsOpen, 75, 5000)) then Exit;
           if Make.IsOpen() then
+          begin
             Make.Select(0, MAKE_QUANTITY_ALL, False);
+            Self.DoAB();
+          end;
     end;
 
     // Cook If Raw food found and not cooking and book is not open
@@ -592,7 +625,7 @@ begin
         end;
       end;
       //Self.WriteMsg('time to cook!');
-      //Inventory.ClickItem(Self.RawFoodName);
+      if SRL.Dice(0.1) then Inventory.ClickItem(Self.RawFoodName);
       if (Self.FindFire()) then Mouse.Click(MOUSE_LEFT);
 
       if MainScreen.DidRedClick() then
@@ -600,10 +633,15 @@ begin
           if Make.IsOpen() then
             Make.Select(0, MAKE_QUANTITY_ALL, False);
     end else
-      //if Inventory.CountItem(Self.RawFoodName) < Inventory.CountItem(Self.CookedFoodName) then
         if MainScreen.IsUpText(['Emerald','Benedict']) then
         begin
           if SRL.Dice(1) then Mouse.Click(MOUSE_LEFT); // AB: Open bank early
+          //if SRL.Dice(4) then ChooseOption.Open;
+          if SRL.Dice(1) then
+          begin
+            ChooseOption.Open;
+            ChooseOption.Select('Bank');
+          end;
         end else if SRL.Dice(5) then Self.FindBank();
 
     Wait(150,250);
@@ -621,6 +659,9 @@ begin
       if not Login.LoginPlayer() then TerminateScript('Failed to login!');
     end;
 
+
+  //if MM2MS.ZoomLevel > 80 then
+
   repeat
     //Self.WritePosition(); // For Debugging Position
 
@@ -632,11 +673,11 @@ begin
     if LOCATION = 'RogueDen' then
     begin
       Self.DoRogue();
+
     end;
   Wait(150, 250);
-  Self.UpdateReportVars();
   Self.Report();
-  until(false);
+  until(GetTimeRunning() > Self.ShutdownTime);
 end;
 
 procedure TBot.DeclarePlayers();
@@ -645,7 +686,7 @@ begin
 end;
 
 begin
-  Bot.Version              := 0;
+  Bot.Version              := 1;
   if (UPDATE) then
   begin
     //Self.UpdateOn        := UPDATE;
