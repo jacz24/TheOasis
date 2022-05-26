@@ -50,9 +50,6 @@ begin
     ToStr(Self.TotalC, '(', Max(0,Round(Self.TotalC / (Self.TrueRunTime.ElapsedTime/1000/60/60))),' / hr)'),
     ToStr(Self.TotalB, '(', Max(0,Round(Self.TotalB / (Self.TrueRunTime.ElapsedTime/1000/60/60))),' / hr)'),
     Antiban.TimeUntilBreak(Antiban.Breaks[0]), SRL.MsToTime(Self.ShutdownTime-GetTimeRunning, Time_Short)])
-
-  //if Self.ScreenReport then // TODO ADD Drawing reports
-  //  Self.DrawReport();
 end;
 
 procedure OnWalkEvent(Sender: PRSWalker; Position: TPoint; Destination: TPoint);
@@ -66,8 +63,6 @@ begin
   Position    := [];  // For the sake of mitigating compile warnings
   Destination := [];
 end;
-
-
 
 // Combination of miss mouse + slowing near the target destination
 procedure TMouse.HumanMove(Point: TPoint);
@@ -256,10 +251,7 @@ begin
     Inc(Self.TotalC,c);
     d := Inventory.CountItem(Self.BurntFoodName);
     Inc(Self.TotalB,d);
-
-      //Inc(Self.XPGained, c*Self.XPMods[i]);
-
-
+    //Inc(Self.XPGained, c*Self.XPMods[i]);
   end;
   Bot.WriteMsg('Depositing all!');
   if Bank.DepositAll() then Bot.WriteMsg('Depositing Succesful!');
@@ -271,8 +263,9 @@ begin
   end else
     Bank.WithdrawItem([Self.RawFoodName, 4], True);
   Bot.BankAntiban(20);
+  Bot.WriteMsg('Waiting for bank to close');
   Wait(450,650);
-  //if (not WaitUntil(Bank., 75, 5000)) then Exit(True);
+  //if (WaitUntil(not Bank.IsOpen(), 75, 5000)) then Exit(True);
 end;
 
 procedure TMouse.RandomMovement();
