@@ -1,11 +1,11 @@
 program JAIOCookerOnline;
-{$DEFINE SRL_USE_REMOTEINPUT}
+{$DEFINE SRL_USE_REMOTEINPUT} //{$DEFINE SRL_DISABLE_REMOTEINPUT}
 {$I SRL-F/OSR.simba}
 
 Const
 (* General settings *)
-  FOODNAME   = 'shark'; // lower case! For Ex: shark, dark crab, monkfish, meat, tuna
-  LOCATION   = 'RogueDen'; // Hosidius, RogueDen
+  FOODNAME   = 'manta ray'; // lower case! For Ex: manta ray, shark, dark crab, monkfish, meat, tuna
+  LOCATION   = 'Hosidius'; // Hosidius, RogueDen
   MAXRUNTIME = 224;      // Max run time (in minutes)
   UPDATE     = True;     // Turns Updating On (Recommended) {True, False}
   MSWalking  = False;   // Honestly we won't even need Walking
@@ -19,8 +19,6 @@ Const
   TAKEBREAKS   = True; // Turn breaks on/off with True or False
   BREAKAFTER   = 115; // Break after how long (in minutes)
   BREAKFOR     = 15;  // Break for how long (in minutes)
-
-
 
 Type
   TBot = record
@@ -41,9 +39,9 @@ var
 
 procedure TBot.Report();
 begin
-  Self.XPGained := Max(0,(XPBar.Read()-Self.StartXP));
+  Self.XPGained := Max(0, XPBar.Read()-Self.StartXP);
   ClearDebug();
-  ProgressReport(RESULT_REPORTBOX, 'AIO-Miner', 'Jacz', IntToStr(Self.Version),
+  ProgressReport(RESULT_REPORTBOX, 'AIO-Cooker', 'Jacz', IntToStr(Self.Version),
     ['Cooking', 'Take Breaks', 'Runtime', 'XP gained', 'Food Cooked', 'Food Burnt', 'Until Break', 'Until Shutdown'],
     [Self.RawFoodName, BoolToStr(TAKEBREAKS), SRL.MsToTime(Self.TrueRunTime.ElapsedTime, Time_Short),
     ToStr(Round(Self.XPGained,2)),
@@ -54,11 +52,7 @@ end;
 
 procedure OnWalkEvent(Sender: PRSWalker; Position: TPoint; Destination: TPoint);
 begin
-
   WriteLn("Running! Maybe Add Something :D");
-  //if Bot.WalkSearch then
-  //  if length(Bot.GetSpotsIn(Mainscreen.Bounds)) > 0 then
-  //   Sender^.Enabled := False;
 
   Position    := [];  // For the sake of mitigating compile warnings
   Destination := [];
@@ -99,7 +93,7 @@ var
 begin
   for Attempts:=0 to TotalAttempts do
   begin
-    self.WriteMsg('Attempt: ' + IntToStr(Attempts));
+    Self.WriteMsg('Attempt: ' + IntToStr(Attempts));
     Antiban.RandomRotate();
     //Wait(50,250);
     ATPA := MainScreen.FindObject(ObjFinder);
@@ -118,7 +112,8 @@ var
   ATPA: T2DPointArray;
   FireFinder: TRSObjectFinder;
 begin
-  if (SLOW) then if Bank.IsOpen() then Bank.Close();
+  if MM2MS.ZoomLevel > 69 then if Bank.IsOpen() then Bank.Close();
+  Bot.WriteMsg('Finding Fire');
   FireFinder.ColorClusters += [Self.FireLogCol, Self.FlameCol, 3];
   FireFinder.ClusterDistance := 4;
   ATPA := MainScreen.FindObject(FireFinder);
@@ -228,7 +223,6 @@ function TBot.IsCooking(): Boolean;
 begin
   if SRL.GetPixelShift(Inventory.Bounds, 2600) > 24 then
     Exit(True);
-  //WriteMsg(IntToStr(SRL.GetPixelShift(Inventory.Bounds, 2400)));
 end;
 
 function TBot.DoBanking(): Boolean;
@@ -248,9 +242,9 @@ begin
   if Bank.IsOpen(250) then
   begin
     c := Inventory.CountItem(Self.CookedFoodName);
-    Inc(Self.TotalC,c);
+    Inc(Self.TotalC, c);
     d := Inventory.CountItem(Self.BurntFoodName);
-    Inc(Self.TotalB,d);
+    Inc(Self.TotalB, d);
     //Inc(Self.XPGained, c*Self.XPMods[i]);
   end;
   Bot.WriteMsg('Depositing all!');
@@ -259,13 +253,12 @@ begin
   Bot.WriteMsg('Withdrawing Items!');
   if (Self.RawFoodName <> 'Giant seaweed') then
   begin
-    Bank.WithdrawItem([Self.RawFoodName, BANK_WITHDRAW_ALL], True);
+    if not Bank.WithdrawItem([Self.RawFoodName, BANK_WITHDRAW_ALL], True) then TerminateScript('No More Food!');
   end else
-    Bank.WithdrawItem([Self.RawFoodName, 4], True);
+    if not Bank.WithdrawItem([Self.RawFoodName, 4], True) then TerminateScript('No More Giant seaweed!');
   Bot.BankAntiban(20);
   Bot.WriteMsg('Waiting for bank to close');
-  Wait(450,650);
-  //if (WaitUntil(not Bank.IsOpen(), 75, 5000)) then Exit(True);
+  if (not WaitUntil(Bank.IsOpen(), 75, 5000)) then Exit(True);
 end;
 
 procedure TMouse.RandomMovement();
@@ -334,25 +327,17 @@ begin
   Antiban.AddTask((ONE_MINUTE*6)*Self.ABTimeMod,  @Antiban.HoverMSItems);
   Antiban.AddTask((ONE_MINUTE*15)*Self.ABTimeMod, @Antiban.HoverSkills);
   Antiban.AddBreak(ONE_MINUTE*18, ONE_SECOND*40, 0.2, 0.0);
-  if (SLOW) then
-  begin
-    Antiban.AddTask((ONE_MINUTE*24)*Self.ABTimeMod,  @Antiban.RandomRotate);
-    Antiban.AddTask((ONE_MINUTE*6)*Self.ABTimeMod,  @Antiban.HoverMSNPCs);
-    Antiban.AddTask((ONE_MINUTE*5)*Self.ABTimeMod,  @Antiban.HoverMSPlayers);
-  end;
+  //if (SLOW) then
+  //begin
+  //  Antiban.AddTask((ONE_MINUTE*24)*Self.ABTimeMod,  @Antiban.RandomRotate);
+  //  Antiban.AddTask((ONE_MINUTE*6)*Self.ABTimeMod,  @Antiban.HoverMSNPCs);
+  //  Antiban.AddTask((ONE_MINUTE*5)*Self.ABTimeMod,  @Antiban.HoverMSPlayers);
+  //end;
 end;
-
-
 
 procedure TBot.WritePosition();
 begin
   Bot.WriteMsg('{X = ' + IntToStr(Self.RSW.GetMyPos().X) + ', Y = ' + IntToStr(Self.RSW.GetMyPos().Y) + '}');
-end;
-
-procedure TBot.UpdateReportVars();
-begin
-  //Self.TotalCookedCount := Inventory.CountItem(Self.CookedFoodName);
-  //Self.TotalBurntCount := Inventory.CountItem(Self.BurntFoodName);
 end;
 
 procedure TBot.DoEdgeCases()
@@ -524,11 +509,10 @@ begin
         end;
         if (not WaitUntil(Bank.IsOpen(), 75, 5000)) then self.WriteMsg('Bank Not Open!');
       end;
-end
+end;
 
 procedure TBot.DoHosidius();
-begin
-    self.WriteMsg('Hosidius');
+begin;
     Self.DoAB();
     if Bank.IsOpen() then if (Self.FindRange()) then Mouse.Click(MOUSE_LEFT);
     // Open Bank If Interface Is Not Open And No Raw Fish
@@ -584,7 +568,6 @@ end;
 
 procedure TBot.DoRogue()
 begin
-    //self.WriteMsg('RogueDen');
     Self.DoAB();
     // Bank If Interface Is Open And No Raw Fish
     if not Inventory.FindItem(Self.RawFoodName) and not Bank.IsOpen() then
@@ -651,12 +634,16 @@ begin
       if not Login.LoginPlayer() then TerminateScript('Failed to login!');
     end;
 
-
-  //if MM2MS.ZoomLevel > 80 then
+  if MM2MS.ZoomLevel > 60 then
+  begin
+    Bot.WriteMsg('Setting up extra antiban cuz zoomed out');
+    Antiban.AddTask((ONE_MINUTE*24)*Self.ABTimeMod,  @Antiban.RandomRotate);
+    Antiban.AddTask((ONE_MINUTE*6)*Self.ABTimeMod,  @Antiban.HoverMSNPCs);
+    Antiban.AddTask((ONE_MINUTE*5)*Self.ABTimeMod,  @Antiban.HoverMSPlayers);
+  end;
 
   repeat
     //Self.WritePosition(); // For Debugging Position
-
     // Run To Bank If You Have No Raw Fish In Inventory
     if LOCATION = 'Hosidius' then
     begin
