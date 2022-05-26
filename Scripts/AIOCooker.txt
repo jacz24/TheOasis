@@ -59,3 +59,5 @@ Last updated: [B]5/24/2022[/B]
 I plan on updating it soon but for the meantime I thought I would release something for the community.
 This has worked well for my grind to 99. It's been tested on a good amount of food sand I think it has reached a good point where only slight bugs exist.
 I made it on a large client size but I found the default client size to work well. If you wanna help add features or get the latest updates [URL="https://github.com/jacz24/TheOasis/blob/main/Scripts/JAIOCooker.simba"]feel free to check out the Github![/URL]
+
+[SIZE=5][B][U]Hope You Enjoy![/U][/B][/SIZE]
