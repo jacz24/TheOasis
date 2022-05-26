@@ -4,21 +4,20 @@ program JAIOCookerOnline;
 
 Const
 (* General settings *)
-  FOODNAME   = 'manta ray'; // lower case! For Ex: manta ray, shark, dark crab, monkfish, meat, tuna
+  FOODNAME   = 'monkfish'; // lower case! For Ex: manta ray, shark, dark crab, monkfish, meat, tuna
   LOCATION   = 'Hosidius'; // Hosidius, RogueDen
-  MAXRUNTIME = 224;      // Max run time (in minutes)
-  UPDATE     = True;     // Turns Updating On (Recommended) {True, False}
-  MSWalking  = False;   // Honestly we won't even need Walking
-  DEBUGMODE  = True;    // True for displaying your 'cooking tile'
-  SLOW       = False;    // If True will be more consistent but slower and dumber
+  MAXRUNTIME = 224;      // Max run time (in minutes); Default: 224
+  UPDATE     = True;     // Turns Updating On (Recommended) {True, False}; Default: True
+  MSWalking  = False;   // Honestly we won't even need Walking; Default: False
+  SLOW       = False;    // If True will be more consistent but slower and dumber; Default: False
 (* Player settings *)
   PNAME        = '';    // Username
   PPASS        = '';    // Password
   PPIN         = '';    // PIN
 (* Break settings *)
-  TAKEBREAKS   = True; // Turn breaks on/off with True or False
-  BREAKAFTER   = 115; // Break after how long (in minutes)
-  BREAKFOR     = 15;  // Break for how long (in minutes)
+  TAKEBREAKS   = True; // Turn breaks on/off with True or False; Default: True
+  BREAKAFTER   = 115; // Break after how long (in minutes); Default: 115
+  BREAKFOR     = 24;  // Break for how long (in minutes); Default: 24
 
 Type
   TBot = record
