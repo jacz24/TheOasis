@@ -286,14 +286,11 @@ begin
     begin
       // Copied version of 'random right click' antiban, minus the additional debug msg
       Mouse.Move(GetClientBounds(), True, MOUSE_DISTRIBUTION_RANDOM);
-
       if ChooseOption.Open() then
       begin
         if Random() < 0.50 then
           Mouse.Move(ChooseOption.Bounds);
-
         Wait(0, 8000, wdLeft);
-
         ChooseOption.Close();
       end;
     end;

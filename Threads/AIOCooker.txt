@@ -4,11 +4,14 @@ Current version: [B]1.0[/B]
 Last updated: [B]5/24/2022[/B]
 [/Center]
 
+If you wanna help add/fix features or just get the latest updates [URL="https://github.com/jacz24/TheOasis/blob/main/Scripts/JAIOCooker.simba"]feel free to check out the Github![/URL]
+
 [SIZE=5][B][U]Core features:[/U][/B][/SIZE]
 [list]
 [*]Auto cooks and banks at supported locations
 [*]Efficient but with decent anti-ban
 [*]Easy to setup!
+[*]Works with almost foods!
 [*]Optimized to run [I]efficiently[/I] and reduce CPU usage
 [*]Should work with every layout (If you have problems experiment with the layout and client size)
 [*]Intended to utilize the official OSRS client (any client size) & Runelite (client size can be a factor)
@@ -46,7 +49,7 @@ Last updated: [B]5/24/2022[/B]
 [*]In-game brightness set to max
 [*]XP bar size set to small and either Cooking Or Total XP
 [*]Have your player near your desired cooking area
-[*]Make sure you have your cooking gauntlets on!
+[*]Make sure you have your cooking gauntlets equip!
 [/list]
 
 [SIZE=5][B][U]SPECIAL THANKS![/U][/B][/SIZE]
@@ -54,10 +57,12 @@ Last updated: [B]5/24/2022[/B]
 [*][COLOR="DeepSkyBlue"]FLIGHT:[/COLOR] He inspired me to make this script and the majority of the code is from his! Heck even the thread is inspired by his.
 [*][COLOR="Red"]HOODZ:[/COLOR] For His Original Cooking [URL="https://villavu.com/forum/showthread.php?t=114088"]Release[/URL]
 [*][COLOR="DarkOrange"]SLACKY:[/COLOR] SRL is incredible XD
+[*][COLOR="Yellow"]ineedbots:[/COLOR] Antiban ideas
 [/list]
 
 I plan on updating it soon but for the meantime I thought I would release something for the community.
 This has worked well for my grind to 99. It's been tested on a good amount of food sand I think it has reached a good point where only slight bugs exist.
-I made it on a large client size but I found the default client size to work well. If you wanna help add features or get the latest updates [URL="https://github.com/jacz24/TheOasis/blob/main/Scripts/JAIOCooker.simba"]feel free to check out the Github![/URL]
+I made it on a large client size but I found the default client size to work well.
 
-[SIZE=5][B][U]Hope You Enjoy![/U][/B][/SIZE]
+[SIZE=5][B]Hope You Enjoy![/B][/SIZE]
+[img]https://i.imgur.com/XSOnN4V.png[/img]
