@@ -1,0 +1,195 @@
+program FeatherBuyer;
+{$DEFINE SRL_USE_REMOTEINPUT}
+{$I SRL-F/OSR.simba}
+
+Const
+  (* General settings *)
+  HEALPERC   = 40;      // % to heal at
+  MAXRUNTIME = 124;     // Max run time (in minutes)
+(* Player settings *)
+  PNAME        = '';    // Username
+  PPASS        = '';    // Password
+  PPIN         = '';                 // PIN
+
+(* Break settings *)
+  BREAKAFTER   = '115'; // Break after how long (in minutes)
+  BREAKFOR     = '15';  // Break for how long (in minutes)
+
+  MSWalking      = False;   // True for walking via the mainscreen
+  DEBUGMODE      = True;    // True for displaying your 'fishing tile'
+  SHIFTTHRESHOLD = 15;      // % shift within the playerbox to be considered "animating"
+  DROP_PATTERN_MKEYS: TIntegerArray = [0,1,5,4,8,9,13,12,16,17,21,20,24,25, 2,3,7,6,10,11,15,14,18,19,23,22,26,27];
+
+
+Type
+  TScript = record
+    StartXP,FFishDist,Timeout,
+    HPPerc,XPGained,TotalCount,
+    WalkAttempts,ABTimeMod,CDist        : Int32;
+
+    Trader                              : TCTS2Color;
+    ShutdownTime                        : Int64;
+    TrueRunTime                         : TStopwatch;
+    ReportTimer,SpecTimer               : TCountdown;
+
+    //RSW                                 : TRSWalker;
+  end;
+
+Var
+  Bot: TScript;
+
+procedure TScript.WriteMSG(Message: string);
+begin
+  WriteLn('[Bot]: '+Message);
+end
+
+procedure TScript.DeclarePlayers();
+begin
+  Login.AddPlayer(PNAME, PPASS, PPIN, []);
+end;
+
+procedure TScript.Init();
+begin
+   Self.WriteMSG("Dope Boys Init Started!");
+   Self.SetupAntiban();
+
+
+
+end
+
+procedure TScript.Run();
+var
+  Store: TRSStore;
+  T: TCountDown;
+  FeatherPack: TBox;
+  Stock: Int32;
+begin
+   T.Init(15600);
+   Self.DeclarePlayers();
+   //self.DoAB();
+   Store.SetupAlignment(ERSClientMode.FIXED);
+   self.WriteMSG("Run Started!");
+   while (not T.IsFinished) do
+   begin
+   if (not Store.IsOpen) then
+      if (Self.FindTrader()) then
+   self.WriteMSG("Store Is Open!");
+   //Stock += Store.CountItemStack('Feather pack');
+   Keyboard.KeyDown(VK_SHIFT);
+   while (Inventory.IsFull) do
+      Self.BuyFeatherPacks();
+   self.WriteMSG('Inventory Is Full');
+   Keyboard.KeyUp(VK_SHIFT);
+   end;
+   end;
+
+function TScript.BuyFeatherPacks(): Boolean;
+var
+  FeatherPack: TBox;
+  Stock: Int32;
+begin
+  self.WriteMSG("Buying Featherpack");
+  if (Store.HoverItem('Feather pack')) then
+   begin
+  Mouse.Click(MOUSE_LEFT);
+  end;
+end;
+
+(*
+Finding the Feather Trader.
+*)
+function TScript.FindTrader(): Boolean;
+var
+  TPA: TPointArray;
+  ATPA: T2DPointArray;
+  Finder: TRSObjectFinder;
+begin
+  Finder.Colors += CTS2(1452870, 7, 0.1, 0.6);
+  Finder.Grow := 1;
+  Finder.ClusterDistance := 3;
+  ATPA := MainScreen.FindObject(Finder);
+
+  if (ATPA.Len > 0) then
+  begin
+    ATPA.SortByMiddle(Mainscreen.Center);
+    for TPA in ATPA do
+    begin
+      Mouse.HumanMove(TPA.Mean());   // Right away move the mouse to each TPA mean and check for uptext
+      if MainScreen.IsUpText(['chey']) then  // Found it, exit and return 'True'
+      begin
+        //Mouse.Click(MOUSE_LEFT);
+        Exit(True);
+      end;
+      end;
+   end;
+end;
+
+procedure TScript.DoAB();
+begin
+  Antiban.DismissRandom();
+  if Antiban.DoAntiban() then
+    if (not RSClient.IsLoggedIn) then
+      self.WriteMSG("Logging In!");
+      Login.LoginPlayer();
+end;
+
+// Combination of miss mouse + slowing near the target destination
+procedure TMouse.HumanMove(Point: TPoint);
+var
+  mPt: TPoint;
+  S: Int32;
+  Miss: Double;
+  Range: Int64;
+begin
+  S := Self.Speed;
+  Range := Trunc(Power(Self.Position().DistanceTo(Point), 0.80)); // how much possible range to miss
+  Miss := SRL.SkewedRand(0.9, 0.1, 1.5); // Where miss will happen. 1 = destination (P).
+
+  mPt.X := Trunc((1-Miss)*Self.Position().X + Miss*Point.X);
+  mPt.Y := Trunc((1-Miss)*Self.Position().Y + Miss*Point.Y);
+
+  mPt.X += SRL.NormalRange(-Range, Range);
+  mPt.Y += SRL.NormalRange(-Range, Range);
+
+  Self.Move(mPt);
+  Self.Speed := round(S*0.85);
+  Self.Move(Point);
+  Self.Speed := S;
+end;
+
+procedure TScript.DoLoseFocus();
+Var T: Int32;
+begin
+  T := SRL.NormalRange(1700,8000);
+  Antiban.DebugLn('Losing focus for '+SRL.MsToTime(T, Time_Short));
+  Antiban.LoseFocus(T);
+end;
+
+procedure TScript.SetupAntiban();
+begin
+  Antiban.Skills += ERSSKILL.FISHING;
+  //if (Self.Location = 'Grotto') or (Self.Location = 'Mount Quidamortem') then
+  //begin
+    //Antiban.Skills += ERSSKILL.STRENGTH;
+    //Antiban.Skills += ERSSKILL.AGILITY;
+  //end;
+
+  Antiban.AddTask((ONE_MINUTE*1)*Self.ABTimeMod,  @Antiban.SmallRandomMouse);
+  Antiban.AddTask((ONE_MINUTE*4)*Self.ABTimeMod,  @Self.DoLoseFocus);
+  Antiban.AddTask((ONE_MINUTE*5)*Self.ABTimeMod,  @Antiban.HoverMSPlayers);
+  Antiban.AddTask((ONE_MINUTE*6)*Self.ABTimeMod,  @Antiban.HoverMSItems);
+  Antiban.AddTask((ONE_MINUTE*6)*Self.ABTimeMod,  @Antiban.HoverMSNPCs);
+  Antiban.AddTask((ONE_MINUTE*7)*Self.ABTimeMod,  @Antiban.RandomRotate);
+  Antiban.AddTask((ONE_MINUTE*15)*Self.ABTimeMod, @Antiban.HoverSkills);
+  Antiban.AddBreak(ONE_MINUTE*18, ONE_SECOND*40, 0.2, 0.0);
+end;
+
+
+begin
+
+  if RSClient.IsLoggedIn() then
+    Bot.Init();
+
+  Bot.Run();
+
+end.

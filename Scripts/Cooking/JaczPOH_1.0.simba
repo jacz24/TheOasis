@@ -1,0 +1,453 @@
+program JaczTemplate;
+{$DEFINE SRL_USE_REMOTEINPUT}
+{$I SRL-F/OSR.simba}
+
+Const
+(* General settings *)
+  MAXRUNTIME = 124;     // Max run time (in minutes)
+(* Player settings *)
+  PNAME        = '';    // Username
+  PPASS        = '';    // Password
+(* Break settings *)
+  BREAKAFTER   = '115'; // Break after how long (in minutes)
+  BREAKFOR     = '15';  // Break for how long (in minutes)
+
+  DROP_PATTERN_MKEYS: TIntegerArray = [0,1,5,4,8,9,13,12,16,17,21,20,24,25, 2,3,7,6,10,11,15,14,18,19,23,22,26,27];
+
+Type
+  TScript = record
+  ABTimeMod             : Int32;
+  Version               : String;
+  Cooking, Making       : Boolean;
+    LarderCol, RangeCol, LarderBackup : TCTS2Color;
+  Mats, UsefulMats, UselessMats     : TRSItemArray;
+  end;
+var
+  Bot: TScript;
+
+procedure TScript.WriteMsg(Message: String);
+begin
+  WriteLn('[Bot]: ', Message);
+end;
+
+procedure TScript.DeclarePlayers();
+begin
+  Login.AddPlayer(PNAME, PPASS, '', []);
+end;
+
+// Combination of miss mouse + slowing near the target destination
+procedure TMouse.HumanMove(Point: TPoint);
+var
+  mPt: TPoint;
+  S: Int32;
+  Miss: Double;
+  Range: Int64;
+begin
+  S := Self.Speed;
+  Range := Trunc(Power(Self.Position().DistanceTo(Point), 0.80)); // how much possible range to miss
+  Miss := SRL.SkewedRand(0.9, 0.1, 1.5); // Where miss will happen. 1 = destination (P).
+
+  mPt.X := Trunc((1-Miss)*Self.Position().X + Miss*Point.X);
+  mPt.Y := Trunc((1-Miss)*Self.Position().Y + Miss*Point.Y);
+
+  mPt.X += SRL.NormalRange(-Range, Range);
+  mPt.Y += SRL.NormalRange(-Range, Range);
+
+  Self.Move(mPt);
+  Self.Speed := round(S*0.85);
+  Self.Move(Point);
+  Self.Speed := S;
+end;
+
+function TScript.NumSelectOption(Option : Integer): Boolean;
+var
+  select : Integer
+begin
+  //Self.WriteMsg(IntToStr(Option));
+  case (Option) of
+    1: select := VK_NUMPAD1;
+    2: select := VK_NUMPAD2;
+    3: select := VK_NUMPAD3;
+    4: select := VK_NUMPAD4;
+  end;
+  Keyboard.PressKey(select);
+end;
+
+function TScript.FindRange(): Boolean;
+var
+  i: Int32;
+  ATPA: T2DPointArray;
+  LardFinder: TRSObjectFinder;
+begin
+  Self.WriteMsg('Finding Cooking Range');
+
+{ Find the seaman / customs officer }
+  LardFinder.Colors += Self.RangeCol;
+  //LardFinder.ClusterDistance := 4;
+
+  ATPA := MainScreen.FindObject(LardFinder);
+  if ATPA.Len < 1 then Exit();
+  ATPA.SortByMiddle(Mainscreen.Center);
+
+  for i:=0 to min(6, high(ATPA)) do
+  begin
+    Mouse.HumanMove(ATPA[i].Mean());
+    if MainScreen.IsUpText(['teel','ange']) then Exit(True);
+  end;
+
+end;
+
+function TScript.FindLarder(): Boolean;
+var
+  i: Int32;
+  ATPA: T2DPointArray;
+  LardFinder: TRSObjectFinder;
+begin
+  Self.WriteMsg('Finding Larder');
+  if MainScreen.IsUpText(['Search','Larder']) then Exit(True);
+{ Find the seaman / customs officer }
+  //LardFinder.Colors += Self.LarderCol;
+  LardFinder.ColorClusters += [Self.LarderCol,  CTS2(5270657, 1, 0.01, 0.01), 3];
+  LardFinder.ClusterDistance := 4;
+  //CTS2(1450019, 1, 0.01, 0.01),, CTS2(1450019, 1, 0.01, 0.01),
+  ATPA := MainScreen.FindObject(LardFinder);
+  if ATPA.Len < 1 then TerminateScript('No Larder Found!');
+  ATPA.SortByMiddle(Mainscreen.Center);
+
+  for i:=0 to min(4, high(ATPA)) do
+  begin
+    Mouse.HumanMove(ATPA[i].Mean());
+    if MainScreen.IsUpText(['Search','Larder']) then Exit(True);
+  end;
+  TerminateScript('No Larder Found!')
+end;
+
+function TScript.DoubleClick(): Boolean;
+begin
+  Mouse.Click(MOUSE_LEFT);
+  sleep(Random(50, 124));
+
+end;
+function TScript.ABClicking(): Boolean;
+var
+  rand : Integer;
+begin
+rand := Random(0,124);
+case Random(0, rand) of
+  0..50: Mouse.Click(MOUSE_LEFT);
+  51..69: Self.DoubleClick();
+  end;
+end;
+
+
+
+procedure TMouse.RandomMovement();
+var
+  S: Int32;
+begin
+  S := Self.Speed;
+  Self.Speed := 4;
+  Self.Move(Box(Mouse.Position, 75, 75), True, );
+  Self.Speed := S;
+end;
+
+procedure TScript.DoSkillHover();
+begin
+  Antiban.HoverSkill(ERSSKILL.COOKING, random(1700, 3200), True)
+end;
+
+procedure TScript.DoLoseFocus();
+Var T: Int32;
+begin
+  T := SRL.NormalRange(1700,8000);
+  Antiban.DebugLn('Losing focus for '+SRL.MsToTime(T, Time_Short));
+  Antiban.LoseFocus(T);
+end;
+
+procedure TScript.DoLongRest(); // Go AFK For a bit
+Var T: Int32;
+begin
+  T := SRL.NormalRange(32000,128000);
+  Antiban.DebugLn('Losing focus for '+SRL.MsToTime(T, Time_Short));
+  Antiban.LoseFocus(T);
+end;
+
+
+
+procedure TRSInventory.QuickShiftDrop(Items: TRSItemArray; Pattern: TIntegerArray);
+var
+  I: Int32;
+  Circle: TCircle;
+  Boxes: TBoxArray;
+  Slots,Order: TIntegerArray;
+begin
+  if (Length(Items) = 0) then
+    Exit();
+
+  if Self.FindItems(Items, Slots) then
+    for I := 0 to High(Pattern) do
+      if Slots.Find(Pattern[I]) > -1 then
+        Order += Pattern[I];
+
+  IsKeyDown(VK_SHIFT); // Clear cache
+
+  Boxes := Self.GetSlotBoxes();
+
+  try
+    if not IsKeyDown(VK_SHIFT) then
+      KeyDown(VK_SHIFT);
+    for i:=0 to high(Order) do
+    begin
+      if Self.IsSlotUsed(Order[I]) then
+      begin
+        Mouse.Click(Self.GetSlotBox(Order[I]), MOUSE_LEFT);
+
+        // Spam click a little
+        for 1 to SRL.TruncatedGauss(0, 3) do
+        begin
+          Circle.X := Mouse.Position().X;
+          Circle.Y := Mouse.Position().Y;
+          Circle.Radius := 5;
+
+          Mouse.Click(Circle, MOUSE_LEFT, True);
+        end;
+
+        Wait(10, 40);
+      end;
+    end;
+  finally
+    if IsKeyDown(VK_SHIFT) then
+      KeyUp(VK_SHIFT);
+  end;
+end;
+
+procedure TScript.GrabMilk();
+begin
+  while (Inventory.CountItem('Bucket of milk') < 7) and (MainScreen.IsUpText(['arch','Larder'])) do
+  begin
+  case random(0, 64) of
+    0..63: sleep(Random(120, 240));
+    64: Mouse.RandomMovement();
+  end;
+  if (Inventory.CountItem('Bucket of milk') = 7) then Exit();
+  sleep(Random(140, 220));
+  self.FindLarder();
+  Self.ABClicking();
+  sleep(Random(240, 320));
+  if (not (Inventory.CountItem('Bucket of milk') = 7)) then Self.NumSelectOption(2);
+  end;
+end;
+
+procedure TScript.GrabEgg();
+begin
+  while (Inventory.CountItem('Egg') < 7) and (MainScreen.IsUpText(['arch','Larder'])) do
+  begin
+  case random(0, 64) of
+    0..63: sleep(Random(220, 340));
+    64: Mouse.RandomMovement();
+  end;
+  if (Inventory.CountItem('Egg') = 7) then Exit();
+  self.FindLarder();
+  Self.ABClicking();
+  sleep(Random(240, 320));
+  if (not (Inventory.CountItem('Egg') = 7)) then Self.NumSelectOption(3);
+  end;
+end;
+procedure TScript.GrabFlour();
+begin
+  while (Inventory.CountItem('Pot of flour') < 7) and (MainScreen.IsUpText(['arch','Larder'])) do
+  begin
+  case random(0, 32) of
+    0..31: sleep(Random(120, 240));
+    32: Mouse.RandomMovement();
+  end;
+  if Inventory.IsFull() then Exit();
+  //if (Inventory.CountItem('Pot of flour') = 7) then Exit();
+  self.FindLarder();
+  Self.ABClicking();
+  sleep(Random(240, 320));
+  if (Inventory.CountItem('Pot of flour') <= 7) then Self.NumSelectOption(4);
+  end;
+end;
+
+function TScript.GetMats(): Boolean;
+begin
+  Self.GrabMilk();
+  Self.DoAB();
+  Self.GrabEgg();
+  Self.DoAB();
+  Self.GrabFlour();
+  case random(0, 24) of
+    0..12: sleep(Random(220, 490));
+    24: Self.DoLongRest();
+  end;
+
+  case random(0, 24) of
+    0..12: sleep(Random(220, 420));
+    24: Self.DoLongRest();
+  end;
+  Self.FindLarder();
+  Result := True;
+end;
+function TScript.OpenInv(): Boolean;
+begin
+  if Inventory.IsOpen() then Exit(True);
+  if Inventory.Open() then Exit(True);
+end
+
+function TScript.CookCake(): Boolean;
+begin
+  Self.WriteMsg('Cooking Cakes');
+  Self.OpenInv();
+
+  Inventory.ClickItem('Uncooked cake');
+  if Self.FindRange() then
+  begin
+    Self.WriteMsg('Range Found Cakes');
+    Mouse.Click(MOUSE_LEFT);
+    Self.DoAB();
+    if (not WaitUntil(Make.IsOpen, 75, 5000)) then Exit;
+
+    if Make.IsOpen() then
+      Make.Select(0, MAKE_QUANTITY_ALL, False);
+    // TODO: ADD TIME OUT SO IT DEALS WITH LEVEL UPS
+    while Inventory.FindItem('Uncooked cake') do
+    begin
+      Self.DoAB();
+      sleep(Random(1690, 2400));
+      if (not Inventory.FindItem('Cake')) then Exit();
+      Self.WriteMsg('Waiting for cakes to cook');
+    end;
+  end;
+  Self.DoAB();
+end;
+
+function TScript.MakeCake(): Boolean;
+begin
+  Inventory.Use('Pot of flour', 'Cake tin');
+
+  if (not WaitUntil(Make.IsOpen, 75, 5000)) then Exit;
+
+  if Make.IsOpen() then
+    Make.Select(0, MAKE_QUANTITY_ALL, False);
+  while (Inventory.CountItem('Uncooked cake') < 6) do
+  begin
+    Self.WriteMsg('Waiting for cakes');
+
+    sleep(Random(1290, 2200));
+    if (not Inventory.FindItem('Uncooked cake')) then Exit();
+    Self.DoAB();
+  end;
+end;
+
+function TScript.DropMats(): Boolean;
+var
+  i,C,MS: Int32;
+  R: Double;
+  Pattern: TIntegerArray;
+begin
+  Self.WriteMsg('Dropping Mats!');
+  R := Random();
+  if R < 0.1 then
+    Pattern := Inventory.ErrorPattern(DROP_PATTERN_TOPDOWN, 5);
+  if inRange(R, 0.1, 0.35) then
+    Pattern := Inventory.ErrorPattern(DROP_PATTERN_SNAKE, 5);
+  if inRange(R, 0.36, 1) then
+    Pattern := Inventory.ErrorPattern(DROP_PATTERN_MKEYS, 5);
+
+  MS := Mouse.Speed;
+  Mouse.Speed := Random(19, 24);
+  Inventory.QuickShiftDrop(Self.Mats, Pattern);
+  Mouse.Speed := MS;
+end;
+
+procedure TScript.SetupAntiban();
+begin
+  Antiban.AddTask(ONE_SECOND*10, @Mouse.RandomMovement);
+  Antiban.AddTask((ONE_MINUTE*4)*Self.ABTimeMod,  @Self.DoLoseFocus);
+  Antiban.AddTask(ONE_MINUTE*3,  @Antiban.RandomRotate);
+  Antiban.AddTask(ONE_MINUTE*4,  @Antiban.HoverMSItems);
+  Antiban.AddTask(ONE_MINUTE*4,  @Antiban.HoverMSNPCs);
+  Antiban.AddTask(ONE_MINUTE*4,  @Antiban.HoverMSPlayers);
+  Antiban.AddTask(ONE_MINUTE*8,  @Self.DoSkillHover);
+  Antiban.AddBreak(ONE_MINUTE*18, ONE_SECOND*40, 0.2, 0.0);
+end;
+
+procedure TScript.DoAB();
+begin
+  Antiban.DismissRandom();
+  if Antiban.DoAntiban() then
+    if (not RSClient.IsLoggedIn) then
+      Login.LoginPlayer();
+end;
+
+procedure TScript.Init();
+begin
+  SRL.Setup();
+  Self.WriteMsg('Starting Init');
+  Self.Version            := '1.0.0';
+  Mouse.Speed             := Random(19, 24);
+  Mouse.CanIdle           := False;
+  Mouse.MissChance        := 7;
+  Mouse.Brake             := True;
+  Mouse.Distribution      := MOUSE_DISTRIBUTION_GAUSS;
+
+  MM2MS.ZoomLevel         := Options.GetZoomLevel();
+  Self.DeclarePlayers();
+
+  Self.ABTimeMod          := 1;
+  Self.LarderCol          := CTS2(6786727, 12, 0.06, 0.28);//CTS2(2570049, 3, 0.1, 0.1);//CTS2(2570049, 3, 0.01, 0.01);  //CTS2(2967895, 16, 0.05, 0.9);
+  //Self.LarderBackup       := CTS2(1450019, 3, 0.2, 0.2);
+  Self.RangeCol           := CTS2(1781158, 3, 0.01, 0.01);  //CTS2(8290439, 3, 0.01, 0.01);
+  Self.SetupAntiban();
+
+end;
+
+procedure TScript.Run()
+begin
+  Self.WriteMsg('Starting Run');
+  Self.OpenInv();
+
+  Mats := ['Pot','Bucket', 'Burnt cake', 'Bucket of milk', 'Cake', 'Egg', 'Pot of flour'];
+  UsefulMats := ['Bucket of milk', 'Egg', 'Pot of flour'];
+  UselessMats := ['Pot','Bucket', 'Burnt cake', 'Cake']
+
+
+  if Inventory.IsFull() then Self.MakeCake(); // Lets assume if the inv is full
+
+  //if Inventory.FindItem('Uncooked cake') then Self.CookCake();
+  repeat
+  sleep(Random(100, 200));
+
+  if (Inventory.FindItem('Cake tin')) and (not Inventory.FindItem('Uncooked cake')) and (not Inventory.FindItems(UselessMats)) then Self.GetMats();
+
+  if (Inventory.FindItem('Uncooked cake')) then Self.CookCake();  // and (not Inventory.FindItems(UsefulMats))
+
+  if (Inventory.FindItem('Cake tin')) and (not Inventory.FindItem('Uncooked cake')) and (Inventory.FindItems(UselessMats)) then Self.DropMats();
+
+  if (Inventory.FindItem('Cake tin')) and (Inventory.FindItems(UsefulMats)) then Self.MakeCake();
+
+  until(false);
+  self.DoAB();
+  if Self.FindLarder() then
+  begin
+    self.DoAB();
+    Self.WriteMsg('Found Lard!');
+    if Inventory.FindItem('Uncooked cake') then Self.CookCake();
+
+    //if Inventory.IsOpen() then Self.GetMats();
+    if not Inventory.IsFull() then Self.GetMats();
+    if Inventory.IsFull() then Self.MakeCake();
+    if Inventory.FindItem('Uncooked cake') then Self.CookCake();
+
+    if Inventory.FindItem('Bucket') then DropMats();
+  end;
+
+
+end;
+
+begin
+  if RSClient.IsLoggedIn() then
+    Bot.Init();
+  Bot.Run()
+end.

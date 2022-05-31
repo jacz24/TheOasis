@@ -1,0 +1,470 @@
+program JaczGemMiner;
+{$DEFINE SRL_USE_REMOTEINPUT}
+//{$DEFINE SRL_DISABLE_REMOTEINPUT}
+{$I SRL-F/OSR.simba}
+
+Const
+(* General settings *)
+  MAXRUNTIME = 124;     // Max run time (in minutes)
+(* Player settings *)
+  PNAME        = '';    // Username
+  PPASS        = '';    // Password
+  PPIN         = '';    // PIN
+(* Break settings *)
+  BREAKAFTER   = '115'; // Break after how long (in minutes)
+  BREAKFOR     = '15';  // Break for how long (in minutes)
+
+  MSWalking    = False;  // FOR Minimap Walking
+
+Type
+  TScript = record
+  ABTimeMod                               : Int32;
+  Version                                 : String;
+  GemRockCol, BankerCol, DepositBoxCol,
+  MinedRockCol           : TCTS2Color;
+  Gems                                    : TRSItemArray;
+  BankTile, MineTile, MidwayTile          : TPoint;
+  RSW                                     : TRSWalker;
+  end;
+var
+  Bot: TScript;
+
+procedure TScript.WriteMsg(Message: String);
+begin
+  WriteLn('[Bot]: ', Message);
+end;
+
+procedure TScript.DeclarePlayers();
+begin
+  Login.AddPlayer(PNAME, PPASS, '', []);
+end;
+
+
+// Combination of miss mouse + slowing near the target destination
+procedure TMouse.HumanMove(Point: TPoint);
+var
+  mPt: TPoint;
+  S: Int32;
+  Miss: Double;
+  Range: Int64;
+begin
+  S := Self.Speed;
+  Range := Trunc(Power(Self.Position().DistanceTo(Point), 0.80)); // how much possible range to miss
+  Miss := SRL.SkewedRand(0.9, 0.1, 1.5); // Where miss will happen. 1 = destination (P).
+
+  mPt.X := Trunc((1-Miss)*Self.Position().X + Miss*Point.X);
+  mPt.Y := Trunc((1-Miss)*Self.Position().Y + Miss*Point.Y);
+
+  mPt.X += SRL.NormalRange(-Range, Range);
+  mPt.Y += SRL.NormalRange(-Range, Range);
+
+  Self.Move(mPt);
+  Self.Speed := round(S*0.85);
+  Self.Move(Point);
+  Self.Speed := S;
+end;
+
+procedure TMouse.RandomMovement();
+var
+  S: Int32;
+begin
+  S := Self.Speed;
+  Self.Speed := 4;
+  Self.Move(Box(Mouse.Position, 75, 75), True, );
+  Self.Speed := S;
+end;
+
+procedure TScript.DoSkillHover();
+begin
+  Antiban.HoverSkill(ERSSKILL.MINING, random(1700, 3200), True)
+end;
+
+procedure TScript.BankAntiban(Percent: Double);
+var
+  randP: Double;
+begin
+  if Random() <= (Percent/100) then
+  begin
+    Antiban.DebugLn('Bank screen antiban');
+    randP := Random();
+    if randP < 0.33 then
+      Antiban.SmallRandomMouse()
+    else if (randP >= 0.33) and (randP < 0.66) then
+      wait(2800, 4000)
+    else if randP > 0.66 then
+    begin
+      // Copied version of 'random right click' antiban, minus the additional debug msg
+      Mouse.Move(GetClientBounds(), True, MOUSE_DISTRIBUTION_RANDOM);
+
+      if ChooseOption.Open() then
+      begin
+        if Random() < 0.50 then
+          Mouse.Move(ChooseOption.Bounds);
+
+        Wait(0, 8000, wdLeft);
+
+        ChooseOption.Close();
+      end;
+    end;
+  end;
+end;
+
+procedure TScript.DoLoseFocus();
+Var T: Int32;
+begin
+  T := SRL.NormalRange(1700,8000);
+  Antiban.DebugLn('Losing focus for '+SRL.MsToTime(T, Time_Short));
+  Antiban.LoseFocus(T);
+end;
+
+procedure TScript.DoLongRest(); // Go AFK For a bit
+Var T: Int32;
+begin
+  T := SRL.NormalRange(32000,128000);
+  Antiban.DebugLn('Losing focus for '+SRL.MsToTime(T, Time_Short));
+  Antiban.LoseFocus(T);
+end;
+
+procedure TScript.SetupAntiban();
+begin
+  Antiban.AddTask(ONE_SECOND*10, @Mouse.RandomMovement);
+  Antiban.AddTask((ONE_MINUTE*4)*Self.ABTimeMod,  @Self.DoLoseFocus);
+  Antiban.AddTask(ONE_MINUTE*3,  @Antiban.RandomRotate);
+  Antiban.AddTask(ONE_MINUTE*4,  @Antiban.HoverMSItems);
+  Antiban.AddTask(ONE_MINUTE*4,  @Antiban.HoverMSNPCs);
+  Antiban.AddTask(ONE_MINUTE*4,  @Antiban.HoverMSPlayers);
+  Antiban.AddTask(ONE_MINUTE*8,  @Self.DoSkillHover);
+  Antiban.AddBreak(ONE_MINUTE*18, ONE_SECOND*40, 0.2, 0.0);
+end;
+
+procedure TScript.DoAB();
+begin
+  Antiban.DismissRandom();
+  if Antiban.DoAntiban() then
+    if (not RSClient.IsLoggedIn) then
+      Login.LoginPlayer();
+end;
+
+procedure OnWalkEvent(Sender: PRSWalker; Position: TPoint; Destination: TPoint);
+begin
+  WriteLn('Running!');
+  //if (Bot.RSW.GetMyPos().DistanceTo(Bot.BankTile) >= 4) then Bot.FindBank();
+
+  Position    := [];  // For the sake of mitigating compile warnings
+  Destination := [];
+end;
+
+procedure TScript.Free();
+begin
+  RSClient.Image.Clear();
+end
+
+procedure TScript.init();
+begin
+  Self.WriteMsg('Starting Init');
+  Self.Version            := '1';
+  Mouse.Speed             := Random(19, 24);
+  Mouse.CanIdle           := False;
+  Mouse.MissChance        := 7;
+  Mouse.Brake             := True;
+  Mouse.Distribution      := MOUSE_DISTRIBUTION_GAUSS;
+
+  Self.ABTimeMod := 1;
+  Self.RSW.Setup('world');
+  Self.RSW.ScreenWalk     := MSWALKING;
+  Self.RSW.OnWalkingEvent := @OnWalkEvent;
+  Self.RSW.EnableRunAtEnergy := 85;
+
+  GemRockCol := CTS2(7539316, 17, 0.025, 0.97);
+  BankerCol := CTS2(6579563, 12, 0.3, 0.07);
+
+  Self.DeclarePlayers();
+  Self.SetupAntiban();
+
+  //AddOnTerminate(@Self.Free);
+end;
+
+function TScript.IsMining(): Boolean;
+begin
+if SRL.IsAnimating(MainScreen.GetPlayerBox, 30, 45, 3) then Exit(True);
+end;
+
+function TScript.FindAnotherGem(): Boolean;
+var
+  i: Int32;
+  ATPA: T2DPointArray;
+  GemFinder: TRSObjectFinder;
+begin
+
+  GemFinder.Colors += Self.GemRockCol;
+  GemFinder.ClusterDistance := 6;
+  ATPA := MainScreen.FindObject(GemFinder);
+  if ATPA.Len < 1 then Self.FindGem();//TerminateScript('No Gem Rocks Found!');
+  ATPA.SortByMiddle(Mainscreen.Center);
+
+  for i:=0 to min(2, high(ATPA) - 1) do
+  begin
+    Mouse.HumanMove(ATPA[i].Mean());
+    if MainScreen.IsUpText(['Mine','Rocks']) then Exit(True);
+  end;
+
+end;
+
+function TScript.FindGem(): Boolean;
+var
+  i: Int32;
+  ATPA: T2DPointArray;
+  GemFinder: TRSObjectFinder;
+begin
+
+  GemFinder.Colors += Self.GemRockCol;
+  GemFinder.ClusterDistance := 4;
+  ATPA := MainScreen.FindObject(GemFinder);
+  if ATPA.Len < 1 then Self.FindGem();//TerminateScript('No Gem Rocks Found!');
+  ATPA.SortByMiddle(Mainscreen.Center);
+
+  for i:=0 to min(4, high(ATPA)) do
+  begin
+    Mouse.HumanMove(ATPA[i].Mean());
+    if MainScreen.IsUpText(['Mine','Rocks']) then Exit(True);
+  end;
+
+end;
+
+function TScript.FindBank(): Boolean;
+var
+  i: Int32;
+  ATPA: T2DPointArray;
+  BankFinder: TRSObjectFinder;
+begin
+  Self.WriteMsg('Finding Bank');
+  // CTS2(6251371, 18, 0.41, 0.23);
+  BankFinder.ColorClusters += [
+      CTS2(6251371, 18, 0.41, 0.23), // Grey
+      CTS2(1069929, 2, 0.15, 1.05), // Brown
+      3];
+
+  //BankFinder.Colors += Self.BankerCol;
+  BankFinder.ClusterDistance := 4;
+  ATPA := MainScreen.FindObject(BankFinder);
+  if ATPA.Len < 1 then TerminateScript('No Banker or DepositBox Found!');
+  ATPA.SortByMiddle(Mainscreen.Center);
+
+  for i:=0 to min(4, high(ATPA)) do
+  begin
+    Mouse.HumanMove(ATPA[i].Mean());
+    if MainScreen.IsUpText(['Bank','ank']) then Exit(True);
+  end;
+end;
+
+procedure TScript.MineGem();
+begin
+  if Self.FindGem() then
+  begin
+    if SRL.Dice(10.5) then
+    begin
+      WriteLn('Longer Wait Triggered');
+      Mouse.Click(MOUSE_LEFT);
+      if MainScreen.DidRedClick() then Mouse.Click(MOUSE_LEFT);
+    end else
+      Mouse.Click(MOUSE_LEFT);
+  end;
+  Self.DoAB();
+end;
+
+function TRSDepositBox.ClickItems(Items: TRSItemArray): Boolean;
+var
+  Item: TRSItem;
+begin
+  if not DepositBox.IsOpen() then
+    Exit;
+
+  for Item in Items do
+    DepositBox.ClickItem(Item);
+
+  Result := True;
+end;
+
+function TScript.HandleWalking(Destination: String; Force:Boolean=False): Boolean;
+begin
+
+  case Destination of
+    'Mines':
+    begin
+      Self.WriteMsg('Running To Mines');
+      Self.RSW.WalkBlind([3100, 4448], 15);
+    end;
+    'Bank':
+    begin
+      Self.WriteMsg('Running To Bank');
+      Self.RSW.WalkBlind([3217, 4636], 15);
+    end;
+    'Midway':
+    begin
+      Self.WriteMsg('Running To Midway Point');
+      Self.RSW.WalkBlind([3133, 4571], 15);
+    end;
+  end;
+end;
+
+function TScript.WalkToBank(): Boolean;
+begin
+  if SRL.Dice(10) then
+  begin
+    if (MSWALKING) then
+    begin
+      Self.RSW.ScreenWalk     := False;
+    end else
+      Self.RSW.ScreenWalk     := True;
+  end;
+  if SRL.Dice(12.5) then
+    begin
+      WriteLn('Walking to Midway then Bank');
+      Self.HandleWalking('Midway');
+      Self.HandleWalking('Bank');
+    end else
+      Self.HandleWalking('Bank');
+
+  Self.RSW.ScreenWalk     := MSWALKING;
+end;
+
+function TScript.WalkToMines(): Boolean;
+begin
+  if SRL.Dice(10) then
+  begin
+    if (MSWALKING) then
+    begin
+      Self.RSW.ScreenWalk     := False;
+    end else
+      Self.RSW.ScreenWalk     := True;
+  end;
+  if SRL.Dice(12.5) then
+    begin
+      WriteLn('Walking to Midway then Mines');
+      Self.HandleWalking('Midway');
+      Self.HandleWalking('Mines');
+    end else
+      Self.HandleWalking('Mines');
+
+  Self.RSW.ScreenWalk     := MSWALKING;
+end;
+
+
+function TScript.CloseInterfaces(): Boolean;
+begin
+  if Bank.IsOpen() then Bank.Close();
+  if DepositBox.IsOpen() then DepositBox.Close();
+  Exit(True)
+end;
+
+procedure TScript.DoBank();
+begin
+  Self.WriteMsg('Banking!');
+  if (Bank.IsOpen() or DepositBox.IsOpen()) then
+  begin
+    Self.WriteMsg('Bank Already Open');
+    Self.CloseInterfaces();
+  end;
+
+  if Self.FindBank() then
+  begin
+    Self.WriteMsg('Openning Bank');
+
+    Mouse.Click(MOUSE_LEFT);
+
+    WaitUntil(DepositBox.IsOpen,75,7500);
+
+    DepositBox.DepositAll();
+    Self.CloseInterfaces();
+    if (not Inventory.IsFull()) then Self.WalkToMines();
+    //
+    //if DepositBox.ClickItems(Self.Gems) then Self.WriteMsg('Found Gems!');
+
+  end;
+
+  Self.BankAntiban(20);
+  Mouse.Speed             := Random(19, 24);
+end;
+
+procedure TScript.Run()
+begin
+  Self.WriteMsg('Starting Run');
+
+  Self.BankTile := [3217,4636];
+  Self.MineTile := [3097, 4447];
+  Self.Gems := ['Uncut opal', 'Uncut jade', 'Uncut red topaz', 'Uncut sapphire', 'Uncut emerald', 'Uncut ruby', 'Uncut diamond'];
+
+
+  //if Inventory.IsFull() then Self.DoBank();
+
+  //if Self.FindGem() then Mouse.Click(MOUSE_LEFT);
+  // {X = 3100, Y = 4448} // Mines
+  // {X = 3133, Y = 4571} // Midway
+  // {X = 3217, Y = 4636} // Bank
+
+  //WriteLn(Self.RSW.GetMyPos());
+  //Exit();
+  repeat
+  Wait(100,250);
+  //Self.WriteMsg('OOPing');
+
+  Self.CloseInterfaces();
+
+  if (RSW.GetMyPos().DistanceTo(Self.BankTile) <= 24) and (Inventory.IsFull()) then
+  begin
+    Self.WriteMsg('Close to bank!');
+    Self.DoBank();
+  end;
+  if (RSW.GetMyPos().DistanceTo(Self.BankTile) <= 24) and (not Inventory.IsFull()) then
+  begin
+    Self.WriteMsg('Close to bank!');
+    Self.WalkToMines();
+  end;
+  if (RSW.GetMyPos().DistanceTo(Self.MineTile) <= 24) and (not Inventory.IsFull()) then
+  begin
+    //Self.WriteMsg('Time To Mine!');
+    if not Self.IsMining() then
+    begin
+    Self.MineGem();
+    end else
+    begin
+      Self.WriteMsg('Mining, Lets look for another rock');
+      //Wait(200,500);
+      //Self.FindAnotherGem();
+    end;
+  end;
+  if (RSW.GetMyPos().DistanceTo(Self.MineTile) <= 24) and (Inventory.IsFull()) then
+  begin
+    Self.WriteMsg('Time To Bank!');
+    Self.WalkToBank();
+  end;
+
+  if (RSW.GetMyPos().DistanceTo(Self.MineTile) >= 24) and (not Inventory.IsFull()) then Self.WalkToMines();
+
+  if (RSW.GetMyPos().DistanceTo(Self.BankTile) >= 24) and (Inventory.IsFull()) then Self.WalkToBank();
+
+  //Self.HandleWalking('Mines');
+
+  //
+  Self.DoAB();
+  until(false);
+
+
+
+  if Bank.IsOpen() then Bank.Close();
+
+  if DepositBox.IsOpen() then DepositBox.Close();
+
+  if not Self.IsMining() and not Inventory.IsFull() then Self.MineGem();
+
+  if Inventory.IsFull() and (not (Bank.IsOpen() or DepositBox.IsOpen())) then Self.DoBank();
+
+  Self.DoAB();
+
+end;
+
+begin
+  if RSClient.IsLoggedIn() then
+    Bot.init();
+  Bot.Run();
+end.
