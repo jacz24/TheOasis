@@ -1,0 +1,163 @@
+program JAIOFletcher;
+{$DEFINE SRL_USE_REMOTEINPUT}
+//{$DEFINE SRL_DISABLE_REMOTEINPUT}
+{$I SRL-F/OSR.simba}
+
+Type
+  TBot = record
+  ABTimeMod, StartXP, XPGained, TotalB, TotalC   : Int32;
+  Version, BowName, StringName                   : String;
+  ABTimeMod, StartXP, XPGained
+  RSW                                            : TRSWalker;
+  ShutdownTime                                   : Int64;
+  TrueRunTime                                    : TStopwatch;
+
+end;
+
+var
+  Bot: TBot;
+
+procedure TBot.Report();
+begin
+  Self.XPGained := Max(0, XPBar.Read()-Self.StartXP);
+  ClearDebug();
+  ProgressReport(RESULT_REPORTBOX, 'AIO-Cooker', 'Jacz', IntToStr(Self.Version),
+    ['Cooking', 'Take Breaks', 'Runtime', 'XP gained', 'Food Cooked', 'Food Burnt', 'Until Break', 'Until Shutdown'],
+    [Self.RawFoodName, BoolToStr(TAKEBREAKS), SRL.MsToTime(Self.TrueRunTime.ElapsedTime, Time_Short),
+    ToStr(Round(Self.XPGained,2)),
+    ToStr(Self.TotalC, '(', Max(0,Round(Self.TotalC / (Self.TrueRunTime.ElapsedTime/1000/60/60))),' / hr)'),
+    ToStr(Self.TotalB, '(', Max(0,Round(Self.TotalB / (Self.TrueRunTime.ElapsedTime/1000/60/60))),' / hr)'),
+    Antiban.TimeUntilBreak(Antiban.Breaks[0]), SRL.MsToTime(Self.ShutdownTime-GetTimeRunning, Time_Short)])
+end;
+
+// Combination of miss mouse + slowing near the target destination
+procedure TMouse.HumanMove(Point: TPoint);
+var
+  mPt: TPoint;
+  S: Int32;
+  Miss: Double;
+  Range: Int64;
+begin
+  S := Self.Speed;
+  Range := Trunc(Power(Self.Position().DistanceTo(Point), 0.80)); // how much possible range to miss
+  Miss := SRL.SkewedRand(0.9, 0.1, 1.5); // Where miss will happen. 1 = destination (P).
+
+  mPt.X := Trunc((1-Miss)*Self.Position().X + Miss*Point.X);
+  mPt.Y := Trunc((1-Miss)*Self.Position().Y + Miss*Point.Y);
+
+  mPt.X += SRL.NormalRange(-Range, Range);
+  mPt.Y += SRL.NormalRange(-Range, Range);
+
+  Self.Move(mPt);
+  Self.Speed := round(S*0.85);
+  Self.Move(Point);
+  Self.Speed := S;
+end;
+
+procedure TBot.WriteMsg(Message: String);
+begin
+  WriteLn('[Bot]: ', Message);
+end;
+
+procedure TMouse.RandomMovement();
+var
+  S: Int32;
+begin
+  S := Self.Speed;
+  Self.Speed := 4;
+  Self.Move(Box(Mouse.Position, 75, 75), True, );
+  Self.Speed := S;
+end;
+procedure TBot.DoSkillHover();
+begin
+  Antiban.HoverSkill(ERSSKILL.FLETCHING, random(1700, 6900), True)
+end;
+
+procedure TBot.BankAntiban(Percent: Double);
+var
+  randP: Double;
+begin
+  if Random() <= (Percent/100) then
+  begin
+    Antiban.DebugLn('Bank screen antiban');
+    randP := Random();
+    if randP < 0.33 then
+      Antiban.SmallRandomMouse()
+    else if (randP >= 0.33) and (randP < 0.66) then
+      wait(2800, 4000)
+    else if randP > 0.66 then
+    begin
+      // Copied version of 'random right click' antiban, minus the additional debug msg
+      Mouse.Move(GetClientBounds(), True, MOUSE_DISTRIBUTION_RANDOM);
+
+      if ChooseOption.Open() then
+      begin
+        if Random() < 0.50 then
+          Mouse.Move(ChooseOption.Bounds);
+
+        Wait(0, 8000, wdLeft);
+
+        ChooseOption.Close();
+      end;
+    end;
+  end;
+end;
+
+procedure TBot.DoLoseFocus();
+Var T: Int32;
+begin
+  T := SRL.NormalRange(1700,8000);
+  Antiban.DebugLn('Losing focus for '+SRL.MsToTime(T, Time_Short));
+  Antiban.LoseFocus(T);
+end;
+
+procedure TBot.DoLongRest(); // Go AFK For a bit
+Var T: Int32;
+begin
+  T := SRL.NormalRange(32000,128000);
+  Antiban.DebugLn('Losing focus for '+SRL.MsToTime(T, Time_Short));
+  Antiban.LoseFocus(T);
+end;
+
+procedure TBot.SetupAntiban();
+begin
+  Antiban.AddTask(ONE_SECOND*10, @Mouse.RandomMovement);
+  Antiban.AddTask((ONE_MINUTE*4)*Self.ABTimeMod,  @Self.DoLoseFocus);
+  Antiban.AddTask(ONE_MINUTE*3,  @Antiban.RandomRotate);
+  Antiban.AddTask(ONE_MINUTE*4,  @Antiban.HoverMSItems);
+  Antiban.AddTask(ONE_MINUTE*4,  @Antiban.HoverMSNPCs);
+  Antiban.AddTask(ONE_MINUTE*4,  @Antiban.HoverMSPlayers);
+  Antiban.AddTask(ONE_MINUTE*8,  @Self.DoSkillHover);
+  Antiban.AddBreak(ONE_MINUTE*18, ONE_SECOND*40, 0.2, 0.0);
+end;
+
+procedure TBot.DoAB();
+begin
+  Antiban.DismissRandom();
+  if Antiban.DoAntiban() then
+    if (not RSClient.IsLoggedIn) then
+      Login.LoginPlayer();
+end;
+
+procedure TBot.init();
+begin
+  Self.WriteMsg('Starting Init');
+  Self.Version            := '1';
+  Mouse.Speed             := Random(19, 24);
+  Mouse.CanIdle           := False;
+  Mouse.MissChance        := 7;
+  Mouse.Brake             := True;
+  Mouse.Distribution      := MOUSE_DISTRIBUTION_GAUSS;
+end;
+
+procedure TBot.Run();
+begin
+  Bot.WriteMsg('Testy');
+end;
+
+begin
+  if RSClient.IsLoggedIn() then
+    Bot.init();
+  Bot.Run();
+
+end.

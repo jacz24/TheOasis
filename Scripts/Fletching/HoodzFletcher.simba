@@ -1,0 +1,555 @@
+program HoodzFletcher;
+{$DEFINE SMART}
+{$i AeroLib/AeroLib.Simba}
+
+var
+  x, y, failCount, bowsMade, xp: Integer;
+  DTM_longBowU, DTM_1st, DTM_2nd: Integer;
+  breakAfterTime, breakLength: Integer;
+
+const
+  P_USERNAME = '';
+  P_PASSWORD = '';
+  P_PIN = '';
+
+  LOG = 'maple'; {oak, willow, maple, yew, magic}
+  MODE = 'string';  {cut, string}
+
+  USEBREAKS = true;
+  breakAfterHours_MIN = 2;
+  breakAfterHours_MAX = 3;  {breaks after random (MIN, MAX) hours}
+  breakForMinutes_MIN = 30;
+  breakForMinutes_MAX = 90; {for random (MIN, MAX) minutes}
+
+  VERSION = '3';
+
+procedure declarePlayer();
+begin
+  Me.Name := P_USERNAME;
+  Me.Pass := P_PASSWORD;
+  Me.Pin := P_PIN;
+  Me.Active := True;
+  Me.Member := True;
+end;
+
+procedure free;
+begin
+  freeDTM(DTM_longBowU);
+  if (MODE = 'cut') then
+    freeDTM(DTM_1st);
+  freeDTM(DTM_2nd);
+end;
+
+procedure randomBreakTime();
+begin
+  breakAfterTime := GetTimeRunning + (RandomRange(breakAfterHours_MIN, breakAfterHours_MAX) * 3600000) + RandomRange(2000, 3500000);
+  Writeln('breakAfterTime = ' + MsToTime(breakAfterTime, 3));
+  breakLength := (RandomRange(breakForMinutes_MIN, breakForMinutes_MAX) * 60000) + RandomRange(2000, 59000);
+  Writeln('breakLength = ' + MsToTime(breakLength, 3));
+end;
+
+procedure breakHandlerCustom();
+begin
+writeln('starting breakhandler');
+  while (isLoggedIn) do
+    logoutPlayer;
+  while not (getTimeRunning >= (breakAfterTime + breakLength)) do
+  begin
+    Writeln('Break handler active');
+    Writeln('TimeRunning: ' + MsToTime(getTimeRunning, 3));
+    Writeln('Breaking till: ' + MsToTime((breakAfterTime + breakLength), 3));
+    Writeln('Time left until break is done: ' + MsToTime(((breakAfterTime + breakLength) - getTimeRunning), 3));
+    Sleep(5000);
+    ClearDebug;
+  end;
+  randomBreakTime;
+end;
+
+procedure setupPlayer();
+begin
+  writeln('player setup...');
+  if (not isLoggedIn()) then
+    loginPlayer(false);
+  if (isLoggedIn()) then
+  begin
+    toggleRunning(true);
+    setAngle(ANGLE_HIGH);
+  end;
+end;
+
+procedure setup();
+begin
+  mouseSpeed := Random(18, 25);
+  writeln('mouseSpeed set at: ' + intToStr(mouseSpeed));
+  {1st = log, 2nd knife or bs}
+  case LOG of
+  'oak':
+   begin
+    if (mode = 'cut') then
+      DTM_1st := DTMFromString('mggAAAHicY2NgYKhhZmAoBuIWIM4G4nYgrgJiTyYGhhAgDgBiPyD2AOJgIC6JNAXqYsTA7AzYAaZKCIYAAFa7Be4=');
+    DTM_longBowU := DTMFromString('mggAAAHicY2NgYAhmZmAIA+IoII6Gsv2AeBsjA8MuID4KxIeAeC8QbwbifbPEGHqKBIA6GVEwO5AEYXTAiANDAABMoQkc');
+    xp := 25;
+   end;
+    'willow':
+      begin
+        if (mode = 'cut') then
+          DTM_1st := DTMFromString('mbQAAAHicY2VgYPBkZGDwAOIgILYE4nAgfgAUfwXEz4H4KQOE7+EgASQZUTA7AyZgxILBAAATEQak');
+        DTM_longBowU := DTMFromString('mWAAAAHicY2FgYPBmZGAIBuIAIHYD4kSgWAEQZwBxHBBvXOEAJBnhmJ0BFTCiYRAAABdJBHs=');
+        xp := 42;
+      end;
+    'maple':
+    begin
+      if (MODE = 'cut') then
+        DTM_1st := DTMFromString('mggAAAHicY2NgYHgOxE+A+BYQvwfit0B8BYgrgbgBiOuBuBaIi4G4HIizPXiBJCMGFmHADjBVQjAEAAC3NQka');
+      DTM_longBowU := DTMFromString('mWAAAAHicY2FgYLjLzMDwBIgfQGkjRgYGRyA2B2IbIN63ZDZQFSMcszOgAkY0DAIAt4MGiw==');
+      xp := 58;
+    end;
+    'yew':
+      begin
+        if (MODE = 'cut') then
+          DTM_1st := DTMFromString('mlwAAAHicY2dgYKhkZGCoAeJWIM4E4hIgbgPiHCCeA5RfAsSzgHgeEC8H4oVAPBOI/W04gCQjVszFgBtg1wHBUAAAzqcIWw==');
+        DTM_longBowU := DTMFromString('mlwAAAHicY2dgYHBlYmCwAWJHIPYEYl8o7QTEj4DyN4D4ARC/AuKPQPwMiG8D8b5lYkCSESvmYsANsOuAYCgAAC0gCcA=');
+        xp := 75;
+      end;
+     'magic':
+      begin
+        if (MODE = 'cut') then
+          DTM_1st := DTMFromString('mggAAAHicY2NgYNBkZmCQZobQckBsDMSmQHyPkYHhARA/h+InQHwXiPNTbRk0l84A6mREwexAEoTRASMODAEAHvkI7g==');
+        DTM_longBowU := DTMFromString('mbQAAAHicY2VgYFBmYWBQA2ItINYEYj0gvsnIwHAXiJ8D8X0gfgnECl31DALOtkAdjHDMDiRBGBkwYsFgAAAYYwcd');
+        xp := 92;
+      end;
+  end;
+
+  if (MODE = 'cut') then
+    DTM_2nd := DTMFromString('mlwAAAHicY2dgYHjAzMBwA4gfA/FzIH4ExLeA+DoQOzEyMAQCsSMQmwOxBRC7AbEPEOelpQF1M2LF/Ay4AXYdEAwFAIDWCWQ=')
+  else
+  begin
+    DTM_1st := DTM_longBowU;
+    DTM_2nd := DTMFromString('mWAAAAHicY2FgYHgJxJ+B+B4Q3wbiYCAOgdKxQNxcHgkkGeFYhAEVMKJhEAAAs7wGXw==');
+  end;
+  addOnTerminate('free');
+  randomBreakTime();
+  setupPlayer();
+end;
+
+procedure stats_check;
+begin
+  if (STATS_ID = '') then
+  begin
+    writeln('You MUST have a stats account registered to use this script');
+    writeln('You can register for free here: http://stats.grats.pw/reg.php');
+    writeln('More information about stats here: https://villavu.com/forum/showthread.php?t=112103&p=1332139');
+    TerminateScript;
+  end;
+end;
+
+procedure updater();
+var
+  NewFile: integer;
+  OnlineVersion, NewScript, NewFileName: string;
+begin
+  writeln('Checking for script updates...');
+  OnlineVersion := GetPage('http://pastebin.com/raw.php?i=KEDqiLid');
+  if (trim(OnlineVersion) > VERSION) then
+  begin
+    writeLn('Script update available!');
+    writeLn('Updating script to v' + OnlineVersion);
+    NewScript := GetPage('http://pastebin.com/raw.php?i=gktWX9u8');
+    NewFileName := 'C:\Simba\Scripts\' + 'HoodzFletcher Aero V' + Trim(OnlineVersion) + '.simba';
+    NewFile := Rewritefile(NewFileName, true);
+    try
+      WriteFileString(NewFile, NewScript);
+    except
+      begin
+        writeLn('Fatal error writing to ' + NewFileName + '!!');
+        terminatescript;
+      end;
+    end;
+    CloseFile(NewFile);
+    writeLn('New script downloaded to ' + NewFileName + '. Please restart Simba.');
+    TerminateScript;
+  end
+  else
+    writeLn('You have the latest version of the script!');
+end;
+
+procedure customMouse(point: TPoint);
+begin
+  case random(0, 6) of
+    0..2: BrakeMMouse(point, random(5), random(5), true);
+    3: BrakeMMouse(point, random(5), random(5), false);
+    4..5: MissMouse(point, random(5), random(5));
+    6: HumanMMouse(point, random(5), random(5));
+  end;
+end;
+
+function waitForPixelShift(amount, timeOut: Integer; box: TBox): Boolean;
+var
+  x1, y1, BMP, BMP2, tempShift: Integer;
+  t: Timer;
+begin
+  result := false;
+  t.start();
+  BMP := bitmapFromClient(box.x1, box.y1, box.x2, box.y2);
+  repeat
+    if (t.timeElapsed() >= timeOut) then
+      break;
+    sleep(250);
+    BMP2 := bitmapFromClient(box.x1, box.y1, box.x2, box.y2);
+    tempShift := calculatePixelShift(BMP, BMP2, IntToBox(0,0,(box.x2 - box.x1),(box.y2-box.y1)));
+    if (calculatePixelShift(BMP, BMP2, IntToBox(0,0,(box.x2 - box.x1),(box.y2-box.y1))) >= amount) then
+      result := true;
+    freeBitmap(BMP2);
+  until (Result);
+{  if (Result) then
+    writeln(toStr(tempShift) + ' pixels (amount: ' + toStr(amount) + ') changed after: ' + toString(t.timeElapsed()) + '  result: true')
+  else
+    writeln('less than ' + toString(amount) + ' pixels changed after: ' + toStr(timeOut) + ' (timeout)    result: false');
+}  freeBitmap(BMP);
+end;
+
+function getLocations(DTM, slots: Integer): TIntegerArray;
+var
+  I: Integer;
+  tempArray: TIntegerArray;
+begin
+  setLength(tempArray, 0);
+  for I := 1 to slots do
+  begin
+   if (FindDTM(DTM, x, y, invBox(I).x1, invBox(I).y1, invBox(I).x2, invBox(I).y2)) then
+   begin
+    SetLength(tempArray, Length(tempArray) + 1);
+    tempArray[High(tempArray)] := I;
+   end;
+  end;
+  result := tempArray;
+end;
+
+function textVisible(): Boolean;
+var
+  t: Timer;
+  numb: Integer;
+begin
+  result := false;
+  numb := random(2000, 3000);
+  t.start();
+  repeat
+  if (t.timeElapsed() > numb) then
+    break;
+  sleep(random(320, 600));
+  if (countColor(0, 211, 392, 307, 411) = 277) then
+    result := true;
+  until (result);
+end;
+
+procedure fletchHandler();
+var
+  randomNumb, count, I: Integer;
+  ARRAY_DTMs, ARRAY_locs: TIntegerArray;
+  mousePoint: TPoint;
+begin
+  if (MODE = 'cut') then
+    ARRAY_DTMs := [DTM_1st, DTM_2nd]
+  else
+    ARRAY_DTMs := [DTM_longBowU, DTM_2nd];
+  randomNumb := random(0, 1);
+  repeat
+    ARRAY_locs := getLocations(ARRAY_DTMs[randomNumb], 28);
+    if (length(ARRAY_locs) = 0) then
+      exit;
+    for I := 0 to high(ARRAY_locs) do
+    begin
+      writeln(mode + '  randomNumb: ' + toStr(randomNumb) + '  count: ' + toStr(countColor(clOutline_black, invBox(ARRAY_locs[I]).X1, invBox(ARRAY_locs[I]).Y1, invBox(ARRAY_locs[I]).X2, invBox(ARRAY_locs[I]).Y2)));
+      if (MODE = 'string') and (randomNumb = 0) and (countColor(clOutline_black, invBox(ARRAY_locs[I]).X1, invBox(ARRAY_locs[I]).Y1, invBox(ARRAY_locs[I]).X2, invBox(ARRAY_locs[I]).Y2) = 106) then
+        continue;
+      mousePoint := MiddleBox(invBox(ARRAY_locs[I]));
+      customMouse(mousePoint);
+      sleep(random(20, 100));
+      if (isUpText('epo')) then
+        exit;
+      case random(0, 12) of
+        0..11: fastClick(MOUSE_LEFT);
+        12:
+        begin
+          fastClick(MOUSE_RIGHT);
+          waitOption('Use', 300);
+        end;
+      end;
+      sleep(random(30, 100));
+      break;
+    end;
+    if (randomNumb > 0) then
+      randomNumb := 0
+    else
+      randomNumb := 1;
+    inc(count);
+  until (count = 2);
+  customMouse(point(260 + random(-22, 22), 400 + random(-17, 30)));
+  if (waitUptext('ake', 670)) then
+  begin
+    fastClick(MOUSE_RIGHT);
+    if (MODE = 'cut') then
+    begin
+      waitOption('Make X', 300);
+      if (textVisible()) then
+        typeSend(toStr(random(28, 99)), true);
+    end else
+      waitOption('Make All', 300);
+  end else
+  begin
+    inc(failCount);
+    if (failCount > 3) then
+    begin
+      compassMovement(-30, 30, false);
+      failCount := 0;
+    end;
+  end;
+end;
+
+procedure antiban();
+begin
+  if (random(0, 20) = 0) then
+    case random(0, 50) of
+    0..35:
+        if (pointInBox(getMousePnt(), intToBox(1, 1, 765, 500))) then
+          MMouseOffClient('random');
+    41..45: hoverSkill(SKILL_FLETCHING, false);
+    46..50: pickUpMouse;
+    end;
+end;
+
+procedure terminate(reason: string);
+begin
+  writeln('**TERMINATING** reason: ' + reason);
+  closeInterface;
+  logoutPlayer;
+  terminateScript;
+end;
+
+procedure incVars();
+var
+  totalXP: Integer;
+begin
+  if (MODE = 'cut') then
+    totalXP := round(27 * xp)
+  else
+    totalXP := round(14 * xp);
+  stats_incVariable('65', totalXP);
+end;
+
+procedure openBank();
+var
+  TPA: TPointArray;
+  ATPA: T2DPointArray;
+  I: Integer;
+  spot, firstInv: TPoint;
+  t: Timer;
+  tCol : TColEx;
+begin
+  if (anySlotActivated()) then
+  begin
+    firstInv := invBox(1).MidPoint;
+    customMouse(Point(firstInv.x + RandomRange(-5, 5), firstInv.y + RandomRange(-5, 5)));
+    fastClick(MOUSE_LEFT);
+    sleep(random(150, 350));
+    exit;
+  end;
+  if (Interfaces[PINSCREEN].isVisible()) then
+    inPin(P_PIN);
+  if (isBankOpen()) then
+    exit;
+  tCol.create(3425887, 21, 0.04, 0.09);
+  if (not tCol.findAllIn(AREA_MS, TPA)) then
+    exit;
+  ATPA := FloodFillTPA(TPA);
+  if (length(ATPA) <= 0) then
+    exit;
+  SortATPAfromFirstPoint(ATPA, Point(275, 155));
+  for I := 0 to high(ATPA) do
+  begin
+    if (length(ATPA[I]) < 36) then
+      continue;
+    spot := middleTPA(ATPA[I]);
+    customMouse(spot);
+    if (waitUptextMulti(['ank', 'ast'], 300)) then
+    begin
+      fastClick(MOUSE_LEFT);
+      break;
+    end;
+  end;
+  t.start();
+  while ((not isBankOpen()) and (not Interfaces[PINSCREEN].isVisible())) and (t.TimeElapsed() < 3000) do
+    sleep(random(150, 250));
+  incVars();
+end;
+
+procedure bankHandler();
+var
+  locs, ARRAY_DTMs: TIntegerArray;
+  I, randomNumb, count: Integer;
+begin
+  if (not isBankOpen()) and (not Interfaces[PINSCREEN].isVisible() ) then
+    exit;
+  if (Interfaces[PINSCREEN].isVisible()) then
+    inPin(P_PIN);
+  if (mode = 'cut') then
+  begin
+   locs := getLocations(DTM_longbowU, 14);
+   if (length(locs) < 1) then
+    begin
+     SetLength(locs, Length(locs) + 1);
+     locs[High(locs)] := 1;
+    end;
+   I := random(locs[0], locs[high(locs)]);
+   if (findDTM(DTM_longBowU, x, y, invBox(I).X1, invBox(I).Y1, invBox(I).X2, invBox(I).Y2)) then
+   begin
+    customMouse(point(x, y));
+    sleep(random(20, 100));
+    fastClick(MOUSE_RIGHT);
+    waitOption('Deposit-All', 300);
+   end;
+  end else
+  begin
+    case random(0, 10) of
+      0..9: quickDeposit('inv');
+      10:
+        begin
+          locs := getLocations(DTM_longbowU, 14);
+          if (length(locs) < 1) then
+            begin
+             SetLength(locs, Length(locs) + 1);
+             locs[High(locs)] := 1;
+            end;
+          I := random(locs[0], locs[high(locs)]);
+          if (findDTM(DTM_longBowU, x, y, invBox(I).X1, invBox(I).Y1, invBox(I).X2, invBox(I).Y2)) then
+          begin
+            customMouse(point(x, y));
+            sleep(random(20, 100));
+            fastClick(MOUSE_RIGHT);
+            waitOption('Deposit-All', 300);
+          end;
+        end;
+    end;
+  end;
+  if (MODE = 'cut') then
+  begin
+    if (findDTM(DTM_1st, x, y, MSX1, MSY1, MSX2, MSY2)) then
+    begin
+      customMouse(point(x, y));
+      sleep(random(20, 100));
+      fastClick(MOUSE_RIGHT);
+      if (random(0, 1) = 0) then
+        waitOption('Withdraw-All ', 300)
+      else
+        waitOption('Withdraw-All-but-1', 300);
+    end;
+  end else
+  begin
+    ARRAY_DTMs := [DTM_longBowU, DTM_2nd];
+    randomNumb := random(0, 1);
+    repeat
+    if (findDTM(ARRAY_DTMs[randomNumb], x, y, MSX1, MSY1, MSX2, MSY2)) then
+    begin
+      customMouse(point(x, y));
+      sleep(random(20, 100));
+      fastClick(MOUSE_RIGHT);
+      waitOption('Withdraw-14', 300);
+      sleep(RandomRange(200, 350));
+    end;
+    if (randomNumb > 0) then
+      randomNumb := 0
+    else
+      randomNumb := 1;
+    inc(count);
+  until (count = 2);
+  end;
+  closeInterface();
+  fletchHandler();
+end;
+
+procedure recoverKnife();
+begin
+  if (not isBankOpen()) then
+    openBank();
+  if (isBankOpen()) then
+  begin
+    if (getInvCount() > 1) then
+      quickDeposit('inv');
+    if (getInvCount() = 0) then
+    begin
+      if (FindDTM(DTM_2nd, x, y, MSX1, MSY1, MSX2, MSY2)) then
+      begin
+        customMouse(Point(x, y));
+        sleep(random(20, 50));
+        fastClick(MOUSE_LEFT);
+        sleep(2500 + random(500));
+      end;
+    end;
+  end;
+end;
+
+procedure progress();
+var
+  bowsHour, xpGained, xpHour: Integer;
+begin
+  clearDebug;
+  bowsHour := Round((bowsMade) / (GetTimeRunning / 3600000.0));
+  xpGained := (xp * bowsMade);
+  xpHour := Round((xpGained) / (GetTimeRunning / 3600000.0));
+  writeln('Time running: ' + MsToTime(GetTimeRunning, 3));
+  writeln('Bows made: ' + toStr(bowsMade) + '   (' + toStr(bowsHour) + ' p/h)');
+  writeln('Xp gained: ' + toStr(xpGained) + '   (' + toStr(xpHour) + ' p/h)');
+end;
+
+function getState(): Integer;
+begin
+  if (getTimeRunning >= breakAfterTime) and (USEBREAKS) then
+    exit(8);
+  if (not isLoggedIn()) then
+    exit(0);
+  if ((getCurrentTab <> TAB_INV) and (not isBankOpen())) then
+    exit(1);
+  if ((not FindDTM(DTM_2nd, x, y, MIX1, MIY1, MIX2, MIY2)) and (MODE = 'cut')) then
+    exit(7);
+  if ((not FindDTM(DTM_1st, x, y, MIX1, MIY1, MIX2, MIY2)) or (not FindDTM(DTM_2nd, x, y, MIX1, MIY1, MIX2, MIY2))) and (not isBankOpen()) then
+    exit(5);
+  if ((not FindDTM(DTM_1st, x, y, MIX1, MIY1, MIX2, MIY2)) or (not FindDTM(DTM_2nd, x, y, MIX1, MIY1, MIX2, MIY2))) and (isBankOpen()) then
+    exit(6);
+  if (FindDTM(DTM_1st, x, y, MIX1, MIY1, MIX2, MIY2) and (FindDTM(DTM_2nd, x, y, MIX1, MIY1, MIX2, MIY2)) and (isBankOpen())) then
+    exit(2);
+  if (FindDTM(DTM_1st, x, y, MIX1, MIY1, MIX2, MIY2) and (FindDTM(DTM_2nd, x, y, MIX1, MIY1, MIX2, MIY2)) and (not isBankOpen()) and (not waitForPixelShift(10, 2500, intToBox(MIX1, MIY1, MIX2, MIY2)))) then
+    exit(3);
+  inc(bowsMade);
+  exit(4);
+end;
+
+procedure executeState(State: Integer);
+begin
+  case (State) of
+    0: setupPlayer();
+    1: gameTab(TAB_INV);
+    2: closeInterface();
+    3: fletchHandler();
+    4: antiban();
+    5: openBank();
+    6: bankHandler();
+    7: recoverKnife();
+    8: breakHandlerCustom();
+  end;
+  stats_Commit();
+  progress();
+  sleep(random(150, 200));
+end;
+
+begin
+  updater();
+  declarePlayer();
+  initAL();
+  setup();
+  stats_setup('12');
+  stats_check;
+  stats_initVariable('65', 0);
+  repeat
+    executeState(getState());
+  until (false);
+end.

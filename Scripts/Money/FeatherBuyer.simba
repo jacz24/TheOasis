@@ -43,46 +43,6 @@ begin
   WriteLn('[Bot]: '+Message);
 end
 
-procedure TScript.DeclarePlayers();
-begin
-  Login.AddPlayer(PNAME, PPASS, PPIN, []);
-end;
-
-procedure TScript.Init();
-begin
-   Self.WriteMSG("Dope Boys Init Started!");
-   Self.SetupAntiban();
-
-
-
-end
-
-procedure TScript.Run();
-var
-  Store: TRSStore;
-  T: TCountDown;
-  FeatherPack: TBox;
-  Stock: Int32;
-begin
-   T.Init(15600);
-   Self.DeclarePlayers();
-   //self.DoAB();
-   Store.SetupAlignment(ERSClientMode.FIXED);
-   self.WriteMSG("Run Started!");
-   while (not T.IsFinished) do
-   begin
-   if (not Store.IsOpen) then
-      if (Self.FindTrader()) then
-   self.WriteMSG("Store Is Open!");
-   //Stock += Store.CountItemStack('Feather pack');
-   Keyboard.KeyDown(VK_SHIFT);
-   while (Inventory.IsFull) do
-      Self.BuyFeatherPacks();
-   self.WriteMSG('Inventory Is Full');
-   Keyboard.KeyUp(VK_SHIFT);
-   end;
-   end;
-
 function TScript.BuyFeatherPacks(): Boolean;
 var
   FeatherPack: TBox;
@@ -168,11 +128,6 @@ end;
 procedure TScript.SetupAntiban();
 begin
   Antiban.Skills += ERSSKILL.FISHING;
-  //if (Self.Location = 'Grotto') or (Self.Location = 'Mount Quidamortem') then
-  //begin
-    //Antiban.Skills += ERSSKILL.STRENGTH;
-    //Antiban.Skills += ERSSKILL.AGILITY;
-  //end;
 
   Antiban.AddTask((ONE_MINUTE*1)*Self.ABTimeMod,  @Antiban.SmallRandomMouse);
   Antiban.AddTask((ONE_MINUTE*4)*Self.ABTimeMod,  @Self.DoLoseFocus);
@@ -184,6 +139,42 @@ begin
   Antiban.AddBreak(ONE_MINUTE*18, ONE_SECOND*40, 0.2, 0.0);
 end;
 
+procedure TScript.DeclarePlayers();
+begin
+  Login.AddPlayer(PNAME, PPASS, PPIN, []);
+end;
+
+procedure TScript.Init();
+begin
+   Self.WriteMSG("Dope Boys Init Started!");
+   Self.SetupAntiban();
+end
+
+procedure TScript.Run();
+var
+  Store: TRSStore;
+  T: TCountDown;
+  FeatherPack: TBox;
+  Stock: Int32;
+begin
+   T.Init(15600);
+   Self.DeclarePlayers();
+   //self.DoAB();
+   Store.SetupAlignment(ERSClientMode.FIXED);
+   self.WriteMSG("Run Started!");
+   while (not T.IsFinished) do
+   begin
+   if (not Store.IsOpen) then
+      if (Self.FindTrader()) then
+   self.WriteMSG("Store Is Open!");
+   //Stock += Store.CountItemStack('Feather pack');
+   Keyboard.KeyDown(VK_SHIFT);
+   while (Inventory.IsFull) do
+      Self.BuyFeatherPacks();
+   self.WriteMSG('Inventory Is Full');
+   Keyboard.KeyUp(VK_SHIFT);
+   end;
+   end;
 
 begin
 

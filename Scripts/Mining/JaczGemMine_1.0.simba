@@ -25,7 +25,7 @@ Type
   Gems                                    : TRSItemArray;
   BankTile, MineTile, MidwayTile          : TPoint;
   RSW                                     : TRSWalker;
-  end;
+end;
 var
   Bot: TScript;
 

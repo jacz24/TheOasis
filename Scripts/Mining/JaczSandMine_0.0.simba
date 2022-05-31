@@ -1,4 +1,4 @@
-program JaczSand;
+program JSandMiner;
 
 {$I SRL-F/OSR.simba}
 
@@ -60,9 +60,7 @@ end;
 
 procedure OnWalkEvent(Sender: PRSWalker; Position: TPoint; Destination: TPoint);
 begin
-
   Writeln('Running!');
-
   Position    := [];  // For the sake of mitigating compile warnings
   Destination := [];
 end;

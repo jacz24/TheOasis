@@ -1,0 +1,338 @@
+program JaczTemplate;
+{$DEFINE SRL_USE_REMOTEINPUT}
+{$I SRL-F/OSR.simba}
+
+Const
+(* General settings *)
+  LOCATION   = 'Sandstone';      // Location You Mine AT
+  MAXRUNTIME = 124;     // Max run time (in minutes)
+(* Player settings *)
+  PNAME        = '';    // Username
+  PPASS        = '';    // Password
+  PPIN         = '';                // PIN
+(* Break settings *)
+  BREAKAFTER   = '115'; // Break after how long (in minutes)
+  BREAKFOR     = '15';  // Break for how long (in minutes)
+
+  MSWalking    = True;
+
+
+Type
+  TMSObject = record
+    WorldLoc    : TPointArray; //loctions on the world map
+    TObj        :    TRSObjectFinder;
+  end;
+
+  TScript = record
+  Version           : String;
+  Ore, Ore2, Grinder               : TPoint;
+  TrueRunTime       : TStopwatch;
+
+  RSW               : TRSWalker;
+  end;
+var
+  Bot: TScript;
+
+procedure TScript.WriteMsg(Message: String);
+begin
+  WriteLn('[Bot]: ', Message);
+end;
+
+procedure TScript.WritePosition();
+begin
+  //Self.WriteMsg('{X = ' + IntToStr(Self.RSW.GetMyPos().X) + ', Y = ' + IntToStr(Self.RSW.GetMyPos().Y) + '}');
+  //Self.WriteMsg(SingleToStr(Self.RSW.Similarity));
+end;
+
+procedure TScript.DeclarePlayers();
+begin
+  Login.AddPlayer(PNAME, PPASS, PPIN, []);
+end;
+// Combination of miss mouse + slowing near the target destination
+procedure TMouse.HumanMove(Point: TPoint);
+var
+  mPt: TPoint;
+  S: Int32;
+  Miss: Double;
+  Range: Int64;
+begin
+  S := Self.Speed;
+  Range := Trunc(Power(Self.Position().DistanceTo(Point), 0.80)); // how much possible range to miss
+  Miss := SRL.SkewedRand(0.9, 0.1, 1.5); // Where miss will happen. 1 = destination (P).
+
+  mPt.X := Trunc((1-Miss)*Self.Position().X + Miss*Point.X);
+  mPt.Y := Trunc((1-Miss)*Self.Position().Y + Miss*Point.Y);
+
+  mPt.X += SRL.NormalRange(-Range, Range);
+  mPt.Y += SRL.NormalRange(-Range, Range);
+
+  Self.Move(mPt);
+  Self.Speed := round(S*0.85);
+  Self.Move(Point);
+  Self.Speed := S;
+end;
+
+procedure TScript.DisplayMSTile(Tile: TRectangle; SizeMod: Int32=0);
+begin
+  if SizeMod > 0 then
+    Tile.Expand(SizeMod);
+  if MainScreen.Bounds.Contains(Tile.Bounds) then
+  begin
+    RSClient.Image.Clear(Mainscreen.Bounds);
+    RSClient.Image.DrawRect(Tile, clAqua);
+  end;
+end;
+
+{
+procedure TScript.DrawReport();
+var
+  i: Int32;
+  TTB: String;
+  txtArr: TStringArray;
+  txtTPA: TPointArray;
+begin
+  RSClient.Image.Clear(Chat.Bounds);
+  RSClient.Image.DrawBitmap(ReportBG, [Chat.X1+8,Chat.Y1+8]);
+  RSClient.Image.DrawBitmap(FishImg, [Chat.X2-86,Chat.Y1+74]);
+  if Self.TakeBreaks then
+    TTB := Antiban.TimeUntilBreak(Antiban.Breaks[0])
+  else
+    TTB := 'Disabed';
+
+  txtArr := [SRL.MsToTime(Self.TrueRunTime.ElapsedTime, Time_Short),TTB,SRL.MsToTime(Self.ShutdownTime-GetTimeRunning, Time_Short),
+             Self.Status,toStr(Self.XPGained)+'('+toStr(Max(0,Round(Self.XPGained /(Self.TrueRunTime.ElapsedTime()/1000/60/60))))+'/hr)',
+             toStr(Self.TotalCount)+'('+toStr(Max(0,Round(Self.TotalCount/(Self.TrueRunTime.ElapsedTime/1000/60/60))))+'/hr)'];
+  txtTPA := [[Chat.X1+112,Chat.Y1+52],[Chat.X1+129,Chat.Y1+85],[Chat.X1+146,Chat.Y1+118],
+             [Chat.X1+320,Chat.Y1+54],[Chat.X1+287,Chat.Y1+87],[Chat.X1+368,Chat.Y1+120]];
+
+  for i:=0 to high(txtArr) do
+    RSClient.Image.DrawText(txtArr[i], txtTPA[i], 7362886);
+
+end;
+}
+procedure TScript.Report();
+begin
+  ClearDebug();
+  {
+  if Self.TakeBreaks then
+    ProgressReport(RESULT_REPORTBOX, 'AIO-Fisher', 'Flight', Self.Version,
+                   ['Runtime', 'XP gained', 'Fishing for', 'Fish caught', 'Until break', 'Until shutdown'],
+                   [SRL.MsToTime(Self.TrueRunTime.ElapsedTime, Time_Short),
+                    ToStr(Round(Self.XPGained,2),'(', Max(0,Round(Self.XPGained / (Self.TrueRunTime.ElapsedTime/1000/60/60))),' / hr)'),
+                    Self.FishingFor,
+                    ToStr(Self.TotalCount, '(', Max(0,Round(Self.TotalCount / (Self.TrueRunTime.ElapsedTime/1000/60/60))),' / hr)'),
+                    Antiban.TimeUntilBreak(Antiban.Breaks[0]),
+                    SRL.MsToTime(Self.ShutdownTime-GetTimeRunning, Time_Short)])
+  else
+  }
+  ProgressReport(RESULT_REPORTBOX, 'AIO-Miner', 'Jacz', Self.Version,
+  ['Runtime', 'XP Gained', 'Mining For', 'Ore Mined', 'Until Shutdown'],
+  [69420, '69', '420','Dope', 'Will']);
+    //ProgressReport(RESULT_REPORTBOX, 'AIO-Miner', 'Jacz', Self.Version,
+    //               ['Runtime', 'XP gained', 'Mining for', 'Ores Mined', 'Until shutdown'],
+    //               [SRL.MsToTime(Self.TrueRunTime.ElapsedTime, Time_Short)])
+
+  //if Self.ScreenReport then // TODO ADD Drawing reports
+  //  Self.DrawReport();
+end;
+
+procedure OnWalkEvent(Sender: PRSWalker; Position: TPoint; Destination: TPoint);
+begin
+
+  WriteLn("Running! Maybe Add Something :D");
+  //if Bot.WalkSearch then
+  //  if length(Bot.GetSpotsIn(Mainscreen.Bounds)) > 0 then
+  //   Sender^.Enabled := False;
+
+  Position    := [];  // For the sake of mitigating compile warnings
+  Destination := [];
+end;
+
+
+
+function TScript.FindFossilIslandBankChest(): Boolean;
+var
+  i: Int32;
+  ATPA: T2DPointArray;
+  BankChest   : TRSObjectFinder;
+  BrownCol, GrayOutlineCol,
+  ChestInlineCol, StarfishCol    : TCTS2Color;
+begin
+  BrownCol := CTS2(5401722, 8, 0.08, 0.56);
+  GrayOutlineCol := CTS2(6383208, 11, 0.45, 0.07);
+  ChestInlineCol := CTS2(5204343, 9, 0.07, 0.55);
+  StarfishCol    := CTS2(6391470, 11, 0.04, 0.89);
+  BankChest.Colors += StarfishCol;
+  BankChest.Colors += BrownCol;
+  BankChest.Colors += GrayOutlineCol;
+  BankChest.Colors += ChestInlineCol;
+  BankChest.ClusterDistance = 4;
+
+  ATPA := MainScreen.FindObject(BankChest);
+
+  if (ATPA.Len > 0) then
+  begin
+    ATPA.SortByMiddle(Mainscreen.Center);
+    for i:=0 to high(ATPA) do
+    begin
+      Mouse.HumanMove(ATPA[i].Mean());
+      if MainScreen.IsUpText(['Bank', 'Chest']) then
+        Exit(True);
+    end;
+  end;
+end;
+
+function TScript.FindFossilIslandRowboat(): Boolean;
+var
+  i: Int32;
+  ATPA: T2DPointArray;
+  BoatFinder  : TRSObjectFinder;
+  BoatInlineCol, BoatOutlineCol    : TCTS2Color;
+begin
+  BoatInlineCol := CTS2(6190723, 1, 0.01, 0.01);
+  BoatOutlineCol := CTS2(5532278, 1, 0.01, 0.01);
+  //BoatInlineCol := CTS2(5861501, 3, 0.07, 0.17);
+  //BoatOutlineCol := CTS2(3294280, 17, 0.24, 0.29);
+
+  BoatFinder.Colors += BoatInlineCol;
+  BoatFinder.Colors += BoatOutlineCol;
+  BoatFinder.ClusterDistance = 4;
+
+  ATPA := MainScreen.FindObject(BoatFinder);
+
+  if (ATPA.Len > 0) then
+  begin
+    ATPA.SortByMiddle(Mainscreen.Center);
+    for i:=0 to high(ATPA) do
+    begin
+      Mouse.HumanMove(ATPA[i].Mean());
+      if MainScreen.IsUpText(['Row', 'boat']) then
+        Exit(True);
+    end;
+  end;
+end;
+
+function TScript.FindSandstone(): Boolean;
+var
+  i: Int32;
+  ATPA: T2DPointArray;
+  SandFinder: TRSObjectFinder;
+begin
+  if MainScreen.IsUpText(['Mine','Rocks']) then Exit(True);
+  SandFinder.ColorClusters += [CTS2(2714503, 13, 0.04, 0.22), CTS2(937061, 15, 0.07, 1.71), 3];
+  SandFinder.ClusterDistance := 6;
+  ATPA := MainScreen.FindObject(SandFinder);
+  if ATPA.Len < 1 then TerminateScript('No Sand Found!');
+  ATPA.SortByMiddle(Mainscreen.Center);
+
+  for i:=0 to min(2, high(ATPA)) do
+  begin
+    Mouse.HumanMove(ATPA[i].Mean());
+    if MainScreen.IsUpText(['Mine','Rocks']) then Exit(True);
+  end;
+end;
+
+
+function TScript.FindGrinder(): Boolean;
+var
+  i: Int32;
+  ATPA: T2DPointArray;
+  SandFinder: TRSObjectFinder;
+begin
+  if MainScreen.IsUpText(['Deposit','Grinder']) then Exit(True);
+  SandFinder.ColorClusters += [CTS2(5663096, 4, 0.10, 0.16), CTS2(8306116, 18, 0.10, 0.82), 6];
+  SandFinder.ClusterDistance := 12;
+  SandFinder.Erode := 2;
+  SandFinder.Grow := 2;
+  ATPA := MainScreen.FindObject(SandFinder);
+  if ATPA.Len < 1 then TerminateScript('No Grinder Found!');
+  ATPA.SortByMiddle(Mainscreen.Center);
+
+  for i:=0 to min(4, high(ATPA)) do
+  begin
+    Mouse.HumanMove(ATPA[i].Mean());
+    if MainScreen.IsUpText(['Deposit','Grinder']) then Exit(True);
+  end;
+end;
+
+procedure TScript.Free();
+begin
+  //RSClient.Image.Clear();
+  //ReportBG.Free();
+  Self.WriteMsg('Thanks for using Jacz'#39's AIO Cooker!');
+end;
+
+procedure TScript.init()
+begin
+  Self.WriteMsg('Starting Init');
+  Self.Version            := '1';
+  Mouse.Speed             := Random(19, 24);
+  Mouse.CanIdle           := False;
+  Mouse.MissChance        := 7;
+  Mouse.Brake             := True;
+  Mouse.Distribution      := MOUSE_DISTRIBUTION_GAUSS;
+
+  Self.RSW.Setup('tight');
+  Self.RSW.ScreenWalk     := MSWALKING;
+  Self.RSW.OnWalkingEvent := @OnWalkEvent;
+  Self.RSW.EnableRunAtEnergy := 85;
+  //MM2MS.ZoomLevel         := Options.GetZoomLevel();
+  //RSW.WalkBlind([94,98]); // Grinder Location
+  Self.WritePosition();
+  RSW.WalkBlind([136,80]); // Mining Location
+  //Ore                     := [143,80];
+  Ore                     := [138,76];
+  Grinder                   := [85,102];
+  //Grinder                   := [85,102];
+  //Grinder                   := [85,106];
+  //Grinder                   := [85,98];
+  //Grinder                   := [85,96];
+  Mouse.HumanMove(Self.RSW.GetTileMS(Ore).Mean);
+  //Mouse.HumanMove(Self.RSW.GetTileMS(Grinder).Mean);
+  Self.DisplayMSTile(Self.RSW.GetTileMS(Ore));
+  //Self.DisplayMSTile(Self.RSW.GetTileMS(Grinder));
+
+  TerminateScript('test');
+  AddOnTerminate(@Self.Free);
+  Self.DeclarePlayers();
+end;
+
+procedure TScript.Run()
+begin
+  Self.WriteMsg('Starting Run');
+  repeat
+  Self.RSW.DebugPosition();
+  //Self.RSW.GetTileMS(RSW.GetMyPos)
+
+  //Self.WritePosition(); // For Debugging Position
+  //Wait(2000, 2500);
+  if LOCATION = 'Sandstone' then
+  begin
+  if not Inventory.IsFull() then Self.WritePosition();
+  end;
+
+
+
+  // Dumb tester code
+  //if not Self.FindGrinder() then TerminateScript('Not Found Grinder!');
+  //if Self.FindSandstone() then TerminateScript('Found Found Ore!');
+  //if Self.FindFossilIslandRowboat() then //TerminateScript('Found Rowboat!');
+  //begin
+  //  Self.WriteMsg('Found Rowboat');
+  //  if Self.FindFossilIslandBankChest() then TerminateScript('Found Chest!');
+  //end;
+  //if Self.FindFossilIslandBankChest() then TerminateScript('Found Chest!');
+
+
+
+  //Self.Report();
+  //Self.DrawReport();
+  until(false);
+
+end;
+
+begin
+  if RSClient.IsLoggedIn() then
+    Bot.init();
+  Bot.Run()
+end.
