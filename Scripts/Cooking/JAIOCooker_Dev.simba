@@ -2,6 +2,8 @@ program JAIOCookerOnline;
 {$DEFINE SRL_USE_REMOTEINPUT} //{$DEFINE SRL_DISABLE_REMOTEINPUT}
 {$I SRL-F/OSR.simba}
 
+
+// Special Thanks To Flight!
 Const
 (* General settings *)
   FOODNAME   = 'monkfish'; // lower case! For Ex: manta ray, shark, dark crab, monkfish, meat, tuna

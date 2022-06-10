@@ -1,4 +1,4 @@
-program JaczTemplate;
+program JSandstoneMiner;
 {$DEFINE SRL_USE_REMOTEINPUT}
 {$I SRL-F/OSR.simba}
 
@@ -16,7 +16,7 @@ Const
   BREAKAFTER   = '115'; // Break after how long (in minutes)
   BREAKFOR     = '15';  // Break for how long (in minutes)
 
-  DRAW        = False; // Will Draw on screen boxes around ores and such
+  DRAW        = True; // Will Draw on screen boxes around ores and such
   MSWalking    = False;
 
 
@@ -31,12 +31,11 @@ Type
   end;
 
   TScript = record
-  Version                     : String;
-  TrueRunTime                 : TStopwatch;
-  SandstoneTile, GrinderTile  : TPoint;
-  RSW                         : TRSWalker;
-  ABTimeMod, StartXP,
-  StartHP, TempHP             : Int32;
+  Version           : String;
+  TrueRunTime       : TStopwatch;
+  SandstoneTile, GrinderTile     : TPoint;
+  RSW               : TRSWalker;
+  ABTimeMod, StartXP, StartHP         : Int32;
 
   end;
 var
@@ -335,9 +334,7 @@ procedure TScript.CheckHP();
 var
   T: TCountDown;
 begin
-  Self.WriteMsg('HP: ' + IntToStr(Minimap.GetHPLevel) +
-  ' With Starting HP: ' + IntToStr(Self.StartHP) +
-  ' With Temp HP: ' + IntToStr(Self.TempHP));
+  Self.WriteMsg('HP: ' + IntToStr(Minimap.GetHPLevel) + ' With Starting HP: ' + IntToStr(Self.StartHP));
   if (Minimap.GetHPLevel() >= Self.StartHP) then
   begin
   Exit;

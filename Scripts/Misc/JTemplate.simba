@@ -1,0 +1,100 @@
+program JArdyThiever;
+{$DEFINE SRL_USE_REMOTEINPUT}
+{$I SRL-F/OSR.simba}
+
+Const
+(* General settings *)
+  MAXRUNTIME = 124;     // Max run time (in minutes)
+(* Player settings *)
+  PNAME        = '';    // Username
+  PPASS        = '';    // Password
+  PPIN         = '';                // PIN
+(* Break settings *)
+  BREAKAFTER   = '115'; // Break after how long (in minutes)
+  BREAKFOR     = '15';  // Break for how long (in minutes)
+
+
+Type
+  TScript = record
+  Version           : String;
+
+
+  RSW               : TRSWalker;
+  end;
+var
+  Bot: TScript;
+
+procedure TScript.WriteMsg(Message: String);
+begin
+  WriteLn('[Bot]: ', Message);
+end;
+
+procedure TAntiban.DoLoseFocus();
+begin
+  Self.LoseFocus(SRL.NormalRange(3700,5000));
+end;
+
+procedure TScript.DoLoseFocus();
+Var T: Int32;
+begin
+  T := SRL.NormalRange(1700,5000);
+  Antiban.DebugLn('Losing focus for '+SRL.MsToTime(T, Time_Short));
+  Antiban.LoseFocus(T);
+end;
+
+procedure TScript.SetupAntiban();
+begin
+  Antiban.Skills += ERSSKILL.MINING;
+  Antiban.AddTask(ONE_MINUTE*4,  @Antiban.SmallRandomMouse);
+  Antiban.AddTask(ONE_MINUTE*7,  @Self.DoLoseFocus);
+  Antiban.AddTask(ONE_MINUTE*8,  @Antiban.HoverMSItems);
+  Antiban.AddTask(ONE_MINUTE*8,  @Antiban.HoverMSNPCs);
+  Antiban.AddTask(ONE_MINUTE*6,  @Antiban.HoverMSPlayers);
+  Antiban.AddTask(ONE_MINUTE*25, @Antiban.HoverSkills);
+  Antiban.AddBreak(ONE_MINUTE*18, ONE_SECOND*40, 0.2, 0.0);
+  if TAKEBREAKS then
+    Antiban.AddBreak(ONE_MINUTE*StrToInt(BREAKAFTER),ONE_MINUTE*StrToInt(BREAKFOR), 0.2, 1.0);
+end;
+
+function TScript.DoAB(): Boolean;
+begin
+  Antiban.DismissRandom();
+  if (not RSClient.IsLoggedIn) then
+    Login.LoginPlayer();
+  Result := Antiban.DoAntiban();
+end;
+
+procedure TScript.DeclarePlayers();
+begin
+  Login.AddPlayer(PNAME, PPASS, PPIN, []);
+end;
+
+procedure TScript.init()
+begin
+  Self.WriteMsg('Starting Init');
+  Self.Version            := '1.0';
+  Mouse.Speed             := Random(19, 24);
+  Mouse.CanIdle           := False;
+  Mouse.MissChance        := 7;
+  Mouse.Brake             := True;
+  Mouse.Distribution      := MOUSE_DISTRIBUTION_GAUSS;
+
+  Self.RSW.Setup('world');
+  Self.RSW.ScreenWalk     := MSWALKING;
+  Self.RSW.OnWalkingEvent := @OnWalkEvent;
+  Self.RSW.EnableRunAtEnergy := 85;
+
+  Self.DeclarePlayers();
+end;
+
+procedure TScript.Run()
+begin
+  Self.WriteMsg('Starting Run');
+
+end;
+
+begin
+  if RSClient.IsLoggedIn() then
+    Bot.init();
+  Bot.Run()
+end.

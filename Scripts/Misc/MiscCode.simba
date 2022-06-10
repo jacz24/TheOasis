@@ -1,0 +1,61 @@
+function TScript.FindFossilIslandBankChest(): Boolean;
+var
+  i: Int32;
+  ATPA: T2DPointArray;
+  BankChest   : TRSObjectFinder;
+  BrownCol, GrayOutlineCol,
+  ChestInlineCol, StarfishCol    : TCTS2Color;
+begin
+  BrownCol := CTS2(5401722, 8, 0.08, 0.56);
+  GrayOutlineCol := CTS2(6383208, 11, 0.45, 0.07);
+  ChestInlineCol := CTS2(5204343, 9, 0.07, 0.55);
+  StarfishCol    := CTS2(6391470, 11, 0.04, 0.89);
+  BankChest.Colors += StarfishCol;
+  BankChest.Colors += BrownCol;
+  BankChest.Colors += GrayOutlineCol;
+  BankChest.Colors += ChestInlineCol;
+  BankChest.ClusterDistance = 4;
+
+  ATPA := MainScreen.FindObject(BankChest);
+
+  if (ATPA.Len > 0) then
+  begin
+    ATPA.SortByMiddle(Mainscreen.Center);
+    for i:=0 to high(ATPA) do
+    begin
+      Mouse.HumanMove(ATPA[i].Mean());
+      if MainScreen.IsUpText(['Bank', 'Chest']) then
+        Exit(True);
+    end;
+  end;
+end;
+
+function TScript.FindFossilIslandRowboat(): Boolean;
+var
+  i: Int32;
+  ATPA: T2DPointArray;
+  BoatFinder  : TRSObjectFinder;
+  BoatInlineCol, BoatOutlineCol    : TCTS2Color;
+begin
+  BoatInlineCol := CTS2(6190723, 1, 0.01, 0.01);
+  BoatOutlineCol := CTS2(5532278, 1, 0.01, 0.01);
+  //BoatInlineCol := CTS2(5861501, 3, 0.07, 0.17);
+  //BoatOutlineCol := CTS2(3294280, 17, 0.24, 0.29);
+
+  BoatFinder.Colors += BoatInlineCol;
+  BoatFinder.Colors += BoatOutlineCol;
+  BoatFinder.ClusterDistance = 4;
+
+  ATPA := MainScreen.FindObject(BoatFinder);
+
+  if (ATPA.Len > 0) then
+  begin
+    ATPA.SortByMiddle(Mainscreen.Center);
+    for i:=0 to high(ATPA) do
+    begin
+      Mouse.HumanMove(ATPA[i].Mean());
+      if MainScreen.IsUpText(['Row', 'boat']) then
+        Exit(True);
+    end;
+  end;
+end;

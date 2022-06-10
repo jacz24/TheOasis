@@ -1,0 +1,272 @@
+program JArdyThiever;
+{$DEFINE SRL_USE_REMOTEINPUT}
+{$I SRL-F/OSR.simba}
+
+Const
+
+// START OF SETTINGS!
+(* General settings *)
+  MAXRUNTIME   = 124;     // Max run time (in minutes)
+  MSWALKING    = True; // Minimap walk or not
+(* Player settings *)
+  PNAME        = 'test@test.com';    // Username
+  PPASS        = 'coolio';    // Password
+  PPIN         = '';                // PIN
+(* Break settings *)
+  TAKEBREAKS   = True; // Turn breaks on/off with True or False; Default: True
+  BREAKAFTER   = 115; // Break after how long (in minutes); Default: 115
+  BREAKFOR     = 24;  // Break for how long (in minutes); Default: 24
+(* Debug settings *)
+  ENABLEDEBUG  = False;
+// END OF SETTINGS!
+
+Type
+  TScript = record
+  Version                             : String;
+  StartXP, XPGained, TotalPickpockets : Int32;
+  ShutdownTime                        : Int64;
+  PlayerTiles, KnightTiles            : TPointArray;
+  RSW                                  : TRSWalker;
+  end;
+var
+  Bot: TScript;
+
+procedure TMouse.HumanMove(Point: TPoint);
+var
+  mPt: TPoint;
+  S: Int32;
+  Miss: Double;
+  Range: Int64;
+begin
+  S := Self.Speed;
+  Range := Trunc(Power(Self.Position().DistanceTo(Point), 0.80)); // how much possible range to miss
+  Miss := SRL.SkewedRand(0.9, 0.1, 1.5); // Where miss will happen. 1 = destination (P).
+
+  mPt.X := Trunc((1-Miss)*Self.Position().X + Miss*Point.X);
+  mPt.Y := Trunc((1-Miss)*Self.Position().Y + Miss*Point.Y);
+
+  mPt.X += SRL.NormalRange(-Range, Range);
+  mPt.Y += SRL.NormalRange(-Range, Range);
+
+  Self.Move(mPt);
+  Self.Speed := round(S*0.85);
+  Self.Move(Point);
+  Self.Speed := S;
+end;
+
+procedure TScript.WriteMsg(Message: String);
+begin
+  WriteLn('[Bot]: ', Message);
+end;
+
+procedure TScript.WritePosition();
+begin
+  Self.WriteMsg('{X = ' + IntToStr(Self.RSW.GetMyPos().X) + ', Y = ' + IntToStr(Self.RSW.GetMyPos().Y) + '}');
+end;
+
+procedure TScript.DisplayMSTile(Tile: TRectangle; SizeMod: Int32=0);
+begin
+  if SizeMod > 0 then
+    Tile.Expand(SizeMod);
+  if MainScreen.Bounds.Contains(Tile.Bounds) then
+  begin
+    RSClient.Image.Clear(Mainscreen.Bounds);
+    RSClient.Image.DrawRect(Tile, clAqua);
+  end;
+end;
+
+procedure TAntiban.DoLoseFocus();
+begin
+  Self.LoseFocus(SRL.NormalRange(3700,5000));
+end;
+
+procedure TScript.DoLoseFocus();
+Var T: Int32;
+begin
+  T := SRL.NormalRange(1700,5000);
+  Antiban.DebugLn('Losing focus for '+SRL.MsToTime(T, Time_Short));
+  Antiban.LoseFocus(T);
+end;
+
+procedure TScript.SetupAntiban();
+begin
+  Antiban.Skills += ERSSKILL.THIEVING;
+  Antiban.AddTask(ONE_MINUTE*4,  @Antiban.SmallRandomMouse);
+  Antiban.AddTask(ONE_MINUTE*5,  @Self.DoLoseFocus);
+  //Antiban.AddTask(ONE_MINUTE*8,  @Antiban.HoverMSItems);
+  //Antiban.AddTask(ONE_MINUTE*8,  @Antiban.HoverMSNPCs);
+  //Antiban.AddTask(ONE_MINUTE*6,  @Antiban.HoverMSPlayers);
+  Antiban.AddTask(ONE_MINUTE*25, @Antiban.HoverSkills);
+  Antiban.AddBreak(ONE_MINUTE*18, ONE_SECOND*120, 0.2, 0.0);
+  //if TAKEBREAKS then
+  //  Antiban.AddBreak(ONE_MINUTE*StrToInt(BREAKAFTER),ONE_MINUTE*StrToInt(BREAKFOR), 0.2, 1.0);
+end;
+
+function TScript.DoAB(): Boolean;
+begin
+  Antiban.DismissRandom();
+  if (not RSClient.IsLoggedIn) then
+    Login.LoginPlayer();
+  Result := Antiban.DoAntiban();
+end;
+
+function TScript.FoundKnight(): Boolean;
+begin
+if MainScreen.IsUpText(['Pickp','ocket Knight','Pickpocket Kni','et K','of Ard','Ardougne']) then Exit(True);
+end;
+
+function TScript.FindKnight(): Boolean;
+var
+  i: Int32;
+  ATPA        : T2DPointArray;
+  KnightFinder: TRSObjectFinder;
+begin
+  // CTS2(6382184, 23, 0.11, 0.10) // Grey outline
+  // CTS2(3411087, 23, 0.89, 0.70) // purple parts
+  KnightFinder.ColorClusters += [CTS2(6382184, 23, 0.11, 0.10), CTS2(3411087, 23, 0.89, 0.70), 9];
+  KnightFinder.ClusterDistance := 9;
+  // Look for other tiles if we don't find the first
+  for i:=0 to min(1, high(KnightTiles)) do
+  begin
+  //
+  //
+  ATPA := MainScreen.FindObject(KnightFinder);
+  if ATPA.Len < 1 then TerminateScript('Knight Not Found!');
+  ATPA.SortByMiddle(Self.RSW.GetTileMS(KnightTiles[i]).Mean);
+  Mouse.HumanMove(ATPA[i].Mean());
+    if Self.FoundKnight() then
+    begin
+      Mouse.Click(MOUSE_LEFT);
+      Exit(True);
+    end;
+  end;
+end;
+
+procedure TRSInventory.HumanClickItem(Item: TRSItem);
+begin
+  // Add the occasional double click
+  if SRL.Dice(24) then if Inventory.ClickItem('Coin pouch') then if ENABLEDEBUG then Bot.WriteMsg('One Click!');
+  wait(45, 125);
+  // Add the occasional no click too
+  if SRL.Dice(69) then if Inventory.ClickItem('Coin pouch') then if ENABLEDEBUG then Bot.WriteMsg('Two Click!');
+end;
+
+procedure TScript.OpenPouch();
+begin
+  if ENABLEDEBUG then Self.WriteMsg('Openning Pouch');
+  if SRL.Dice(0.2) then Inventory.HumanClickItem('Coin pouch');
+
+  if Inventory.CountItemStack('Coin pouch') >= 24 then if SRL.Dice(12.5) then Inventory.HumanClickItem('Coin pouch');
+
+  if Inventory.CountItemStack('Coin pouch') >= 28 then
+  begin
+    if SRL.Dice(24) then Mouse.Click(MOUSE_LEFT); // Do an extra click
+    if SRL.Dice(69) then Inventory.HumanClickItem('Coin pouch');
+  end;
+end;
+procedure TScript.DoPickpocketing();
+begin
+  if ENABLEDEBUG then Self.WriteMsg('Picking Pocket');
+  if Self.FoundKnight() then
+  begin
+    if ENABLEDEBUG then Self.WriteMsg('Found Knight');
+    Mouse.Click(MOUSE_LEFT);
+    Exit();
+  end;
+  if Self.FindKnight() then
+  begin
+    if ENABLEDEBUG then Self.WriteMsg('Found Knight');
+    Mouse.Click(MOUSE_LEFT);
+    Exit();
+  end;
+  // CTS2(6382184, 23, 0.11, 0.10) // Grey outline
+  // CTS2(3411087, 23, 0.89, 0.70) // purple parts
+  //
+  //KnightFinder.ColorClusters += [CTS2(6382184, 23, 0.11, 0.10), CTS2(3411087, 23, 0.89, 0.70), 9];
+  //KnightFinder.ClusterDistance := 9;
+  //ATPA := MainScreen.FindObject(KnightFinder);
+  //if ATPA.Len < 1 then TerminateScript('Knight Not Found!');
+  //ATPA.SortByMiddle(MainScreen.Center);
+
+  //for i:=0 to min(4, high(ATPA)) do
+  //begin
+  //
+  //  Mouse.HumanMove(ATPA[i].Mean());
+  //  if Self.FoundKnight() then
+  //  begin
+  //    Mouse.Click(MOUSE_LEFT);
+  //    Exit();
+  //  end;
+  //end;
+end;
+
+procedure TScript.WalkToPosition(); // Walks to right place
+begin
+  Self.WriteMsg('Not in position! Walking');
+  if SRL.Dice(24) then // Occasionally change screenwalk
+  begin
+    if (MSWALKING) then
+    begin
+      Self.RSW.ScreenWalk     := False;
+    end else
+      Self.RSW.ScreenWalk     := True;
+  end;
+
+  if SRL.Dice(50) then
+  begin
+    Self.RSW.WalkBlind(Self.PlayerTiles[0]);
+  end else Self.RSW.WalkBlind(Self.PlayerTiles[1]);
+
+  Self.RSW.ScreenWalk     := MSWALKING;
+end;
+
+procedure TScript.DeclarePlayers();
+begin
+  Login.AddPlayer(PNAME, PPASS, PPIN, []);
+end;
+
+procedure TScript.init()
+begin
+  Self.WriteMsg('Starting Init');
+  Self.Version            := '1.0';
+  Mouse.Speed             := Random(19, 24);
+  Mouse.CanIdle           := False;
+  Mouse.MissChance        := 7;
+  Mouse.Brake             := True;
+  Mouse.Distribution      := MOUSE_DISTRIBUTION_GAUSS;
+
+  Self.RSW.Setup('ArdyKnight');
+  Self.RSW.ScreenWalk     := MSWALKING;
+  //Self.RSW.OnWalkingEvent := @OnWalkEvent;
+  Self.RSW.EnableRunAtEnergy := 85;
+
+  Self.PlayerTiles := [[94,105], [98, 105]]; // Where the player should stand
+  Self.KnightTiles := [[98,109], [94,109]]; // Where the knight should stand
+  Self.SetupAntiban();
+  Self.DeclarePlayers();
+  Self.StartXP            := XPBar.Read();
+  Self.ShutdownTime       := (MAXRUNTIME * 60000) + Random(- (MAXRUNTIME * 6000), (MAXRUNTIME * 6000));
+end;
+
+procedure TScript.Run()
+begin
+  Self.WriteMsg('Starting Run');
+  repeat
+    if ENABLEDEBUG then Self.WritePosition(); // Write RSW Pos
+    if Self.RSW.GetMyPos().Y = 105 then
+    begin
+      if not Inventory.IsOpen() then Inventory.Open();
+      if Inventory.IsOpen() then if Inventory.CountItemStack('Coin pouch') >= 1 then Self.OpenPouch();
+      if Inventory.IsOpen() then if Inventory.CountItemStack('Coin pouch') <= 27 then Self.DoPickpocketing();
+      if Minimap.GetHPPercent <= 69 then TerminateScript('Trigger: Death Prevention! Heal Yourself!');
+      Self.DoAB();
+      wait(40, 115);
+    end else Self.WalkToPosition();
+  until(GetTimeRunning() > Self.ShutdownTime);
+end;
+
+begin
+  if RSClient.IsLoggedIn() then
+    Bot.init();
+  Bot.Run()
+end.

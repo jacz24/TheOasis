@@ -393,21 +393,8 @@ begin
   Self.BankTile := [3217,4636];
   Self.MineTile := [3097, 4447];
   Self.Gems := ['Uncut opal', 'Uncut jade', 'Uncut red topaz', 'Uncut sapphire', 'Uncut emerald', 'Uncut ruby', 'Uncut diamond'];
-
-
-  //if Inventory.IsFull() then Self.DoBank();
-
-  //if Self.FindGem() then Mouse.Click(MOUSE_LEFT);
-  // {X = 3100, Y = 4448} // Mines
-  // {X = 3133, Y = 4571} // Midway
-  // {X = 3217, Y = 4636} // Bank
-
-  //WriteLn(Self.RSW.GetMyPos());
-  //Exit();
   repeat
   Wait(100,250);
-  //Self.WriteMsg('OOPing');
-
   Self.CloseInterfaces();
 
   if (RSW.GetMyPos().DistanceTo(Self.BankTile) <= 24) and (Inventory.IsFull()) then
