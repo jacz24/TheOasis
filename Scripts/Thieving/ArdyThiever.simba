@@ -22,11 +22,11 @@ Const
 
 Type
   TScript = record
-  Version                             : String;
-  StartXP, XPGained, TotalPickpockets : Int32;
+  StartXP, XPGained, TotalPickpockets, Version : Int32;
   ShutdownTime                        : Int64;
   PlayerTiles, KnightTiles            : TPointArray;
-  RSW                                  : TRSWalker;
+  RSW                                 : TRSWalker;
+  TrueRunTime                         : TStopwatch;
   end;
 var
   Bot: TScript;
@@ -75,6 +75,17 @@ begin
   end;
 end;
 
+procedure TScript.Report();
+begin
+  Self.XPGained := Max(0, XPBar.Read()-Self.StartXP);
+  ClearDebug();
+  ProgressReport(RESULT_REPORTBOX, 'Knight of Ardougne', 'Jacz', IntToStr(Self.Version),
+    ['Take Breaks', 'Runtime', 'XP gained', 'Total Pickpockets', 'Until Break', 'Until Shutdown'],
+    [BoolToStr(TAKEBREAKS), SRL.MsToTime(Self.TrueRunTime.ElapsedTime, Time_Short),
+    ToStr(Round(Self.XPGained,2)), IntToStr(Self.TotalPickpockets),
+    Antiban.TimeUntilBreak(Antiban.Breaks[0]), SRL.MsToTime(Self.ShutdownTime-GetTimeRunning, Time_Short)])
+end;
+
 procedure TAntiban.DoLoseFocus();
 begin
   Self.LoseFocus(SRL.NormalRange(3700,5000));
@@ -98,8 +109,9 @@ begin
   //Antiban.AddTask(ONE_MINUTE*6,  @Antiban.HoverMSPlayers);
   Antiban.AddTask(ONE_MINUTE*25, @Antiban.HoverSkills);
   Antiban.AddBreak(ONE_MINUTE*18, ONE_SECOND*120, 0.2, 0.0);
-  //if TAKEBREAKS then
-  //  Antiban.AddBreak(ONE_MINUTE*StrToInt(BREAKAFTER),ONE_MINUTE*StrToInt(BREAKFOR), 0.2, 1.0);
+  if TAKEBREAKS then
+    Antiban.AddBreak(ONE_MINUTE*BREAKAFTER,
+    ONE_MINUTE*BREAKFOR, 0.2, 1.0);
 end;
 
 function TScript.DoAB(): Boolean;
@@ -152,16 +164,37 @@ begin
 end;
 
 procedure TScript.OpenPouch();
+var
+  pouchcount: Int32;
 begin
+  pouchcount := Inventory.CountItemStack('Coin pouch');
   if ENABLEDEBUG then Self.WriteMsg('Openning Pouch');
-  if SRL.Dice(0.2) then Inventory.HumanClickItem('Coin pouch');
-
-  if Inventory.CountItemStack('Coin pouch') >= 24 then if SRL.Dice(12.5) then Inventory.HumanClickItem('Coin pouch');
-
-  if Inventory.CountItemStack('Coin pouch') >= 28 then
+  if SRL.Dice(0.2) then
   begin
+    wait(75, 125);
+    Inc(Self.TotalPickpockets, pouchcount);
+    Inventory.HumanClickItem('Coin pouch');
+    WaitUntil(not Inventory.FindItem('Coin pouch'), 75, 2400);
+    Exit();
+  end;
+
+  if pouchcount >= 24 then if SRL.Dice(12.5) then
+  begin
+    wait(75, 125);
+    Inc(Self.TotalPickpockets, pouchcount);
+    Inventory.HumanClickItem('Coin pouch');
+    WaitUntil(not Inventory.FindItem('Coin pouch'), 75, 2400);
+    Exit();
+  end;
+
+  if pouchcount >= 28 then
+  begin
+    wait(75, 125);
+    Inc(Self.TotalPickpockets, pouchcount);
     if SRL.Dice(24) then Mouse.Click(MOUSE_LEFT); // Do an extra click
     if SRL.Dice(69) then Inventory.HumanClickItem('Coin pouch');
+    WaitUntil(not Inventory.FindItem('Coin pouch'), 75, 2400);
+    Exit();
   end;
 end;
 procedure TScript.DoPickpocketing();
@@ -179,25 +212,6 @@ begin
     Mouse.Click(MOUSE_LEFT);
     Exit();
   end;
-  // CTS2(6382184, 23, 0.11, 0.10) // Grey outline
-  // CTS2(3411087, 23, 0.89, 0.70) // purple parts
-  //
-  //KnightFinder.ColorClusters += [CTS2(6382184, 23, 0.11, 0.10), CTS2(3411087, 23, 0.89, 0.70), 9];
-  //KnightFinder.ClusterDistance := 9;
-  //ATPA := MainScreen.FindObject(KnightFinder);
-  //if ATPA.Len < 1 then TerminateScript('Knight Not Found!');
-  //ATPA.SortByMiddle(MainScreen.Center);
-
-  //for i:=0 to min(4, high(ATPA)) do
-  //begin
-  //
-  //  Mouse.HumanMove(ATPA[i].Mean());
-  //  if Self.FoundKnight() then
-  //  begin
-  //    Mouse.Click(MOUSE_LEFT);
-  //    Exit();
-  //  end;
-  //end;
 end;
 
 procedure TScript.WalkToPosition(); // Walks to right place
@@ -228,7 +242,7 @@ end;
 procedure TScript.init()
 begin
   Self.WriteMsg('Starting Init');
-  Self.Version            := '1.0';
+  Self.Version            := 1;
   Mouse.Speed             := Random(19, 24);
   Mouse.CanIdle           := False;
   Mouse.MissChance        := 7;
@@ -241,10 +255,13 @@ begin
   Self.RSW.EnableRunAtEnergy := 85;
 
   Self.PlayerTiles := [[94,105], [98, 105]]; // Where the player should stand
-  Self.KnightTiles := [[98,109], [94,109]]; // Where the knight should stand
+  Self.KnightTiles := [[98,109], [94,109], [98,110], [94,110]]; // Where the knight should stand
+
   Self.SetupAntiban();
   Self.DeclarePlayers();
+
   Self.StartXP            := XPBar.Read();
+  Self.TrueRunTime.Start();
   Self.ShutdownTime       := (MAXRUNTIME * 60000) + Random(- (MAXRUNTIME * 6000), (MAXRUNTIME * 6000));
 end;
 
@@ -253,13 +270,16 @@ begin
   Self.WriteMsg('Starting Run');
   repeat
     if ENABLEDEBUG then Self.WritePosition(); // Write RSW Pos
+    if Self.RSW.GetMyPos().X = 105 then Self.WalkToPosition();
     if Self.RSW.GetMyPos().Y = 105 then
     begin
       if not Inventory.IsOpen() then Inventory.Open();
       if Inventory.IsOpen() then if Inventory.CountItemStack('Coin pouch') >= 1 then Self.OpenPouch();
       if Inventory.IsOpen() then if Inventory.CountItemStack('Coin pouch') <= 27 then Self.DoPickpocketing();
       if Minimap.GetHPPercent <= 69 then TerminateScript('Trigger: Death Prevention! Heal Yourself!');
+
       Self.DoAB();
+      Self.Report();
       wait(40, 115);
     end else Self.WalkToPosition();
   until(GetTimeRunning() > Self.ShutdownTime);
