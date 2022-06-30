@@ -1,4 +1,4 @@
-program JaczTemplate;
+program JaczAIOMiner_V1;
 {$DEFINE SRL_USE_REMOTEINPUT}
 {$I SRL-F/OSR.simba}
 
@@ -367,7 +367,8 @@ begin
   Mouse.Brake             := True;
   Mouse.Distribution      := MOUSE_DISTRIBUTION_GAUSS;
 
-  Self.RSW.Setup('tight');
+  //Self.RSW.Setup('world');
+  Self.RSW.Setup('TitheFarm');
   Self.RSW.ScreenWalk     := MSWALKING;
   Self.RSW.OnWalkingEvent := @OnWalkEvent;
   Self.RSW.EnableRunAtEnergy := 85;
@@ -400,12 +401,14 @@ begin
   end;
 
   //Self.WritePosition();
-  //Self.DisplayMSTile(RSW.GetTileMS([143,82]));
-  //TerminateScript(); //'testy'
+  Self.DisplayMSTile(RSW.GetTileMS([143,82]));
+  Wait(500,1000);
+  //AddOnTerminate(@Self.Free);
+  TerminateScript(); //'testy'
 
   Self.DeclarePlayers();
   Self.SetupAntiban();
-  AddOnTerminate(@Self.Free);
+
 end;
 
 procedure TScript.Run()

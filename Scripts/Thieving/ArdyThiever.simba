@@ -13,7 +13,7 @@ Const
   PPASS        = 'coolio';    // Password
   PPIN         = '';                // PIN
 (* Break settings *)
-  TAKEBREAKS   = True; // Turn breaks on/off with True or False; Default: True
+  TAKEBREAKS   = False; // Turn breaks on/off with True or False; Default: True
   BREAKAFTER   = 115; // Break after how long (in minutes); Default: 115
   BREAKFOR     = 24;  // Break for how long (in minutes); Default: 24
 (* Debug settings *)
@@ -31,7 +31,7 @@ Type
 var
   Bot: TScript;
 
-procedure TMouse.HumanMove(Point: TPoint);
+procedure TASyncMouse.HumanMove(Point: TPoint);
 var
   mPt: TPoint;
   S: Int32;
@@ -79,11 +79,21 @@ procedure TScript.Report();
 begin
   Self.XPGained := Max(0, XPBar.Read()-Self.StartXP);
   ClearDebug();
-  ProgressReport(RESULT_REPORTBOX, 'Knight of Ardougne', 'Jacz', IntToStr(Self.Version),
+  if TAKEBREAKS then
+  begin
+    ProgressReport(RESULT_REPORTBOX, 'Knight of Ardougne', 'Jacz', IntToStr(Self.Version),
     ['Take Breaks', 'Runtime', 'XP gained', 'Total Pickpockets', 'Until Break', 'Until Shutdown'],
     [BoolToStr(TAKEBREAKS), SRL.MsToTime(Self.TrueRunTime.ElapsedTime, Time_Short),
     ToStr(Round(Self.XPGained,2)), IntToStr(Self.TotalPickpockets),
     Antiban.TimeUntilBreak(Antiban.Breaks[0]), SRL.MsToTime(Self.ShutdownTime-GetTimeRunning, Time_Short)])
+  end;
+  if TAKEBREAKS then
+  begin
+    ProgressReport(RESULT_REPORTBOX, 'Knight of Ardougne', 'Jacz', IntToStr(Self.Version),
+    ['Take Breaks', 'Runtime', 'XP gained', 'Total Pickpockets', 'Until Shutdown'],
+    [BoolToStr(TAKEBREAKS), SRL.MsToTime(Self.TrueRunTime.ElapsedTime, Time_Short),
+    ToStr(Round(Self.XPGained,2)), IntToStr(Self.TotalPickpockets), SRL.MsToTime(Self.ShutdownTime-GetTimeRunning, Time_Short)])
+  end;
 end;
 
 procedure TAntiban.DoLoseFocus();
@@ -108,7 +118,6 @@ begin
   //Antiban.AddTask(ONE_MINUTE*8,  @Antiban.HoverMSNPCs);
   //Antiban.AddTask(ONE_MINUTE*6,  @Antiban.HoverMSPlayers);
   Antiban.AddTask(ONE_MINUTE*25, @Antiban.HoverSkills);
-  Antiban.AddBreak(ONE_MINUTE*18, ONE_SECOND*120, 0.2, 0.0);
   if TAKEBREAKS then
     Antiban.AddBreak(ONE_MINUTE*BREAKAFTER,
     ONE_MINUTE*BREAKFOR, 0.2, 1.0);
@@ -129,29 +138,34 @@ end;
 
 function TScript.FindKnight(): Boolean;
 var
-  i: Int32;
+  i           : Int32;
   ATPA        : T2DPointArray;
   KnightFinder: TRSObjectFinder;
+  attempt     : TStopwatch;
 begin
   // CTS2(6382184, 23, 0.11, 0.10) // Grey outline
   // CTS2(3411087, 23, 0.89, 0.70) // purple parts
   KnightFinder.ColorClusters += [CTS2(6382184, 23, 0.11, 0.10), CTS2(3411087, 23, 0.89, 0.70), 9];
   KnightFinder.ClusterDistance := 9;
   // Look for other tiles if we don't find the first
-  for i:=0 to min(1, high(KnightTiles)) do
-  begin
-  //
-  //
-  ATPA := MainScreen.FindObject(KnightFinder);
-  if ATPA.Len < 1 then TerminateScript('Knight Not Found!');
-  ATPA.SortByMiddle(Self.RSW.GetTileMS(KnightTiles[i]).Mean);
-  Mouse.HumanMove(ATPA[i].Mean());
-    if Self.FoundKnight() then
+  attempt.Start();
+  repeat
+    for i:=0 to min(1, high(KnightTiles)) do
     begin
-      Mouse.Click(MOUSE_LEFT);
-      Exit(True);
+
+    ATPA := MainScreen.FindObject(KnightFinder);
+    if ATPA.Len < 1 then TerminateScript('Knight Not Found!');
+    ATPA.SortByMiddle(Self.RSW.GetTileMS(KnightTiles[i]).Mean);
+    ASyncMouse.HumanMove(ATPA[i].Mean());
+      if Self.FoundKnight() then
+      begin
+        Mouse.Click(MOUSE_LEFT);
+        WaitUntil(MainScreen.DidRedClick, Random(25,50), 2500);
+        Exit(True);
+      end;
     end;
-  end;
+  until(attempt.ElapsedTime > 10000);
+  if not Self.FoundKnight() then TerminateScript('Knight Not Found!');
 end;
 
 procedure TRSInventory.HumanClickItem(Item: TRSItem);
@@ -244,6 +258,7 @@ begin
   Self.WriteMsg('Starting Init');
   Self.Version            := 1;
   Mouse.Speed             := Random(19, 24);
+  ASyncMouse.Speed        := Mouse.Speed;
   Mouse.CanIdle           := False;
   Mouse.MissChance        := 7;
   Mouse.Brake             := True;
