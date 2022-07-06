@@ -1,0 +1,166 @@
+program ObjectFinderTester;
+{$DEFINE SRL_USE_REMOTEINPUT_DEBUG}
+{$I SRL-F/OSR.simba}
+
+Const
+(* General settings *)
+  MAXRUNTIME = 6900;     // Max run time (in minutes)
+  ObjectToFind  := CTS2(11018628, 19, 0.21, 1.09); // Purple
+(* Player settings *)
+  PNAME        = '';    // Username
+  PPASS        = '';    // Password
+  PPIN         = '';                // PIN
+(* Break settings *)
+  BREAKAFTER   = '115'; // Break after how long (in minutes)
+  BREAKFOR     = '15';  // Break for how long (in minutes)
+
+  DRAW         = True; // Will Draw on screen boxes around ores and such
+  MSWalking    = True; // Mainscreen walking
+
+Type
+  TScript = record
+  Version                   : String;
+  TrueRunTime               : TStopwatch;
+  RSW                       : TRSWalker;
+  end;
+
+var
+  Bot: TScript;
+
+procedure TScript.WriteMsg(Message: String);
+begin
+  WriteLn('[Bot]: ', Message);
+end;
+
+procedure TScript.WritePosition();
+begin
+  Self.WriteMsg('{X = ' + IntToStr(Self.RSW.GetMyPos().X) + ', Y = ' + IntToStr(Self.RSW.GetMyPos().Y) + '}');
+end;
+
+procedure TScript.DeclarePlayers();
+begin
+  Login.AddPlayer(PNAME, PPASS, PPIN, []);
+end;
+
+// Combination of miss mouse + slowing near the target destination
+procedure TMouse.HumanMove(Point: TPoint);
+var
+  mPt: TPoint;
+  S: Int32;
+  Miss: Double;
+  Range: Int64;
+begin
+  S := Self.Speed;
+  Range := Trunc(Power(Self.Position().DistanceTo(Point), 0.80)); // how much possible range to miss
+  Miss := SRL.SkewedRand(0.9, 0.1, 1.5); // Where miss will happen. 1 = destination (P).
+
+  mPt.X := Trunc((1-Miss)*Self.Position().X + Miss*Point.X);
+  mPt.Y := Trunc((1-Miss)*Self.Position().Y + Miss*Point.Y);
+
+  mPt.X += SRL.NormalRange(-Range, Range);
+  mPt.Y += SRL.NormalRange(-Range, Range);
+
+  Self.Move(mPt);
+  Self.Speed := round(S*0.85);
+  Self.Move(Point);
+  Self.Speed := S;
+end;
+
+procedure TScript.Free();
+begin
+  RSClient.Image.Clear();
+  Self.WriteMsg('Thanks for using Jacz'#39's Tithe Farmer!');
+end;
+
+procedure TScript.Init();
+begin
+  Mouse.Speed             := Random(19, 24);
+  Mouse.CanIdle           := False;
+  Mouse.MissChance        := 7;
+  Mouse.Brake             := True;
+  Mouse.Distribution      := MOUSE_DISTRIBUTION_GAUSS;
+  ItemFinder.Similarity   := 0.998;
+  Self.RSW.Setup('world');
+  Self.RSW.ScreenWalk     := MSWALKING;
+  //Self.RSW.OnWalkingEvent := @OnWalkEvent;
+  Self.RSW.EnableRunAtEnergy := 85;
+
+  MM2MS.ZoomLevel   := Options.GetZoomLevel();
+  //if DRAW then AddOnTerminate(@Self.Free);
+end;
+
+procedure TScript.DisplayMSTile(Tile: TRectangle; SizeMod: Int32=0);
+begin
+  if SizeMod > 0 then
+    Tile.Expand(SizeMod);
+  if MainScreen.Bounds.Contains(Tile.Bounds) then
+  begin
+    RSClient.Image.Clear(Mainscreen.Bounds);
+    RSClient.Image.DrawRect(Tile, clAqua);
+  end;
+end;
+
+function TScript.FindObj(Obj:TRSObjectFinder): Boolean;
+var
+  i           : Int32;
+  ATPA        : T2DPointArray;
+  attempt     : TStopwatch;
+begin
+  // CTS2(6382184, 23, 0.11, 0.10) // Grey outline
+  // CTS2(3411087, 23, 0.89, 0.70) // purple parts
+  // Look for other tiles if we don't find the first
+  ATPA := MainScreen.FindObject(Obj);
+  //RSClient.Image.DrawATPA(ATPA);
+  if ATPA.Len < 1 then Self.WriteMsg('No Obj Found!');
+  if ATPA.Len >= 1 then Self.WriteMsg('Obj Found!');
+  //Debug(ATPA);
+end;
+
+procedure TScript.Loop();
+var
+  ObjFinder:TRSObjectFinder
+begin
+  ObjFinder.ColorClusters += [CTS2(6382184, 23, 0.11, 0.10), CTS2(11018628, 19, 0.21, 1.09), 9];
+  ObjFinder.ClusterDistance := 4;
+  while (True) do
+    begin
+      Self.WritePosition();
+      //Self.DisplayMSTile(RSW.GetTileMS([2429,3316]),0);
+      Self.FindObj(ObjFinder);
+      Wait(420,690);
+      //ClearDebug();
+  end;
+end;
+
+procedure TScript.Report();
+begin
+  // Clears the debug every 2 seconds; keeps things clean
+  if Self.TrueRunTime.ElapsedTime >= Self.TempTime + 2*1000  then
+  begin
+    Self.TempTime := Self.TrueRunTime.ElapsedTime;
+    ClearDebug();
+  end;
+
+  Self.XPGained := Max(0, XPBar.Read()-Self.StartXP);
+  if TAKEBREAKS then
+  begin
+    ProgressReport(RESULT_REPORTBOX, 'Knight of Ardougne', 'Jacz', IntToStr(Self.Version),
+    ['Task','Take Breaks', 'Runtime', 'XP gained', 'Total Pickpockets', 'Until Break', 'Until Shutdown'],
+    [Self.CurrentTask,BoolToStr(TAKEBREAKS), SRL.MsToTime(Self.TrueRunTime.ElapsedTime, Time_Short),
+    ToStr(Round(Self.XPGained,2)), IntToStr(Self.TotalPickpockets),
+    Antiban.TimeUntilBreak(Antiban.Breaks[0]), SRL.MsToTime(Self.ShutdownTime-GetTimeRunning, Time_Short)])
+  end;
+  if not TAKEBREAKS then
+  begin
+    ProgressReport(RESULT_REPORTBOX, 'Knight of Ardougne', 'Jacz', IntToStr(Self.Version),
+    ['Task', 'Take Breaks', 'Runtime', 'XP gained', 'Total Pickpockets', 'Until Shutdown'],
+    [Self.CurrentTask,BoolToStr(TAKEBREAKS), SRL.MsToTime(Self.TrueRunTime.ElapsedTime, Time_Short),
+    ToStr(Round(Self.XPGained,2)), IntToStr(Self.TotalPickpockets), SRL.MsToTime(Self.ShutdownTime-GetTimeRunning, Time_Short)])
+  end;
+end;
+
+begin
+  if RSClient.IsLoggedIn() then
+    Bot.init();
+  Bot.Loop();
+end.

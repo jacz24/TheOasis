@@ -4,10 +4,22 @@ program JAIOFletcher;
 {$I SRL-F/OSR.simba}
 
 Type
+  TInitForm = record
+    Form: TForm;
+    tPic: TPicture;
+    FBGImg: TImage;
+    FStartButton: TButton;
+    TimeLabel,NameLabel,PassLabel,AccountLabel,PinLabel,BreakLabel,BreakLabel2,
+    BreakALabel,BreakFLabel,SettingsLabel,FoodLabel,HealLabel,WalkLabel,
+    ReportLabel: TLabel;
+    RunInput,NameInput,PassInput,PinInput,BreakAfterInput,BreakForInput,HealInput: TEdit;
+    FFoodBox: TComboBox;
+    BreaksButton,WalkButton,ReportButton: TCheckBox;
+  end;
+
   TBot = record
   ABTimeMod, StartXP, XPGained, TotalB, TotalC   : Int32;
   Version, BowName, StringName                   : String;
-  ABTimeMod, StartXP, XPGained
   RSW                                            : TRSWalker;
   ShutdownTime                                   : Int64;
   TrueRunTime                                    : TStopwatch;
@@ -16,18 +28,376 @@ end;
 
 var
   Bot: TBot;
+  GUI: TInitForm;
+
+procedure TBot.WriteMsg(Message: String);
+begin
+  WriteLn('[Bot]: '+Message);
+end;
+
+procedure DownloadToFile(const URL, Filename: string);
+var
+  Client: Int32;
+begin
+  Bot.WriteMsg('Downloading assets');
+  Client := InitializeHTTPClient(False);
+  try
+    GetHTTPPageEx(Client, URL, Filename);
+  finally
+    FreeHTTPClient(Client);
+  end;
+end;
+
+procedure TInitForm.doStart(Sender: TObject);
+begin
+  Self.Form.Close();
+  Bot.WriteMsg('Starting script');
+
+  Login.AddPlayer(Self.NameInput.GetText(), Self.PassInput.GetText(), Self.PinInput.GetText(), []);
+  Bot.FoodType := Self.FFoodBox.GetText();
+  if Bot.FoodType = 'Wine' then Bot.FoodType := 'Jug of wine';
+  Bot.HealPercent := StrToInt(Self.HealInput.GetText());
+  Antiban.AddBreak(ONE_MINUTE*StrToInt(Self.BreakAfterInput.GetText()),
+                   ONE_MINUTE*StrToInt(Self.BreakForInput.GetText()), 0.2, 1.0);
+
+  Bot.MaxRunTime := StrToInt(Self.RunInput.GetText());
+  Bot.ScreenReport := (Self.ReportButton.GetState = cbChecked);
+  Bot.TakeBreaks := (Self.BreaksButton.GetState = cbChecked);
+  RSW.ScreenWalk := (Self.WalkButton.GetState = cbChecked);
+
+  Bot.ShutdownTime := (Bot.MaxRunTime*60000)+Random(-(Bot.MaxRunTime*6000),(Bot.MaxRunTime*6000));
+end;
+
+procedure TInitForm.Run;
+begin
+  Self.Form.Init(nil);
+  with Self.Form do
+  begin
+    SetCaption('MasterFarmer Pickpocketer');
+    SetHeight(357);
+    SetWidth(626);
+    SetPosition(poScreenCenter);
+    SetColor(0);
+  end;
+
+  tPic.init();
+  tPic.LoadFromFile(AppPath+'\Resources\BGCanvas_MF.png');
+
+  FBGImg.Init(Self.Form);
+  with FBGImg do
+  begin
+    SetParent(Self.Form);
+    SetBounds(0,0,Self.Form.getWidth,Self.Form.getHeight);
+    SetPicture(tPic);
+  end;
+
+  AccountLabel.Init(Self.Form);
+  with AccountLabel do
+  begin
+    SetParent(Self.Form);
+    SetCaption('Player settings');
+    SetLeft(0);
+    SetTop(0);
+    GetFont().SetName('Bahnschrift');
+    GetFont().SetColor(65280);
+    GetFont().SetSize(14);
+  end;
+
+  NameLabel.Init(Self.Form);
+  with NameLabel do
+  begin
+    SetParent(Self.Form);
+    SetCaption('Name');
+    SetLeft(30);
+    SetTop(33);
+    GetFont().SetName('Bahnschrift');
+    GetFont().SetColor(12632256);
+    GetFont().SetSize(12);
+  end;
+
+  PassLabel.Init(Self.Form);
+  with PassLabel do
+  begin
+    SetParent(Self.Form);
+    SetCaption('Pass');
+    SetLeft(33);
+    SetTop(90);
+    GetFont().SetName('Bahnschrift');
+    GetFont().SetColor(12632256);
+    GetFont().SetSize(12);
+  end;
+
+  PinLabel.Init(Self.Form);
+  with PinLabel do
+  begin
+    SetParent(Self.Form);
+    SetCaption('Pin');
+    SetLeft(39);
+    SetTop(144);
+    GetFont().SetName('Bahnschrift');
+    GetFont().SetColor(12632256);
+    GetFont().SetSize(12);
+  end;
+
+  BreakLabel.Init(Self.Form);
+  with BreakLabel do
+  begin
+    SetParent(Self.Form);
+    SetLeft(222);
+    SetTop(0);
+    SetCaption('Break settings');
+    GetFont().SetName('Bahnschrift');
+    GetFont().SetColor(65280);
+    GetFont().SetSize(14);
+  end;
+
+  TimeLabel.Init(Self.Form);
+  with TimeLabel do
+  begin
+    SetParent(Self.Form);
+    SetLeft(223);
+    SetTop(33);
+    SetCaption('Max run time');
+    GetFont().SetName('Bahnschrift');
+    GetFont().SetColor(12632256);
+    GetFont().SetSize(12);
+  end;
+
+  BreakALabel.Init(Self.Form);
+  with BreakALabel do
+  begin
+    SetParent(Self.Form);
+    SetLeft(226);
+    SetTop(138);
+    SetCaption('Break after');
+    GetFont().SetName('Bahnschrift');
+    GetFont().SetColor(12632256);
+    GetFont().SetSize(12);
+  end;
+
+  BreakFLabel.Init(Self.Form);
+  with BreakFLabel do
+  begin
+    SetParent(Self.Form);
+    SetLeft(234);
+    SetTop(213);
+    SetCaption('Break for');
+    GetFont().SetName('Bahnschrift');
+    GetFont().SetColor(12632256);
+    GetFont().SetSize(12);
+  end;
+
+  SettingsLabel.Init(Self.Form);
+  with SettingsLabel do
+  begin
+    SetParent(Self.Form);
+    SetLeft(447);
+    SetTop(0);
+    SetCaption('Script settings');
+    GetFont().SetName('Bahnschrift');
+    GetFont().SetColor(65280);
+    GetFont().SetSize(14);
+  end;
+
+  FoodLabel.Init(Self.Form);
+  with FoodLabel do
+  begin
+    SetParent(Self.Form);
+    SetLeft(462);
+    SetTop(32);
+    SetCaption('Food type');
+    GetFont().SetName('Bahnschrift');
+    GetFont().SetColor(12632256);
+    GetFont().SetSize(12);
+  end;
+
+  FFoodBox.Init(Self.Form);
+  with FFoodBox do
+  begin
+    SetParent(Self.Form);
+    SetBounds(458,62,100,23);
+    SetReadOnly(True);
+    SetSelText('Lobster');
+    GetItems().Add('Wine');
+    GetItems().Add('Cake');
+    GetItems().Add('Trout');
+    GetItems().Add('Salmon');
+    GetItems().Add('Tuna');
+    GetItems().Add('Lobster');
+    GetItems().Add('Bass');
+    GetItems().Add('Swordfish');
+    GetItems().Add('Monkfish');
+    GetItems().Add('Shark');
+  end;
+
+  HealLabel.Init(Self.Form);
+  with HealLabel do
+  begin
+    SetParent(Self.Form);
+    SetLeft(454);
+    SetTop(100);
+    SetCaption('Heal percent');
+    GetFont().SetName('Bahnschrift');
+    GetFont().SetColor(12632256);
+    GetFont().SetSize(12);
+  end;
+
+  NameInput.Init(Self.Form);
+  with NameInput do
+  begin
+    SetParent(Self.Form);
+    SetBounds(15,62,80,23);
+  end;
+
+  PassInput.Init(Self.Form);
+  with PassInput do
+  begin
+    SetParent(Self.Form);
+    SetBounds(15,119,80,23);
+  end;
+
+  PinInput.Init(Self.Form);
+  with PinInput do
+  begin
+    SetParent(Self.Form);
+    SetBounds(15,172,80,23);
+  end;
+
+  RunInput.Init(Self.Form);
+  with RunInput do
+  begin
+    SetParent(Self.Form);
+    SetText('240');
+    SetBounds(240,62,80,23);
+  end;
+
+  BreakAfterInput.Init(Self.Form);
+  with BreakAfterInput do
+  begin
+    SetParent(Self.Form);
+    SetText('115');
+    SetBounds(239,173,80,23);
+    GetFont().SetName('');
+    GetFont().SetColor(0);
+    GetFont().SetSize(9);
+  end;
+
+  BreakForInput.Init(Self.Form);
+  with BreakForInput do
+  begin
+    SetParent(Self.Form);
+    SetText('25');
+    SetBounds(240,242,80,23);
+  end;
+
+  HealInput.Init(Self.Form);
+  with HealInput do
+  begin
+    SetParent(Self.Form);
+    SetText('55');
+    SetBounds(470,132,80,23);
+  end;
+
+  BreakLabel2.Init(Self.Form);
+  with BreakLabel2 do
+  begin
+    SetParent(Self.Form);
+    SetLeft(241);
+    SetTop(99);
+    SetCaption('Take breaks');
+    GetFont().SetName('Bahnschrift');
+    GetFont().SetColor(12632256);
+    GetFont().SetSize(12);
+  end;
+
+  BreaksButton.Init(Self.Form);
+  with BreaksButton do
+  begin
+    SetParent(Self.Form);
+    SetCaption('');
+    SetLeft(215);
+    SetTop(101);
+  end;
+
+  WalkLabel.Init(Self.Form);
+  with WalkLabel do
+  begin
+    SetParent(Self.Form);
+    SetLeft(480);
+    SetTop(164);
+    SetCaption('MS walking');
+    GetFont().SetName('Bahnschrift');
+    GetFont().SetColor(12632256);
+    GetFont().SetSize(12);
+  end;
+
+  WalkButton.Init(Self.Form);
+  with WalkButton do
+  begin
+    SetParent(Self.Form);
+    SetCaption('');
+    SetLeft(452);
+    SetTop(166);
+  end;
+
+  ReportLabel.Init(Self.Form);
+  with ReportLabel do
+  begin
+    SetParent(Self.Form);
+    SetLeft(27);
+    SetTop(220);
+    SetCaption('Screen report');
+    GetFont().SetName('Bahnschrift');
+    GetFont().SetColor(12632256);
+    GetFont().SetSize(12);
+  end;
+
+  ReportButton.Init(Self.Form);
+  with ReportButton do
+  begin
+    SetParent(Self.Form);
+    SetCaption('');
+    SetBounds(4,222,25,19);
+  end;
+
+  FStartButton.Init(Self.Form);
+  with FStartButton do
+  begin
+    SetParent(Self.Form);
+    SetCaption('Start!');
+    SetBounds(235,295,116,47);
+    GetFont().SetName('Bahnschrift');
+    GetFont().SetSize(14);
+    SetOnClick(@Self.doStart);
+  end;
+
+  try
+    Self.Form.ShowModal();
+    Self.Form.Free();
+  except
+    Bot.WriteMsg('Encountered an exception while loading the GUI');
+  end;
+end;
 
 procedure TBot.Report();
 begin
-  Self.XPGained := Max(0, XPBar.Read()-Self.StartXP);
   ClearDebug();
-  ProgressReport(RESULT_REPORTBOX, 'AIO-Cooker', 'Jacz', IntToStr(Self.Version),
-    ['Cooking', 'Take Breaks', 'Runtime', 'XP gained', 'Food Cooked', 'Food Burnt', 'Until Break', 'Until Shutdown'],
-    [Self.RawFoodName, BoolToStr(TAKEBREAKS), SRL.MsToTime(Self.TrueRunTime.ElapsedTime, Time_Short),
-    ToStr(Round(Self.XPGained,2)),
-    ToStr(Self.TotalC, '(', Max(0,Round(Self.TotalC / (Self.TrueRunTime.ElapsedTime/1000/60/60))),' / hr)'),
-    ToStr(Self.TotalB, '(', Max(0,Round(Self.TotalB / (Self.TrueRunTime.ElapsedTime/1000/60/60))),' / hr)'),
+  Self.XPGained := Max(0, XPBar.Read()-Self.StartXP);
+  if TAKEBREAKS then
+  begin
+    ProgressReport(RESULT_REPORTBOX, 'Knight of Ardougne', 'Jacz', IntToStr(Self.Version),
+    ['Task','Take Breaks', 'Runtime', 'XP gained', 'Total Pickpockets', 'Until Break', 'Until Shutdown'],
+    [Self.CurrentTask,BoolToStr(TAKEBREAKS), SRL.MsToTime(Self.TrueRunTime.ElapsedTime, Time_Short),
+    ToStr(Round(Self.XPGained,2)), IntToStr(Self.TotalPickpockets),
     Antiban.TimeUntilBreak(Antiban.Breaks[0]), SRL.MsToTime(Self.ShutdownTime-GetTimeRunning, Time_Short)])
+  end;
+  if not TAKEBREAKS then
+  begin
+    ProgressReport(RESULT_REPORTBOX, 'Knight of Ardougne', 'Jacz', IntToStr(Self.Version),
+    ['Task', 'Take Breaks', 'Runtime', 'XP gained', 'Total Pickpockets', 'Until Shutdown'],
+    [Self.CurrentTask,BoolToStr(TAKEBREAKS), SRL.MsToTime(Self.TrueRunTime.ElapsedTime, Time_Short),
+    ToStr(Round(Self.XPGained,2)), IntToStr(Self.TotalPickpockets), SRL.MsToTime(Self.ShutdownTime-GetTimeRunning, Time_Short)])
+  end;
 end;
 
 // Combination of miss mouse + slowing near the target destination
@@ -52,11 +422,6 @@ begin
   Self.Speed := round(S*0.85);
   Self.Move(Point);
   Self.Speed := S;
-end;
-
-procedure TBot.WriteMsg(Message: String);
-begin
-  WriteLn('[Bot]: ', Message);
 end;
 
 procedure TMouse.RandomMovement();
@@ -143,7 +508,7 @@ procedure TBot.init();
 begin
   Self.WriteMsg('Starting Init');
   Self.Version            := '1';
-  Mouse.Speed             := Random(19, 24);
+  Mouse.Speed             := Random(16, 24);
   Mouse.CanIdle           := False;
   Mouse.MissChance        := 7;
   Mouse.Brake             := True;
@@ -156,8 +521,18 @@ begin
 end;
 
 begin
-  if RSClient.IsLoggedIn() then
-    Bot.init();
-  Bot.Run();
+  if (not DirectoryExists(AppPath+'\Resources\')) then
+    CreateDirectory(AppPath+'\Resources');
+
+  if (not FileExists(AppPath+'\Resources\BGCanvas_AIOF.png')) then
+    DownloadToFile('https://i.imgur.com/3a6V74K.png', AppPath+'\Resources\BGCanvas_AIOF.png');
+  if (not FileExists(AppPath+'\Resources\AIOF_ReportBG.png')) then
+    DownloadToFile('https://i.imgur.com/fww9uJm.png', AppPath+'\Resources\AIOF_ReportBG.png');
+
+  Sync(@GUI.Run);
+
+  //if RSClient.IsLoggedIn() then
+  //  Bot.init();
+  //Bot.Run();
 
 end.

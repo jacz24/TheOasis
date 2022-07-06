@@ -367,8 +367,7 @@ begin
   Mouse.Brake             := True;
   Mouse.Distribution      := MOUSE_DISTRIBUTION_GAUSS;
 
-  //Self.RSW.Setup('world');
-  Self.RSW.Setup('TitheFarm');
+  Self.RSW.Setup('world');
   Self.RSW.ScreenWalk     := MSWALKING;
   Self.RSW.OnWalkingEvent := @OnWalkEvent;
   Self.RSW.EnableRunAtEnergy := 85;

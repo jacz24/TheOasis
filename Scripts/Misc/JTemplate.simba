@@ -1,4 +1,4 @@
-program JArdyThiever;
+program JTemplate;
 {$DEFINE SRL_USE_REMOTEINPUT}
 {$I SRL-F/OSR.simba}
 

@@ -1,5 +1,5 @@
 program TitheFarmer_V1;
-{$DEFINE SRL_USE_REMOTEINPUT}
+{$DEFINE SRL_USE_REMOTEINPUT_DEBUG}
 {$I SRL-F/OSR.simba}
 
 Const
@@ -26,10 +26,11 @@ Type
   TrueRunTime               : TStopwatch;
   SackTile, WaterBarrel, EntranceTile     : TPoint;
   SeedTableTile, PatchTiles, PatchTileOne, PatchTileTwo, PatchTileThree, PatchTileFour : TPointArray;
-  BologanoCycle : TCTS2Color;
+  Bologano, Sack, PlantCol, Watered: TCTS2Color;
   RSW                       : TRSWalker;
   ABTimeMod, StartXP        : Int32;
-  ShutdownTime        : Int64;
+  ShutdownTime              : Int64;
+  PatchArray                : array of TPointArray;
   end;
 
 var
@@ -146,8 +147,6 @@ begin
   end;
 end;
 
-
-
 procedure TScript.Report();
 begin
   ClearDebug();
@@ -193,9 +192,12 @@ begin
   ATPA := MainScreen.FindObject(DoorFinder);
   if ATPA.Len < 1 then TerminateScript('No Door Found');
   ATPA.SortByMiddle(Mainscreen.Center);
-
-
   // [120,118]
+end;
+
+function TScript.FindSack(): Boolean;
+begin
+
 end;
 
 function TScript.IsBright(): Boolean;
@@ -215,12 +217,12 @@ end;
 
 function TScript.CanPlant(): Boolean;
 begin
-  if MainScreen.IsUpText('patch') then Exit(True);
+  if MainScreen.IsUpText('Use') then Exit(True);
 end;
 
 function TScript.IsDead(): Boolean;
 begin
-
+  if MainScreen.IsUpText('Clear') then Exit(True);
 end;
 
 function TScript.Animating(): Boolean;
@@ -228,619 +230,235 @@ begin
   Self.WriteMsg('Checking If Animating');
 //if SRL.IsAnimating(MainScreen.GetPlayerBox, 25, 320, 3) then Exit(True);
 if SRL.GetPixelShift(MainScreen.GetPlayerBox, 120) > 75 then Exit(True);
-
 Exit(False);
 end;
 
-procedure TScript.WaterPlant();
+function TScript.IsWatered(Planter: TBox): Boolean;
+var
+  ATPA: T2DPointArray;
+  Water: TRSObjectFinder;
 begin
-  Mouse.Click(MOUSE_LEFT);
-end;
-procedure TScript.HarvestPlant();
-begin
-  Mouse.Click(MOUSE_LEFT);
+  Water.Colors += Self.Watered;
+  ATPA := MainScreen.FindObject(Water, Planter); // Checks the box where the planter should be
+  if ATPA.Len < 1 then Exit(False) else
+  begin
+    Exit(True);
+  end;
+  Exit(False);
 end;
 
-procedure TScript.RunToPatch();
+function TScript.IsPlanted(Planter: TBox): Boolean;
+var
+  ATPA: T2DPointArray;
+  Plant: TRSObjectFinder;
 begin
-  Self.WriteMsg('Running To Patch');
-  if Self.FindDoor() then
+  Plant.Colors += CTS2(10597690, 33, 0.24, 1.49); //CTS2(10531436, 22, 0.18, 0.96);//Self.PlantCol;
+  ATPA := MainScreen.FindObject(Plant, Planter); // Checks the box where the planter should be
+  if ATPA.Len < 1 then Exit(False) else
+  begin
+    Exit(True);
+  end;
+  Exit(False);
+end;
+
+function TScript.GetPatchArrayPlanter(PatchIndex, PlantIndex, OffsetX, OffsetY: Int32): TRectangle;
+begin
+  Exit(Self.RSW.GetTileMS([PatchArray[PatchIndex][PlantIndex].X + OffsetX, PatchArray[PatchIndex][PlantIndex].Y + OffsetY])); // For West Sides
+end;
+
+function TScript.SelectSeed(): Boolean;
+begin
+  if not Inventory.IsOpen() then Inventory.Open();
+  WaitUntil(Inventory.IsOpen(), 75, 2400);
+  while (not Inventory.IsSlotSelected(SEEDINVSLOT)) do
+  begin
+    if not Inventory.IsSlotSelected(SEEDINVSLOT) then Inventory.ClickSlot(SEEDINVSLOT);
+    WaitUntil(Inventory.IsSlotSelected(SEEDINVSLOT),75,1000);
+  end;
+  if Inventory.IsSlotSelected(SEEDINVSLOT) then Exit(True);
+  Exit(False);
+end;
+
+function TScript.UpdateMSPatch(PatchIndex, PlantIndex: Int32): TRectangle; // Updates the position of the patch
+begin
+    if PatchIndex = 0 then Exit(GetPatchArrayPlanter(PatchIndex, PlantIndex, -3,0));
+    if PatchIndex = 1 then Exit(GetPatchArrayPlanter(PatchIndex, PlantIndex, -3,0));
+    if PatchIndex = 2 then Exit(GetPatchArrayPlanter(PatchIndex, PlantIndex, +3,0));
+    if PatchIndex = 3 then Exit(GetPatchArrayPlanter(PatchIndex, PlantIndex, +3,0));
+end;
+
+function TScript.WaterPlant(): Boolean;
+begin
+  Mouse.Click(MOUSE_LEFT);
+  Exit(True);
+end;
+function TScript.HarvestPlant(): Boolean;
+begin
+  Mouse.Click(MOUSE_LEFT);
+  Exit(True);
+end;
+function TScript.ClearPlant(): Boolean;
+begin
+  Mouse.Click(MOUSE_LEFT);
+  Exit(True);
+end;
+
+function TScript.HandlePlanting(): Boolean;
+begin
+  Self.WriteMsg('Planting!');
+  if Self.CanPlant() then
   begin
     Mouse.Click(MOUSE_LEFT);
-    Wait(420,690);
-    WaitUntil(Self.IsBright, 224, 4000);
-    Self.RSW.WebWalk(Self.PatchTiles[0],6);
-  end else TerminateScript('Run To Patch Failed');
-
+    Exit(True);
+  end;
 end;
 
-procedure TScript.PlantWestSide();
+function TScript.CheckPlant(): Boolean; // If Found A Plant in a planter then check if water or harvest or dead
+begin
+  Self.WriteMsg('Checking Plant!');
+  //if Self.CanPlant then if Self.HandlePlanting() then Exit(True);
+  if Self.CanWater then if Self.WaterPlant() then Exit(True);
+  if Self.CanHarvest then if Self.HarvestPlant() then Exit(True);
+  if Self.IsDead then if Self.ClearPlant() then Exit(True);
+  Exit(False);
+end;
+
+procedure TScript.HandlePatchMaintenance(PatchIndex: Int32; Increment: Int32 = 2);
 var
-  PlantIndex, PatchIndex: Int32;
+  PlantIndex: Int32;
   RandPoint: TPoint;
   Plant: TRectangle;
-  PatchArray: array of TPointArray;
+  T: TCountdown;
 begin
-  PatchArray := [Self.PatchTileOne, Self.PatchTileTwo];
-
-  //Plant := Self.RSW.GetTileMS([PatchArray[PatchIndex][PlantIndex].X-3, PatchArray[PatchIndex][PlantIndex].Y]); // 1,4,7,10
-  //Plant := Plant.Expand(32);
-  //if DRAW then Self.DisplayMSTile(Plant);
-  //if Self.Animating() then Self.WriteMsg('IsAnimnating');
-  //TerminateScript('Tight');
-
-  for PatchIndex:=0 to high(PatchArray) do
+  for PlantIndex:=1 to high(Self.PatchArray[PatchIndex]) do
   begin
-    Self.WriteMsg('Farm Cycle For Patch: '+IntToStr(PatchIndex));
-    for PlantIndex:=1 to high(PatchArray[PatchIndex]) do
+    if not Inventory.FindItem('Watering can(8)') then if HUMIDIFY then Magic.CastSpell(ERSSpell.HUMIDIFY);
+    Self.WriteMsg('Handling Plant: '+IntToStr(PlantIndex)+' For Patch: '+IntToStr(PatchIndex));
+
+    // Inital Update Patch
+    Plant := Self.UpdateMSPatch(PatchIndex, PlantIndex); // Gets the mainscreen patch
+    Plant := Plant.Expand(32);
+    RandPoint := SRL.RandomPoint(Plant);
+    Self.DisplayMSTile(Plant);
+
+    // Will run to the planter if it is not visible on screen.
+    if not MainScreen.IsVisible(RandPoint) then
     begin
-      if MainScreen.IsVisible(Self.RSW.GetTileMS([PatchArray[PatchIndex][PlantIndex].X-3, PatchArray[PatchIndex][PlantIndex].Y]).Mean) then
+      T.Init(SRL.NormalRange(10500,12500));
+      while (not T.IsFinished) do
       begin
-        if not Inventory.IsOpen() then Inventory.Open();
-        WaitUntil(Inventory.IsOpen(), 75, 5000);
-        if not Inventory.IsSlotSelected(SEEDINVSLOT) then Inventory.ClickSlot(SEEDINVSLOT);
-        WaitUntil(Inventory.IsSlotSelected(SEEDINVSLOT), 75, 5000);
-        Self.WriteMsg(IntToStr(PlantIndex));
-        WaitUntil(not Minimap.IsPlayerMoving(150), 75, 5000);
-        Plant := Self.RSW.GetTileMS([PatchArray[PatchIndex][PlantIndex].X-3, PatchArray[PatchIndex][PlantIndex].Y]);
+        Self.RSW.ScreenWalk := False;
+        if Self.RSW.WalkBlind(Self.PatchArray[PatchIndex][PlantIndex]) then
+        break;
+
+        Plant := Self.UpdateMSPatch(PatchIndex, PlantIndex); // Gets the mainscreen patch
         Plant := Plant.Expand(32);
+        RandPoint := SRL.RandomPoint(Plant);
+        Self.DisplayMSTile(Plant);
+        wait(35, 75);
+      end;
+    end;
 
-        //RandPoint := [Plant.Mean.X - SRL.NormalRange(-100,100),Plant.Mean.Y + SRL.NormalRange(0,12)];
-        Mouse.HumanMove(Plant.Mean());
-        if Self.CanWater then Self.WaterPlant();
+    // Wait To Not Move Before Getting The Next Update
+    WaitUntil(not Minimap.IsPlayerMoving(), 75, 5400);
+    Plant := Self.UpdateMSPatch(PatchIndex, PlantIndex); // Gets the mainscreen patch
+    Plant := Plant.Expand(32);
+    RandPoint := SRL.RandomPoint(Plant);
+    Self.DisplayMSTile(Plant);
+    // if we do not find a plant then lets plant one.
+    if not Self.IsPlanted(Plant.Bounds) then
+    begin
 
-        if Self.CanPlant then
+      Self.WriteMsg('Found Empty Patch! Planting');
+      Self.SelectSeed();
+      Mouse.HumanMove(RandPoint);
+      Self.HandlePlanting();
+
+      // Wait until patch is updated constantly checking
+      T.Init(SRL.NormalRange(10500,12500));
+      while (not T.IsFinished) do
+      begin
+        WaitUntil(not Minimap.IsPlayerMoving(500), 75, 4200);
+        Plant := Self.UpdateMSPatch(PatchIndex, PlantIndex);
+        Plant := Plant.Expand(32);
+        if Self.IsPlanted(Plant.Bounds) then break;
+        Wait(75,100);
+      end;
+
+      // Bugging but is the future TODO!
+      //if not SRL.PointInRect(RandPoint, Plant.Left, Plant.Top, Plant.Right, Plant.Btm) then
+      //begin
+      //  Self.WriteMsg('Mircale its in the circle!');
+      //  Mouse.HumanMove(RandPoint);
+      //end;
+
+      RandPoint := SRL.RandomPoint(Plant);
+      Self.WriteMsg('Player Stopped Moving, Watering!');
+      Mouse.HumanMove(RandPoint);
+      Self.CheckPlant();
+      Plant := Self.UpdateMSPatch(PatchIndex, PlantIndex);
+      Plant := Plant.Expand(32);
+
+      if PatchIndex = 3 then Self.WriteMsg('Not doing it fast') else Self.SelectSeed(); // Select fast to save time
+
+      WaitUntil(Self.IsWatered(Plant.Bounds),75,4200);
+      //TerminateScript('Good News everyone!');
+    end else
+    begin
+      Plant := Self.UpdateMSPatch(PatchIndex, PlantIndex);
+      Plant := Plant.Expand(32);
+      if Self.IsPlanted(Plant.Bounds) then
+      begin // If Found A Plant in a planter then check if water or harvest or dead
+        Self.WriteMsg('Found Plant, Checking!');
+        T.Init(SRL.NormalRange(10500,12500));
+        while (not T.IsFinished) do
         begin
-          WaitUntil(not Minimap.IsPlayerMoving(150), 75, 5000);
-          Mouse.Click(MOUSE_LEFT);
-          WaitUntil(MainScreen.DidRedClick, 50, 1200);
-          Wait(125,175);
-          WaitUntil(not Minimap.IsPlayerMoving(), 75, 5000);
-          WaitUntil(not Self.Animating(), 75, 4200);
-          //Wait(750,1000);
-
-          Plant := Self.RSW.GetTileMS([PatchArray[PatchIndex][PlantIndex].X-3, PatchArray[PatchIndex][PlantIndex].Y]);
+          // TODO: FIX DOUBLE CLICKING FOR HARVESTING AND WATER
+          // ITS FASTER AND PROBABLY BETTER BUT ITS CURRENTLY UNINTENTIONAL
+          // MIGHT NEED TO REDO THIS WHOLE PART!
+          WaitUntil(not Minimap.IsPlayerMoving(), 75, 4200);
+          Mouse.HumanMove(RandPoint);
+          Plant := Self.UpdateMSPatch(PatchIndex, PlantIndex);
           Plant := Plant.Expand(32);
-          Mouse.HumanMove(Plant.Mean());
+          Self.DisplayMSTile(Plant);
+          RandPoint := SRL.RandomPoint(Plant);
 
-          WaitUntil(Self.CanWater(), 75, 3200);
+          if Self.IsWatered(Plant.Bounds) then break;
+          if not Self.IsPlanted(Plant.Bounds) then break;
 
-          if Self.CanWater then Self.WaterPlant();
-          WaitUntil(not Self.Animating(), 75, 4200);
+          // Custom handlers
+
+          if not Self.IsWatered(Plant.Bounds) then if Self.CanWater then
+          begin
+            Plant := Self.UpdateMSPatch(PatchIndex, PlantIndex);
+            Plant := Plant.Expand(32);
+
+            if Self.IsWatered(Plant.Bounds) then break;
+            Self.WaterPlant();
+            WaitUntil(not Minimap.IsPlayerMoving(), 75, 4200);
+            if Self.IsWatered(Plant.Bounds) then break;
+          end;
+
+          if Self.CanHarvest then
+          begin
+            Self.HarvestPlant();
+
+            WaitUntil(not Minimap.IsPlayerMoving(), 75, 4200);
+            Plant := Self.UpdateMSPatch(PatchIndex, PlantIndex);
+            Plant := Plant.Expand(32);
+            if not Self.IsPlanted(Plant.Bounds) then break;
+          end;
+          Wait(75,125);
         end;
-        if DRAW then Self.DisplayMSTile(Plant);
-        Self.WritePosition();
-        PlantIndex := PlantIndex + 2;
-        end else
-        begin
-          //Wait(224,420);
-          WaitUntil(not Self.Animating(), 75, 4200);
-          //Self.RSW.ScreenWalk := False;
-          Self.RSW.WalkBlind(PatchArray[PatchIndex][PlantIndex],2);
-          WaitUntil(not Minimap.IsPlayerMoving(), 75, 1200);
-          if not Inventory.IsOpen() then Inventory.Open();
-          WaitUntil(Inventory.IsOpen(), 75, 5000);
-          if not Inventory.IsSlotSelected(SEEDINVSLOT) then Inventory.ClickSlot(SEEDINVSLOT);
-          WaitUntil(Inventory.IsSlotSelected(SEEDINVSLOT), 75, 2400);
-          Self.WriteMsg(IntToStr(PlantIndex));
+    end;
+  end;
+    Self.DisplayMSTile(Plant);
+    PlantIndex := PlantIndex + Increment;
 
-          Plant := Self.RSW.GetTileMS(PatchArray[PatchIndex][PlantIndex]);
-          Plant := Plant.Expand(32);
-          Plant := Plant.Offset([-12,32]);
-
-          //RandPoint := [Plant.Mean.X - SRL.NormalRange(-100,100),Plant.Mean.Y + SRL.NormalRange(0,12)];
-          Mouse.HumanMove(Plant.Mean());
-          if Self.CanWater then Self.WaterPlant();
-
-        if Self.CanPlant then
-        begin
-          WaitUntil(not Minimap.IsPlayerMoving(150), 75, 5000);
-          Mouse.Click(MOUSE_LEFT);
-          WaitUntil(MainScreen.DidRedClick, 50, 1200);
-          Wait(224,420);
-          WaitUntil(not Minimap.IsPlayerMoving(), 75, 5000);
-          WaitUntil(not Self.Animating(), 75, 4200);
-
-          Plant := Self.RSW.GetTileMS([PatchArray[PatchIndex][PlantIndex].X-3, PatchArray[PatchIndex][PlantIndex].Y]);
-          Plant := Plant.Expand(32);
-          Mouse.HumanMove(Plant.Mean());
-
-          WaitUntil(Self.CanWater(), 75, 3200);
-
-          if Self.CanWater then Self.WaterPlant();
-          WaitUntil(not Self.Animating(), 75, 4200);
-        end;
-        if DRAW then Self.DisplayMSTile(Plant);
-
-        Self.WritePosition();
-        PlantIndex := PlantIndex + 2;
-        end;
-        Wait(45,75);
-      end;
   end;
 
 end;
 
-procedure TScript.PlantEastSide();
-var
-  PlantIndex, PatchIndex: Int32;
-  RandPoint: TPoint;
-  Plant: TRectangle;
-  PatchArray: array of TPointArray;
-begin
-  PatchArray := [Self.PatchTileThree, Self.PatchTileFour];
-
-
-  Plant := Self.RSW.GetTileMS([PatchArray[0][0].X+3, PatchArray[0][0].Y]); // 1,4,7,10
-  Plant := Plant.Expand(32);
-  if DRAW then Self.DisplayMSTile(Plant);
-  if Self.Animating() then Self.WriteMsg('IsAnimnating');
-  //TerminateScript('Tight');
-
-  for PatchIndex:=0 to high(PatchArray) do
-  begin
-    Self.WriteMsg('Farm Cycle For Patch: '+IntToStr(PatchIndex));
-    for PlantIndex:=1 to high(PatchArray[PatchIndex]) do
-    begin
-      if MainScreen.IsVisible(Self.RSW.GetTileMS([PatchArray[PatchIndex][PlantIndex].X+3, PatchArray[PatchIndex][PlantIndex].Y]).Mean) then
-      begin
-
-        if not Inventory.IsOpen() then Inventory.Open();
-        WaitUntil(Inventory.IsOpen(), 75, 5000);
-        if not Inventory.IsSlotSelected(SEEDINVSLOT) then Inventory.ClickSlot(SEEDINVSLOT);
-        WaitUntil(Inventory.IsSlotSelected(SEEDINVSLOT), 75, 5000);
-        Self.WriteMsg(IntToStr(PlantIndex));
-        WaitUntil(not Minimap.IsPlayerMoving(150), 75, 5000);
-        Plant := Self.RSW.GetTileMS([PatchArray[PatchIndex][PlantIndex].X+3, PatchArray[PatchIndex][PlantIndex].Y]);
-        Plant := Plant.Expand(32);
-
-        //RandPoint := [Plant.Mean.X - SRL.NormalRange(-100,100),Plant.Mean.Y + SRL.NormalRange(0,12)];
-        Mouse.HumanMove(Plant.Mean());
-        if Self.CanWater then Self.WaterPlant();
-
-        if Self.CanPlant then
-        begin
-          WaitUntil(not Minimap.IsPlayerMoving(150), 75, 5000);
-          Mouse.Click(MOUSE_LEFT);
-          WaitUntil(MainScreen.DidRedClick, 50, 1200);
-          Wait(125,175);
-          WaitUntil(not Minimap.IsPlayerMoving(), 75, 5000);
-          WaitUntil(not Self.Animating(), 75, 4200);
-          //Wait(750,1000);
-
-          Plant := Self.RSW.GetTileMS([PatchArray[PatchIndex][PlantIndex].X+3, PatchArray[PatchIndex][PlantIndex].Y]);
-          Plant := Plant.Expand(32);
-          Mouse.HumanMove(Plant.Mean());
-
-          WaitUntil(Self.CanWater(), 75, 3200);
-
-          if Self.CanWater then Self.WaterPlant();
-        end;
-        if DRAW then Self.DisplayMSTile(Plant);
-        Self.WritePosition();
-        PlantIndex := PlantIndex + 2;
-
-        end else
-        begin
-        WaitUntil(not Self.Animating(), 75, 4200);
-        Self.RSW.ScreenWalk := False;
-        Self.RSW.WalkBlind(PatchArray[PatchIndex][PlantIndex],2);
-        WaitUntil(not Minimap.IsPlayerMoving(), 75, 2400);
-
-
-        if not Inventory.IsOpen() then Inventory.Open();
-        WaitUntil(Inventory.IsOpen(), 75, 5000);
-        if not Inventory.IsSlotSelected(SEEDINVSLOT) then Inventory.ClickSlot(SEEDINVSLOT);
-        WaitUntil(Inventory.IsSlotSelected(SEEDINVSLOT), 75, 5000);
-        Self.WriteMsg(IntToStr(PlantIndex));
-        WaitUntil(not Minimap.IsPlayerMoving(150), 75, 5000);
-        Plant := Self.RSW.GetTileMS([PatchArray[PatchIndex][PlantIndex].X+3, PatchArray[PatchIndex][PlantIndex].Y]);
-        Plant := Plant.Expand(32);
-
-        //RandPoint := [Plant.Mean.X - SRL.NormalRange(-100,100),Plant.Mean.Y + SRL.NormalRange(0,12)];
-        Mouse.HumanMove(Plant.Mean());
-        if Self.CanWater then Self.WaterPlant();
-
-        if Self.CanPlant then
-        begin
-          WaitUntil(not Minimap.IsPlayerMoving(150), 75, 5000);
-          Mouse.Click(MOUSE_LEFT);
-          WaitUntil(MainScreen.DidRedClick, 50, 1200);
-          Wait(224,420);
-          WaitUntil(not Minimap.IsPlayerMoving(), 75, 5000);
-          WaitUntil(not Self.Animating(), 75, 4200);
-
-          Plant := Self.RSW.GetTileMS([PatchArray[PatchIndex][PlantIndex].X+3, PatchArray[PatchIndex][PlantIndex].Y]);
-          Plant := Plant.Expand(32);
-          Mouse.HumanMove(Plant.Mean());
-
-          WaitUntil(Self.CanWater(), 75, 3200);
-
-          if Self.CanWater then Self.WaterPlant();
-        end;
-        if DRAW then Self.DisplayMSTile(Plant);
-
-        Self.WritePosition();
-
-        //Wait(450,750);
-
-        PlantIndex := PlantIndex + 2;
-        //TerminateScript('Time to shutdown Testing');
-        end;
-        //WaitUntil(not Minimap.IsPlayerMoving(), 75, 5200);
-      end;
-  end;
-end;
-procedure TScript.WaterWestSide();
-var
-  PlantIndex, PatchIndex: Int32;
-  RandPoint: TPoint;
-  Plant: TRectangle;
-  PatchArray: array of TPointArray;
-begin
-  PatchArray := [Self.PatchTileOne, Self.PatchTileTwo];
-
-  for PatchIndex:=0 to high(PatchArray) do
-  begin
-    Self.WriteMsg('Farm Cycle For Patch: '+IntToStr(PatchIndex));
-    for PlantIndex:=1 to high(PatchArray[PatchIndex]) do
-    begin
-      WaitUntil(not Minimap.IsPlayerMoving(150), 75, 5000);
-      if MainScreen.IsVisible(Self.RSW.GetTileMS([PatchArray[PatchIndex][PlantIndex].X-3, PatchArray[PatchIndex][PlantIndex].Y]).Mean) then
-      begin
-
-        if not Inventory.IsOpen() then Inventory.Open();
-        WaitUntil(Inventory.IsOpen(), 75, 5000);
-        Self.WriteMsg(IntToStr(PlantIndex));
-        WaitUntil(not Minimap.IsPlayerMoving(150), 75, 5000);
-        Plant := Self.RSW.GetTileMS([PatchArray[PatchIndex][PlantIndex].X-3, PatchArray[PatchIndex][PlantIndex].Y]);
-        Plant := Plant.Expand(32);
-
-        //RandPoint := [Plant.Mean.X - SRL.NormalRange(-100,100),Plant.Mean.Y + SRL.NormalRange(0,12)];
-        Mouse.HumanMove(Plant.Mean());
-        if Self.CanWater then Self.WaterPlant();
-        WaitUntil(not Minimap.IsPlayerMoving(), 75, 5000);
-        WaitUntil(not Self.Animating(), 75, 4200);
-
-        if DRAW then Self.DisplayMSTile(Plant);
-        Self.WritePosition();
-        PlantIndex := PlantIndex + 2;
-
-        end else
-        begin
-        Self.RSW.ScreenWalk := False;
-        Self.RSW.WalkBlind(PatchArray[PatchIndex][PlantIndex],2);
-        WaitUntil(not Minimap.IsPlayerMoving(), 75, 2400);
-
-
-        if not Inventory.IsOpen() then Inventory.Open();
-        WaitUntil(Inventory.IsOpen(), 75, 5000);
-        Self.WriteMsg(IntToStr(PlantIndex));
-        WaitUntil(not Minimap.IsPlayerMoving(150), 75, 5000);
-        Plant := Self.RSW.GetTileMS([PatchArray[PatchIndex][PlantIndex].X-3, PatchArray[PatchIndex][PlantIndex].Y]);
-        Plant := Plant.Expand(32);
-
-        //RandPoint := [Plant.Mean.X - SRL.NormalRange(-100,100),Plant.Mean.Y + SRL.NormalRange(0,12)];
-        Mouse.HumanMove(Plant.Mean());
-        if Self.CanWater then Self.WaterPlant();
-        WaitUntil(not Minimap.IsPlayerMoving(), 75, 5000);
-        WaitUntil(not Self.Animating(), 75, 4200);
-        if DRAW then Self.DisplayMSTile(Plant);
-        Self.WritePosition();
-        PlantIndex := PlantIndex + 2;
-        //TerminateScript('Time to shutdown Testing');
-        end;
-        WaitUntil(not Minimap.IsPlayerMoving(), 75, 5200);
-      end;
-  end;
-
-end;
-
-procedure TScript.WaterEastSide();
-var
-  PlantIndex, PatchIndex: Int32;
-  RandPoint: TPoint;
-  Plant: TRectangle;
-  PatchArray: array of TPointArray;
-begin
-  PatchArray := [Self.PatchTileThree, Self.PatchTileFour];
-
-  for PatchIndex:=0 to high(PatchArray) do
-  begin
-    WaitUntil(not Minimap.IsPlayerMoving(150), 75, 5000);
-    Self.WriteMsg('Farm Cycle For Patch: '+IntToStr(PatchIndex));
-    for PlantIndex:=1 to high(PatchArray[PatchIndex]) do
-    begin
-      if MainScreen.IsVisible(Self.RSW.GetTileMS([PatchArray[PatchIndex][PlantIndex].X+3, PatchArray[PatchIndex][PlantIndex].Y]).Mean) then
-      begin
-
-        if not Inventory.IsOpen() then Inventory.Open();
-        WaitUntil(Inventory.IsOpen(), 75, 5000);
-        Self.WriteMsg(IntToStr(PlantIndex));
-        WaitUntil(not Minimap.IsPlayerMoving(150), 75, 5000);
-        Plant := Self.RSW.GetTileMS([PatchArray[PatchIndex][PlantIndex].X+3, PatchArray[PatchIndex][PlantIndex].Y]);
-        Plant := Plant.Expand(32);
-
-        //RandPoint := [Plant.Mean.X - SRL.NormalRange(-100,100),Plant.Mean.Y + SRL.NormalRange(0,12)];
-        Mouse.HumanMove(Plant.Mean());
-        if Self.CanWater then Self.WaterPlant();
-        WaitUntil(not Minimap.IsPlayerMoving(), 75, 5000);
-        WaitUntil(not Self.Animating(), 75, 4200);
-
-        if DRAW then Self.DisplayMSTile(Plant);
-        Self.WritePosition();
-        PlantIndex := PlantIndex + 2;
-
-        end else
-        begin
-        Self.RSW.ScreenWalk := False;
-        Self.RSW.WalkBlind(PatchArray[PatchIndex][PlantIndex],2);
-        WaitUntil(not Minimap.IsPlayerMoving(), 75, 2400);
-
-
-        if not Inventory.IsOpen() then Inventory.Open();
-        WaitUntil(Inventory.IsOpen(), 75, 5000);
-        Self.WriteMsg(IntToStr(PlantIndex));
-        WaitUntil(not Minimap.IsPlayerMoving(150), 75, 5000);
-        Plant := Self.RSW.GetTileMS([PatchArray[PatchIndex][PlantIndex].X+3, PatchArray[PatchIndex][PlantIndex].Y]);
-        Plant := Plant.Expand(32);
-
-        //RandPoint := [Plant.Mean.X - SRL.NormalRange(-100,100),Plant.Mean.Y + SRL.NormalRange(0,12)];
-        Mouse.HumanMove(Plant.Mean());
-        if Self.CanWater then Self.WaterPlant();
-        WaitUntil(not Minimap.IsPlayerMoving(), 75, 5000);
-        WaitUntil(not Self.Animating(), 75, 4200);
-        if DRAW then Self.DisplayMSTile(Plant);
-        Self.WritePosition();
-        PlantIndex := PlantIndex + 2;
-        //TerminateScript('Time to shutdown Testing');
-        end;
-        WaitUntil(not Minimap.IsPlayerMoving(), 75, 5200);
-      end;
-  end;
-end;
-
-procedure TScript.HarvestEastSide();
-var
-  PlantIndex, PatchIndex: Int32;
-  RandPoint: TPoint;
-  Plant: TRectangle;
-  PatchArray: array of TPointArray;
-begin
-  PatchArray := [Self.PatchTileThree, Self.PatchTileFour];
-
-  for PatchIndex:=0 to high(PatchArray) do
-  begin
-    WaitUntil(not Minimap.IsPlayerMoving(150), 75, 5000);
-    Self.WriteMsg('Farm Cycle For Patch: '+IntToStr(PatchIndex));
-    for PlantIndex:=1 to high(PatchArray[PatchIndex]) do
-    begin
-      if MainScreen.IsVisible(Self.RSW.GetTileMS([PatchArray[PatchIndex][PlantIndex].X+3, PatchArray[PatchIndex][PlantIndex].Y]).Mean) then
-      begin
-
-        if not Inventory.IsOpen() then Inventory.Open();
-        WaitUntil(Inventory.IsOpen(), 75, 5000);
-        Self.WriteMsg(IntToStr(PlantIndex));
-        WaitUntil(not Minimap.IsPlayerMoving(150), 75, 5000);
-        Plant := Self.RSW.GetTileMS([PatchArray[PatchIndex][PlantIndex].X+3, PatchArray[PatchIndex][PlantIndex].Y]);
-        Plant := Plant.Expand(32);
-
-        //RandPoint := [Plant.Mean.X - SRL.NormalRange(-100,100),Plant.Mean.Y + SRL.NormalRange(0,12)];
-        Mouse.HumanMove(Plant.Mean());
-        if Self.CanHarvest then Self.HarvestPlant();
-        WaitUntil(not Minimap.IsPlayerMoving(), 75, 5000);
-        WaitUntil(not Self.Animating(), 75, 4200);
-
-        if DRAW then Self.DisplayMSTile(Plant);
-        Self.WritePosition();
-        PlantIndex := PlantIndex + 2;
-
-        end else
-        begin
-        Self.RSW.ScreenWalk := False;
-        Self.RSW.WalkBlind(PatchArray[PatchIndex][PlantIndex],2);
-        WaitUntil(not Minimap.IsPlayerMoving(), 75, 2400);
-
-
-        if not Inventory.IsOpen() then Inventory.Open();
-        WaitUntil(Inventory.IsOpen(), 75, 5000);
-        Self.WriteMsg(IntToStr(PlantIndex));
-        WaitUntil(not Minimap.IsPlayerMoving(150), 75, 5000);
-        Plant := Self.RSW.GetTileMS([PatchArray[PatchIndex][PlantIndex].X+3, PatchArray[PatchIndex][PlantIndex].Y]);
-        Plant := Plant.Expand(32);
-
-        //RandPoint := [Plant.Mean.X - SRL.NormalRange(-100,100),Plant.Mean.Y + SRL.NormalRange(0,12)];
-        Mouse.HumanMove(Plant.Mean());
-        if Self.CanHarvest then Self.HarvestPlant();
-        WaitUntil(not Minimap.IsPlayerMoving(), 75, 5000);
-        WaitUntil(not Self.Animating(), 75, 4200);
-        if DRAW then Self.DisplayMSTile(Plant);
-        Self.WritePosition();
-        PlantIndex := PlantIndex + 2;
-        //TerminateScript('Time to shutdown Testing');
-        end;
-        WaitUntil(not Minimap.IsPlayerMoving(), 75, 5200);
-      end;
-  end;
-end;
-
-procedure TScript.HarvestWestSide();
-var
-  PlantIndex, PatchIndex: Int32;
-  RandPoint: TPoint;
-  Plant: TRectangle;
-  PatchArray: array of TPointArray;
-begin
-  PatchArray := [Self.PatchTileOne, Self.PatchTileTwo];
-
-  for PatchIndex:=0 to high(PatchArray) do
-  begin
-    WaitUntil(not Minimap.IsPlayerMoving(150), 75, 5000);
-    Self.WriteMsg('Farm Cycle For Patch: '+IntToStr(PatchIndex));
-    for PlantIndex:=1 to high(PatchArray[PatchIndex]) do
-    begin
-      if MainScreen.IsVisible(Self.RSW.GetTileMS([PatchArray[PatchIndex][PlantIndex].X-3, PatchArray[PatchIndex][PlantIndex].Y]).Mean) then
-      begin
-
-        if not Inventory.IsOpen() then Inventory.Open();
-        WaitUntil(Inventory.IsOpen(), 75, 5000);
-        Self.WriteMsg(IntToStr(PlantIndex));
-        WaitUntil(not Minimap.IsPlayerMoving(150), 75, 5000);
-        Plant := Self.RSW.GetTileMS([PatchArray[PatchIndex][PlantIndex].X-3, PatchArray[PatchIndex][PlantIndex].Y]);
-        Plant := Plant.Expand(32);
-
-        //RandPoint := [Plant.Mean.X - SRL.NormalRange(-100,100),Plant.Mean.Y + SRL.NormalRange(0,12)];
-        Mouse.HumanMove(Plant.Mean());
-        if Self.CanHarvest then Self.HarvestPlant();
-        WaitUntil(not Minimap.IsPlayerMoving(), 75, 5000);
-        WaitUntil(not Self.Animating(), 75, 4200);
-
-        if DRAW then Self.DisplayMSTile(Plant);
-        Self.WritePosition();
-        PlantIndex := PlantIndex + 2;
-
-        end else
-        begin
-        Self.RSW.ScreenWalk := False;
-        Self.RSW.WalkBlind(PatchArray[PatchIndex][PlantIndex],2);
-        WaitUntil(not Minimap.IsPlayerMoving(), 75, 2400);
-
-
-        if not Inventory.IsOpen() then Inventory.Open();
-        WaitUntil(Inventory.IsOpen(), 75, 5000);
-        Self.WriteMsg(IntToStr(PlantIndex));
-        WaitUntil(not Minimap.IsPlayerMoving(150), 75, 5000);
-        Plant := Self.RSW.GetTileMS([PatchArray[PatchIndex][PlantIndex].X-3, PatchArray[PatchIndex][PlantIndex].Y]);
-        Plant := Plant.Expand(32);
-
-        //RandPoint := [Plant.Mean.X - SRL.NormalRange(-100,100),Plant.Mean.Y + SRL.NormalRange(0,12)];
-        Mouse.HumanMove(Plant.Mean());
-        if Self.CanHarvest then Self.HarvestPlant();
-        WaitUntil(not Minimap.IsPlayerMoving(), 75, 5000);
-        WaitUntil(not Self.Animating(), 75, 4200);
-        if DRAW then Self.DisplayMSTile(Plant);
-        Self.WritePosition();
-        PlantIndex := PlantIndex + 2;
-        //TerminateScript('Time to shutdown Testing');
-        end;
-        WaitUntil(not Minimap.IsPlayerMoving(), 75, 5200);
-      end;
-  end;
-end;
-
-procedure TScript.FarmCycle(Cycle: String);
-begin
-  Self.WriteMsg(IntToStr(high(Self.PatchTileOne)));
-
-  if Cycle = 'ALL' then
-  begin
-    Self.PlantWestSide();
-    Self.PlantEastSide();
-    WaitUntil(not Self.Animating(), 75, 5000);
-    Wait(125,175);
-
-    Self.WaterWestSide();
-    Self.WaterEastSide();
-    WaitUntil(not Self.Animating(), 75, 5000);
-    Wait(125,175);
-
-    Self.WaterWestSide();
-    Self.WaterEastSide();
-    WaitUntil(not Self.Animating(), 75, 5000);
-    Wait(125,175);
-
-    Self.HarvestWestSide();
-    Self.HarvestEastSide();
-
-  end;
-  TerminateScript('Time to shutdown Testing');
-
-
-
-
-
-  (*
-  //for
-    for PlantIndex:=1 to high(Self.PatchTileOne) do
-    begin
-      RandPoint := RSW.GetTileMS([Self.PatchTileOne[PlantIndex].X - SRL.NormalRange(0,4),Self.PatchTileOne[PlantIndex].Y + SRL.NormalRange(0,6)]).mean;
-
-      // This might cause improper function
-      if MainScreen.IsVisible(RandPoint) then
-      begin
-        if not Inventory.IsOpen() then Inventory.Open();
-        WaitUntil(Inventory.IsOpen(), 75, 5000);
-        Inventory.ClickSlot(SEEDINVSLOT);
-
-
-        //Inventory.ClickItem(SEEDTYPE + ' seed');
-        Wait(45,75);
-        Mouse.HumanMove(RandPoint);
-        if MainScreen.IsUpText('patch') then Mouse.Click(MOUSE_LEFT);
-        WaitUntil(MainScreen.IsUpText('seedling'), 75, 2400);
-        if Self.CanWater then
-        begin
-        Mouse.Click(MOUSE_LEFT);
-        end else
-        begin
-          //Mouse.HumanMove(RandPoint);
-          Mouse.HumanMove(RSW.GetTileMS(Self.PatchTileOne[PlantIndex]).mean);
-          if Self.CanWater then Mouse.Click(MOUSE_LEFT);
-        end;
-
-
-        // THESE TWO LINES WITH BE IMPORTANT ONE DAY
-        if MainScreen.IsUpText('plant') then if Self.CanHarvest then Mouse.Click(MOUSE_LEFT);
-        if MainScreen.IsUpText('plant') then if Self.CanWater then Mouse.Click(MOUSE_LEFT);
-
-        //WaitUntil(not Minimap.IsPlayerMoving(120), 75, 2400);
-        //WaitUntil(not SRL.IsAnimating(MainScreen.GetPlayerBox, 45, 224, 3), 75, 2400);
-
-        Self.WriteMsg('Checking if we need to water');
-
-        //if Self.RSW.GetMyPos = Self.PatchTileOne[PlantIndex] then
-
-        Self.WriteMsg(IntToStr(PlantIndex));
-        PlantIndex := PlantIndex + 2;
-      end else
-      begin
-        Self.RSW.ScreenWalk := False;
-        Self.RSW.WalkBlind(Self.PatchTileOne[PlantIndex],2);
-        //Wait(850,1250);
-        if not Inventory.IsOpen() then Inventory.Open();
-        WaitUntil(Inventory.IsOpen(), 75, 5000);
-        Inventory.ClickSlot(SEEDINVSLOT);
-
-
-        //Inventory.ClickItem(SEEDTYPE + ' seed');
-        Wait(45,75);
-        Mouse.HumanMove(RandPoint);
-
-        Mouse.Click(MOUSE_LEFT);
-        WaitUntil(not Minimap.IsPlayerMoving(120), 75, 4000);
-        WaitUntil(not SRL.IsAnimating(MainScreen.GetPlayerBox, 125, 420, 3), 75, 4000);
-
-        Self.WriteMsg('Checking if we need to water');
-        if Self.CanWater then
-        begin
-        Mouse.Click(MOUSE_LEFT);
-        end else
-        begin
-          //Mouse.HumanMove(RandPoint);
-          Mouse.HumanMove(RSW.GetTileMS(Self.PatchTileOne[PlantIndex]).mean);
-          if Self.CanWater then Mouse.Click(MOUSE_LEFT);
-
-        end;
-        //if Self.RSW.GetMyPos = Self.PatchTileOne[PlantIndex] then
-
-        Self.WriteMsg(IntToStr(PlantIndex));
-        PlantIndex := PlantIndex + 2;
-      end;
-    Wait(850,1250);
-
-  end;
-  *)
-end;
 procedure TScript.GrabSeeds();
 begin
   if Self.FindSeedTable() then
@@ -868,6 +486,7 @@ begin
   Mouse.Brake             := True;
   Mouse.Distribution      := MOUSE_DISTRIBUTION_GAUSS;
   ItemFinder.Similarity   := 0.998;
+  //Self.RSW.Setup('world');
   Self.RSW.Setup('TitheFarm');
   Self.RSW.ScreenWalk     := MSWALKING;
   //Self.RSW.OnWalkingEvent := @OnWalkEvent;
@@ -875,7 +494,13 @@ begin
 
   MM2MS.ZoomLevel   := Options.GetZoomLevel();
 
-  Self.EntranceTile :=[127,120];
+  Self.Bologano := CTS2(9544010, 35, 0.22, 0.81);
+  Self.Sack     := CTS2(3633023, 26, 0.06, 0.37); // THIS IS ALSO REALLY GOOD FOR PATCHES
+  Self.Watered  := CTS2(5074548, 6, 0.12, 0.81); // Water around plant
+
+  Self.EntranceTile := [127,120];
+  Self.SackTile     := [139,114];
+  Self.WaterBarrel  := [139,123];
 
   Self.PatchTiles := [[156,62], [156,175]];
   Self.SeedTableTile := [[116,107],[112,107]];
@@ -890,13 +515,14 @@ begin
 //Fourth Patch:
   Self.PatchTileFour := [[163,110], [163,107], [163,103], [163,98], [163,94], [163,91], [163,87], [163,82], [163,78], [163,74], [163,70], [163,66]];
 
-  // Cycles ordered from 0 being the first growth phase and 4 being the oldest
-  Self.BologanoCycle := CTS2(5937465, 26, 0.63, 0.89);
+  Self.PatchArray := [Self.PatchTileOne, Self.PatchTileTwo, Self.PatchTileThree, Self.PatchTileFour];
 
   //Self.DeclarePlayers();
   Self.ShutdownTime  := (MAXRUNTIME * 60000) + Random(- (MAXRUNTIME * 6000), (MAXRUNTIME * 6000));
-  AddOnTerminate(@Self.Free);
+  if DRAW then AddOnTerminate(@Self.Free);
 end;
+
+//procedure TScript.PlantPatch(PatchNum: Int32);
 
 procedure TScript.Run();
 begin
@@ -904,8 +530,8 @@ begin
     begin
       // Start of the loop since we have seeds
       Self.WriteMsg('Doing things!');
-      if Self.RSW.GetMyPos().DistanceTo(Self.SeedTableTile[0]) <= 8 then Self.RunToPatch();
-      if Self.RSW.GetMyPos().DistanceTo(Self.PatchTiles[0]) <= 24 then Self.FarmCycle("ALL");
+      //if Self.RSW.GetMyPos().DistanceTo(Self.SeedTableTile[0]) <= 8 then Self.RunToPatch();
+      //if Self.RSW.GetMyPos().DistanceTo(Self.PatchTiles[0]) <= 24 then Self.FarmCycle("ALL");
       if Self.RSW.GetMyPos().DistanceTo(Self.EntranceTile) <= 4 then Self.RSW.WebWalk(Self.PatchTiles[0],6);
     end else
     begin
@@ -916,25 +542,42 @@ end;
 
 procedure TScript.Loop();
 begin
-  Self.FarmCycle("ALL");
-  //Plant.Top.Y := Plant.Top.Y + 24;
-  //Plant.Top.X := Plant.Top.X + 24;
-
-  //Plant.Btm.Y := Plant.Btm.Y + 24;
-  //Plant.Btm.X := Plant.Btm.X + 24;
-
-  //Plant.Left.Y := Plant.Left.Y + 24;
-  //Plant.Left.X := Plant.Left.X + 24;
-
-  //Plant.Right.Y := Plant.Right.Y + 24;
-  //Plant.Right.X := Plant.Right.X + 24;
-
-  Self.PlantEastSide();
+  //Self.WriteMsg(IntToStr(Inventory.CountItem('Watering can(8)'))); // Watering can(8)
+  // 1,4,7,10
+  //Plant := Self.RSW.GetTileMS([Self.PatchTileOne[10].X-4, Self.PatchTileOne[10].Y]);
+  //Plant := Plant.Expand(32);
+  Self.DisplayMSTile([100,24]);
   TerminateScript('D');
+
+  Self.HandlePatchMaintenance(0);
+  Self.HandlePatchMaintenance(1);
+  Self.HandlePatchMaintenance(2);
+  Self.HandlePatchMaintenance(3);
+
+  Wait(45,75);
+  Self.HandlePatchMaintenance(0);
+  Self.HandlePatchMaintenance(1);
+  Self.HandlePatchMaintenance(2);
+  Self.HandlePatchMaintenance(3);
+  Wait(45,75);
+  Self.HandlePatchMaintenance(0);
+  Self.HandlePatchMaintenance(1);
+  Self.HandlePatchMaintenance(2);
+  Self.HandlePatchMaintenance(3);
+  Wait(45,75);
+  Self.HandlePatchMaintenance(0);
+  Self.HandlePatchMaintenance(1);
+  Self.HandlePatchMaintenance(2);
+  Self.HandlePatchMaintenance(3);
+  (*
+  *)
+  //Self.WritePosition();
+  //
+  //if Self.IsPlanted(Plant.Bounds) then Self.WriteMsg('Found Plant!');
+
 
   while (getTimeRunning() < Self.ShutdownTime) do
     begin
-
       Self.WritePosition();
       Self.Run();
       Wait(420,690);

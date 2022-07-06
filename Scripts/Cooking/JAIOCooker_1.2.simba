@@ -1,4 +1,4 @@
-program JAIOCookerOnline;
+program JAIOCooker_V1_2;
 {$DEFINE SRL_USE_REMOTEINPUT} //{$DEFINE SRL_DISABLE_REMOTEINPUT}
 {$I SRL-F/OSR.simba}
 
@@ -125,7 +125,6 @@ begin
   ATPA := MainScreen.FindObject(FireFinder);
   if ATPA.Len < 1 then
   begin
-  //if Bank.IsOpen() then Bank.Close();
   ATPA := MainScreen.FindObject(FireFinder);
   if ATPA.Len < 1 then if not Bot.AttemptToFindObject(FireFinder, 3) then TerminateScript('Cant find Fire!');
   end;
@@ -136,7 +135,6 @@ begin
     Mouse.HumanMove(ATPA[i].Mean());
     if MainScreen.IsUpText(['Cook','Fire']) then Exit(True);
   end;
-  //if Bank.IsOpen() then Bank.Close();
 end;
 
 function TBot.FindRange(): Boolean;
@@ -175,7 +173,6 @@ begin
   if MainScreen.IsUpText(['Bank','chest']) then Exit(True);
   ChestFinder.ColorClusters += [CTS2(2316655, 3, 0.07, 0.31), CTS2(2440263, 6, 0.24, 0.53),10];//[Self.InnerBankCol, Self.OutterBankCol, 3];
   ChestFinder.Grow := 3;
-  //ChestFinder.Erode:= 3;
   ChestFinder.ClusterDistance := 4;
 
   ATPA := MainScreen.FindObject(ChestFinder);
@@ -184,7 +181,6 @@ begin
   if Bank.IsOpen() then Bank.Close();
   if not Bot.AttemptToFindObject(ChestFinder, 6) then TerminateScript('Cant find chest!');
   end;
-  //ATPA := MainScreen.FindObject(ChestFinder);
   if ATPA.Len < 1 then TerminateScript('Cant find chest');
   ATPA.SortByMiddle(Mainscreen.Center);
 
@@ -206,13 +202,10 @@ begin
   if MainScreen.IsUpText(['Emerald','Benedict']) then Exit(True);
 
   BankFinder.ColorClusters += [Self.BankCol, Self.WhiteBankCol, 7];
-  //BankFinder.Grow := 2;
   BankFinder.ClusterDistance := 4;
-
   ATPA := MainScreen.FindObject(BankFinder);
   if ATPA.Len < 1 then
   begin
-  //if Bank.IsOpen() then Bank.Close();
   if not Bot.AttemptToFindObject(BankFinder, 3) then TerminateScript('Cant find bank!');
   end;
   ATPA.SortByMiddle(Mainscreen.Center);
@@ -222,7 +215,6 @@ begin
     Mouse.HumanMove(ATPA[i].Mean());
     if MainScreen.IsUpText(['Emerald','Benedict']) then Exit(True);
   end;
-  //if Bank.IsOpen() then Bank.Close();
 end;
 
 function TBot.IsCooking(): Boolean;
@@ -260,7 +252,6 @@ begin
     Inc(Self.TotalB, d);
     //Inc(Self.XPGained, c*Self.XPMods[i]);
   end;
-
   Self.CurrentTask := 'Depositing All';
   Self.Report();
   if Bank.DepositAll() then Bot.WriteMsg('Depositing Succesful!');
@@ -280,7 +271,6 @@ begin
   // Thanks Flight for the new versions <3 adding stability
   if SLOW then
   begin
-    Bot.WriteMsg('Slower Bank');
     Bank.Close();
     if (WaitUntil(not Bank.IsOpen(), 150, 5000)) then Exit(True);
   end else Self.WriteMsg('Faster Bank');
@@ -324,7 +314,6 @@ begin
         ChooseOption.Close();
       end;
     end;
-
   end;
 end;
 
@@ -453,13 +442,14 @@ begin
   Mouse.Distribution      := MOUSE_DISTRIBUTION_GAUSS;
   ItemFinder.Similarity   := 0.9999;
 
+  MM2MS.ZoomLevel         := Options.GetZoomLevel(); // Might solve drawing issues!?! lol
   Self.DeclarePlayers();
   Self.StartXP            := XPBar.Read();
+
   Self.ShutdownTime       := (MAXRUNTIME * 60000) + Random(- (MAXRUNTIME * 6000), (MAXRUNTIME * 6000));
   if TAKEBREAKS then
     Antiban.AddBreak(ONE_MINUTE*BREAKAFTER,
                      ONE_MINUTE*BREAKFOR, 0.2, 1.0);
-
 
   Self.SetupAntiban();
   Self.TrueRunTime.Start();
@@ -571,7 +561,7 @@ begin;
     if Inventory.FindItem(Self.RawFoodName) and not Self.IsCooking() and not Bank.IsOpen() then
     begin
       Self.WriteMsg('Cooking Time! Found: ' + Self.RawFoodName);
-      //Inventory.ClickItem(Self.RawFoodName);
+      //Inventory.ClickItem(Self.RawFoodName); // Will click the food before the fire or range; Antiban one-day?
       if (Self.FindRange()) then Mouse.Click(MOUSE_LEFT);
 
       if MainScreen.DidRedClick() then
@@ -603,7 +593,6 @@ begin
       Self.Report();
       Self.HandleBanking();
     end;
-
 
     if Inventory.FindItem(Self.RawFoodName) and Bank.IsOpen() then
     begin
@@ -645,8 +634,6 @@ end;
 
 procedure TBot.Run()
 begin
-  //if Bank.IsOpen() then Bank.Close();
-
   Self.WriteMsg('Starting Run');
   if Login.GetPlayer.Password <> '' then
     if not RSClient.IsLoggedIn() then
@@ -686,7 +673,7 @@ end;
 
 begin
   Bot.Version              := 2;
-  if (UPDATE) then
+  if (UPDATE) then // Remote updating, Working well internally but needs a little more work.
   begin
     //Self.UpdateOn        := UPDATE;
     //Self.LocalBotVersion := Bot.Version;

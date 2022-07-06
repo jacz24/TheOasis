@@ -30,6 +30,15 @@ begin
   end;
 end;
 
+function TRSWalker.IsMyPosBetweenPoints(TP1, TP2: TPoint): Boolean;
+var
+  mypos: TPoint;
+begin
+  mypos := Self.GetMyPos();
+  if (mypos.x >= TP1.X) and (mypos.x <= TP2.X) and (mypos.Y >= TP1.Y) and (mypos.Y <= TP2.Y) then Exit(True);
+  Exit(False);
+end;
+
 function TScript.FindFossilIslandRowboat(): Boolean;
 var
   i: Int32;

@@ -1,12 +1,12 @@
 program JArdyThiever;
-{$DEFINE SRL_USE_REMOTEINPUT}
+{$DEFINE SRL_USE_REMOTEINPUT} // DEFINE SRL_USE_REMOTEINPUT
 {$I SRL-F/OSR.simba}
 
 Const
 
 // START OF SETTINGS!
 (* General settings *)
-  MAXRUNTIME   = 124;     // Max run time (in minutes)
+  MAXRUNTIME   = 224;     // Max run time (in minutes)
   MSWALKING    = True; // Minimap walk or not
 (* Player settings *)
   PNAME        = 'test@test.com';    // Username
@@ -23,7 +23,8 @@ Const
 Type
   TScript = record
   StartXP, XPGained, TotalPickpockets, Version : Int32;
-  ShutdownTime                        : Int64;
+  ShutdownTime, TempTime              : Int64;
+  CurrentTask                         : String;
   PlayerTiles, KnightTiles            : TPointArray;
   RSW                                 : TRSWalker;
   TrueRunTime                         : TStopwatch;
@@ -77,21 +78,28 @@ end;
 
 procedure TScript.Report();
 begin
+  if Self.TrueRunTime.ElapsedTime >= Self.TempTime + 2*1000  then
+  begin
+    Self.TempTime := Self.TrueRunTime.ElapsedTime;
+    ClearDebug();
+  end;
+  Self.WriteMsg(IntToStr(Self.TrueRunTime.ElapsedTime));
+  Self.WriteMsg(IntToStr(Self.TempTime + 5*1000));
+
   Self.XPGained := Max(0, XPBar.Read()-Self.StartXP);
-  ClearDebug();
   if TAKEBREAKS then
   begin
     ProgressReport(RESULT_REPORTBOX, 'Knight of Ardougne', 'Jacz', IntToStr(Self.Version),
-    ['Take Breaks', 'Runtime', 'XP gained', 'Total Pickpockets', 'Until Break', 'Until Shutdown'],
-    [BoolToStr(TAKEBREAKS), SRL.MsToTime(Self.TrueRunTime.ElapsedTime, Time_Short),
+    ['Task','Take Breaks', 'Runtime', 'XP gained', 'Total Pickpockets', 'Until Break', 'Until Shutdown'],
+    [Self.CurrentTask,BoolToStr(TAKEBREAKS), SRL.MsToTime(Self.TrueRunTime.ElapsedTime, Time_Short),
     ToStr(Round(Self.XPGained,2)), IntToStr(Self.TotalPickpockets),
     Antiban.TimeUntilBreak(Antiban.Breaks[0]), SRL.MsToTime(Self.ShutdownTime-GetTimeRunning, Time_Short)])
   end;
-  if TAKEBREAKS then
+  if not TAKEBREAKS then
   begin
     ProgressReport(RESULT_REPORTBOX, 'Knight of Ardougne', 'Jacz', IntToStr(Self.Version),
-    ['Take Breaks', 'Runtime', 'XP gained', 'Total Pickpockets', 'Until Shutdown'],
-    [BoolToStr(TAKEBREAKS), SRL.MsToTime(Self.TrueRunTime.ElapsedTime, Time_Short),
+    ['Task', 'Take Breaks', 'Runtime', 'XP gained', 'Total Pickpockets', 'Until Shutdown'],
+    [Self.CurrentTask,BoolToStr(TAKEBREAKS), SRL.MsToTime(Self.TrueRunTime.ElapsedTime, Time_Short),
     ToStr(Round(Self.XPGained,2)), IntToStr(Self.TotalPickpockets), SRL.MsToTime(Self.ShutdownTime-GetTimeRunning, Time_Short)])
   end;
 end;
@@ -144,24 +152,41 @@ var
   attempt     : TStopwatch;
 begin
   // CTS2(6382184, 23, 0.11, 0.10) // Grey outline
+  // Grey 2 CTS2(7631997, 22, 0.40, 0.16)
   // CTS2(3411087, 23, 0.89, 0.70) // purple parts
-  KnightFinder.ColorClusters += [CTS2(6382184, 23, 0.11, 0.10), CTS2(3411087, 23, 0.89, 0.70), 9];
-  KnightFinder.ClusterDistance := 9;
+  KnightFinder.ColorClusters += [CTS2(6382184, 23, 0.11, 0.10), CTS2(11018628, 19, 0.21, 1.09), 9];
+  KnightFinder.ClusterDistance := 4;
   // Look for other tiles if we don't find the first
   attempt.Start();
-  repeat
-    for i:=0 to min(1, high(KnightTiles)) do
-    begin
 
-    ATPA := MainScreen.FindObject(KnightFinder);
-    if ATPA.Len < 1 then TerminateScript('Knight Not Found!');
-    ATPA.SortByMiddle(Self.RSW.GetTileMS(KnightTiles[i]).Mean);
-    ASyncMouse.HumanMove(ATPA[i].Mean());
-      if Self.FoundKnight() then
+  Self.CurrentTask := 'Looking For Knight';
+  Self.Report();
+
+  repeat
+    for i:=0 to high(KnightTiles) do
       begin
-        Mouse.Click(MOUSE_LEFT);
-        WaitUntil(MainScreen.DidRedClick, Random(25,50), 2500);
-        Exit(True);
+      if MainScreen.IsVisible(KnightTiles[i]) then
+      begin
+        ATPA := MainScreen.FindObject(KnightFinder);
+        if ATPA.Len <= 0 then TerminateScript('Knight Not Found!');
+        ATPA.SortByMiddle(Self.RSW.GetTileMS(KnightTiles[i]).Mean);
+
+        ASyncMouse.HumanMove(ATPA[i].Mean());
+        while ASyncMouse.IsMoving() do
+        begin
+          if Self.FoundKnight() then
+          begin
+            Self.CurrentTask := 'Found Knight!';
+            Self.Report();
+            if SRL.Dice(24) then;
+            begin
+              Mouse.Click(MOUSE_LEFT);
+              WaitUntil(MainScreen.DidRedClick, Random(25,50), 2500);
+            end;
+            Exit(True);
+          end;
+          Wait(30);
+        end;
       end;
     end;
   until(attempt.ElapsedTime > 10000);
@@ -185,6 +210,8 @@ begin
   if ENABLEDEBUG then Self.WriteMsg('Openning Pouch');
   if SRL.Dice(0.2) then
   begin
+    Self.CurrentTask := 'Openning Pouch';
+    Self.Report();
     wait(75, 125);
     Inc(Self.TotalPickpockets, pouchcount);
     Inventory.HumanClickItem('Coin pouch');
@@ -194,6 +221,8 @@ begin
 
   if pouchcount >= 24 then if SRL.Dice(12.5) then
   begin
+    Self.CurrentTask := 'Openning Pouch';
+    Self.Report();
     wait(75, 125);
     Inc(Self.TotalPickpockets, pouchcount);
     Inventory.HumanClickItem('Coin pouch');
@@ -203,6 +232,8 @@ begin
 
   if pouchcount >= 28 then
   begin
+    Self.CurrentTask := 'Openning Pouch';
+    Self.Report();
     wait(75, 125);
     Inc(Self.TotalPickpockets, pouchcount);
     if SRL.Dice(24) then Mouse.Click(MOUSE_LEFT); // Do an extra click
@@ -213,6 +244,8 @@ begin
 end;
 procedure TScript.DoPickpocketing();
 begin
+  Self.CurrentTask := 'Pickpocketing';
+  Self.Report();
   if ENABLEDEBUG then Self.WriteMsg('Picking Pocket');
   if Self.FoundKnight() then
   begin
@@ -269,6 +302,10 @@ begin
   //Self.RSW.OnWalkingEvent := @OnWalkEvent;
   Self.RSW.EnableRunAtEnergy := 85;
 
+  // Purple Part of ardy knight: CTS2(11018628, 19, 0.21, 1.09)
+  // Red and purple part       : CTS2(8069544, 19, 0.74, 1.09)
+  // silver part
+
   Self.PlayerTiles := [[94,105], [98, 105]]; // Where the player should stand
   Self.KnightTiles := [[98,109], [94,109], [98,110], [94,110]]; // Where the knight should stand
 
@@ -277,26 +314,32 @@ begin
 
   Self.StartXP            := XPBar.Read();
   Self.TrueRunTime.Start();
+  Self.TempTime := 0;
   Self.ShutdownTime       := (MAXRUNTIME * 60000) + Random(- (MAXRUNTIME * 6000), (MAXRUNTIME * 6000));
+end;
+
+function TRSWalker.IsMyPosBetweenPoints(TP1, TP2: TPoint): Boolean;
+var
+  mypos: TPoint;
+begin
+  mypos := Self.GetMyPos();
+  if (mypos.x >= TP1.X) and (mypos.x <= TP2.X) and (mypos.Y >= TP1.Y) and (mypos.Y <= TP2.Y) then Exit(True);
+  Exit(False);
 end;
 
 procedure TScript.Run()
 begin
   Self.WriteMsg('Starting Run');
   repeat
+    Self.DoAB();
     if ENABLEDEBUG then Self.WritePosition(); // Write RSW Pos
-    if Self.RSW.GetMyPos().X = 105 then Self.WalkToPosition();
-    if Self.RSW.GetMyPos().Y = 105 then
-    begin
-      if not Inventory.IsOpen() then Inventory.Open();
-      if Inventory.IsOpen() then if Inventory.CountItemStack('Coin pouch') >= 1 then Self.OpenPouch();
-      if Inventory.IsOpen() then if Inventory.CountItemStack('Coin pouch') <= 27 then Self.DoPickpocketing();
-      if Minimap.GetHPPercent <= 69 then TerminateScript('Trigger: Death Prevention! Heal Yourself!');
-
-      Self.DoAB();
-      Self.Report();
-      wait(40, 115);
-    end else Self.WalkToPosition();
+    if not Self.RSW.IsMyPosBetweenPoints([94,105],[98,105]) then Self.WalkToPosition();
+    if not Inventory.IsOpen() then Inventory.Open();
+    if Inventory.IsOpen() then if Inventory.CountItemStack('Coin pouch') >= 1 then Self.OpenPouch();
+    if Self.RSW.IsMyPosBetweenPoints([94,105],[98,105]) then if Inventory.IsOpen() then if Inventory.CountItemStack('Coin pouch') <= 27 then Self.DoPickpocketing();
+    if Minimap.GetHPPercent <= 69 then TerminateScript('Trigger: Death Prevention! Heal Yourself!');
+    wait(40, 115);
+    Self.Report();
   until(GetTimeRunning() > Self.ShutdownTime);
 end;
 

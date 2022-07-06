@@ -1,0 +1,249 @@
+program JAIOBuyer;
+//{$DEFINE SRL_USE_REMOTEINPUT}
+{$I SRL-F/OSR.simba}
+
+Const
+(* REQUIRED SETTINGS *)
+  NPCNAME          = 'Wizard Akutha'; // For Ex. 'Baba Yaga', 'Wizard Akutha'
+  FILLHIGHLIGHTCOl = 255; // Color in hex? Currently set color FFA29E53
+  ITEMS            = ['Nature rune']; // Array of items, so you can buy multiple at once
+  BUYPERTIME       = [10]; // Amount it should buy at a single time
+  BUYLIMIT         = [220]; // Amount it should never buy below this number
+
+  QUICKHOP         = True; // Enables Runelite Quickhop
+  MAXRUNTIME = 124;     // Max run time (in minutes)
+  MSWALKING  = True;
+(* Player settings *)
+  PNAME        = '';    // Username
+  PPASS        = '';    // Password
+  PPIN         = '';                // PIN
+(* Break settings *)
+  TAKEBREAKS   = False;
+  BREAKAFTER   = '115'; // Break after how long (in minutes)
+  BREAKFOR     = '15';  // Break for how long (in minutes)
+
+(* Example:
+ITEMS            = ['Law rune', 'Nature rune']; // Array of items, so you can buy multiple at once
+BUYPERTIME       = [10,50]; // Amount it should buy at a single time
+BUYLIMIT         = [238,200]; // Amount it should never buy below this number
+*)
+
+Type
+  TScript = record
+  Version, CurrentTask           : String;
+  NPCCol      : TCTS2Color;
+
+  RSW               : TRSWalker;
+  end;
+var
+  Bot: TScript;
+
+
+// Combination of miss mouse + slowing near the target destination
+procedure TMouse.HumanMove(Point: TPoint);
+var
+  mPt: TPoint;
+  S: Int32;
+  Miss: Double;
+  Range: Int64;
+begin
+  S := Self.Speed;
+  Range := Trunc(Power(Self.Position().DistanceTo(Point), 0.80)); // how much possible range to miss
+  Miss := SRL.SkewedRand(0.9, 0.1, 1.5); // Where miss will happen. 1 = destination (P).
+
+  mPt.X := Trunc((1-Miss)*Self.Position().X + Miss*Point.X);
+  mPt.Y := Trunc((1-Miss)*Self.Position().Y + Miss*Point.Y);
+
+  mPt.X += SRL.NormalRange(-Range, Range);
+  mPt.Y += SRL.NormalRange(-Range, Range);
+
+  Self.Move(mPt);
+  Self.Speed := round(S*0.85);
+  Self.Move(Point);
+  Self.Speed := S;
+end;
+
+function TScript.FindNPC(): Boolean;
+var
+  i: Int32;
+  ATPA: T2DPointArray;
+  NPCFinder: TRSObjectFinder;
+begin
+  Self.CurrentTask := 'Finding NPC';
+  NPCFinder.Colors += Self.NPCCol;
+  ATPA := MainScreen.FindObject(NPCFinder);
+  if ATPA.Len < 1 then TerminateScript('Cant find NPC!');
+  ATPA.SortByMiddle(Mainscreen.Center);
+
+  for i:=0 to min(0, high(ATPA)) do
+  begin
+    Mouse.HumanMove(ATPA[i].Mean());
+    if MainScreen.IsUpText(NPCNAME) then Exit(True);
+  end;
+end;
+
+function TScript.TradeWithNPC(): Boolean;
+begin
+  Self.CurrentTask := 'Trading NPC';
+  if MainScreen.IsUpText('Trade') then
+  begin
+    Mouse.Click(MOUSE_LEFT);
+    Exit(True);
+  end;
+  // Otherwise just trying openning it
+  ChooseOption.Open;
+  if ChooseOption.Select('Trade') then Exit(True);
+
+  Exit(False);
+end;
+
+function TScript.CanBuyItem(buyingitem: String; limit, per: Int32): Boolean; // Checks if the items has an amout above the buylimit - buyper
+begin
+  Self.WriteMsg('Checking if can buy: ' + IntToStr(Store.CountItemStack(buyingitem)));
+  if Store.CountItemStack(buyingitem) - per >= limit then Exit(True);
+
+  Exit(False);
+end;
+
+function TScript.BuyItems(): Boolean;
+var
+  i: Int32;
+begin
+  Self.CurrentTask := 'Buy Items!';
+  for i:=0 to high(ITEMS) do
+  begin
+    while Self.CanBuyItem(ITEMS[i], BUYLIMIT[i], BUYPERTIME[i]) do
+    begin
+      if Self.CanBuyItem(ITEMS[i], BUYLIMIT[i], BUYPERTIME[i]) then
+      begin
+        Store.HoverItem(ITEMS[i]);
+        if MainScreen.IsUpText(ITEMS[i]) then Self.WriteMsg('Can Buy this item!');
+        Self.WriteMsg('Buying: '+IntToStr(BUYPERTIME[i])+' '+ITEMS[i]);
+        Self.CurrentTask := 'Buying: ' + IntToStr(BUYPERTIME[i]) + ITEMS[i];
+
+        if ChooseOption.Open() then ChooseOption.Select('Buy ' + IntToStr(BUYPERTIME[i]));
+        WaitUntil(not Self.CanBuyItem(ITEMS[i], BUYLIMIT[i], BUYPERTIME[i]), 75, 5000);
+      end else Exit(False);
+    end;
+  end;
+  Exit(True);
+end;
+
+procedure TScript.WriteMsg(Message: String);
+begin
+  WriteLn('[Bot]: ', Message);
+end;
+
+procedure TAntiban.DoLoseFocus();
+begin
+  Self.LoseFocus(SRL.NormalRange(3700,5000));
+end;
+
+procedure TScript.DoLoseFocus();
+Var T: Int32;
+begin
+  T := SRL.NormalRange(1700,5000);
+  Antiban.DebugLn('Losing focus for '+SRL.MsToTime(T, Time_Short));
+  Antiban.LoseFocus(T);
+end;
+
+procedure TScript.SetupAntiban();
+begin
+  Antiban.Skills += ERSSKILL.MINING;
+  Antiban.AddTask(ONE_MINUTE*4,  @Antiban.SmallRandomMouse);
+  Antiban.AddTask(ONE_MINUTE*7,  @Self.DoLoseFocus);
+  Antiban.AddTask(ONE_MINUTE*8,  @Antiban.HoverMSItems);
+  Antiban.AddTask(ONE_MINUTE*8,  @Antiban.HoverMSNPCs);
+  Antiban.AddTask(ONE_MINUTE*6,  @Antiban.HoverMSPlayers);
+  Antiban.AddTask(ONE_MINUTE*25, @Antiban.HoverSkills);
+  Antiban.AddBreak(ONE_MINUTE*18, ONE_SECOND*40, 0.2, 0.0);
+  if TAKEBREAKS then
+    Antiban.AddBreak(ONE_MINUTE*StrToInt(BREAKAFTER),ONE_MINUTE*StrToInt(BREAKFOR), 0.2, 1.0);
+end;
+
+function TScript.DoAB(): Boolean;
+begin
+  Antiban.DismissRandom();
+  if (not RSClient.IsLoggedIn) then
+    Login.LoginPlayer();
+  Result := Antiban.DoAntiban();
+end;
+
+function TRSMainScreen.IsLoading(): Boolean; // TODO FIX THIS ITS KINDA JANK
+begin
+  WriteLn(OCR.RecognizeStatic(Self.UpTextArea, Self.UpTextFilter, RS_FONT_PLAIN_11));//Self.GetUpText);
+  if Self.IsUpText('i') then Exit(True);
+  Exit(False);
+end;
+
+procedure TScript.HandleBuying();
+begin
+  Self.WriteMsg('Store is open, buying goodies!');
+  WaitUntil(Self.BuyItems, 75,4200);
+  if QUICKHOP then
+  begin
+    Self.WriteMsg('Quickhopping');
+    PressKey(VK_G);
+    WaitUntil(MainScreen.IsLoading, 50, 7500);
+    WaitUntil(not MainScreen.IsLoading, 50, 7500);
+    Self.WriteMsg('Quick-Hop Success!');
+  end else
+  begin // Not yet implemented!
+    Store.Close();
+
+  end;
+
+end;
+
+procedure TScript.DeclarePlayers();
+begin
+  Login.AddPlayer(PNAME, PPASS, PPIN, []);
+end;
+
+procedure TScript.init()
+begin
+  Self.WriteMsg('Starting Init');
+  Self.Version            := '1.0';
+  Mouse.Speed             := Random(19, 24);
+  Mouse.CanIdle           := False;
+  Mouse.MissChance        := 7;
+  Mouse.Brake             := True;
+  Mouse.Distribution      := MOUSE_DISTRIBUTION_GAUSS;
+
+  Self.RSW.Setup('world');
+  Self.RSW.ScreenWalk     := MSWALKING;
+  //Self.RSW.OnWalkingEvent := @OnWalkEvent;
+  Self.RSW.EnableRunAtEnergy := 85;
+
+  // If bubble and highling is fully red then do this
+  if FILLHIGHLIGHTCOl = 255 then
+  begin
+    NPCCol := CTS2(5478810, 2, 0.55, 1.72);
+  end;
+
+  Self.DeclarePlayers();
+end;
+
+procedure TScript.Run()
+begin
+  Self.WriteMsg('Starting Run');
+
+
+  repeat
+    begin
+    if Store.IsOpen then self.HandleBuying(); // If the store is open then see if we can buy
+    //TerminateScript('Tester');
+    if Self.FindNPC() then
+    begin
+      Self.WriteMsg('Found NPC!');
+      if Self.TradeWithNPC() then if WaitUntil(Store.IsOpen,75,10000) then self.HandleBuying();
+    end;
+  end;
+  until(False);
+end;
+
+begin
+  if RSClient.IsLoggedIn() then
+    Bot.init();
+  Bot.Run()
+end.
