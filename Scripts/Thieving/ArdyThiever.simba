@@ -318,7 +318,8 @@ begin
   Self.ShutdownTime       := (MAXRUNTIME * 60000) + Random(- (MAXRUNTIME * 6000), (MAXRUNTIME * 6000));
 end;
 
-function TRSWalker.IsMyPosBetweenPoints(TP1, TP2: TPoint): Boolean;
+// Check if the user is inbetween two TPoints
+function TRSWalker.IsMyPosBetweenTPoints(TP1, TP2: TPoint): Boolean;
 var
   mypos: TPoint;
 begin
@@ -333,10 +334,10 @@ begin
   repeat
     Self.DoAB();
     if ENABLEDEBUG then Self.WritePosition(); // Write RSW Pos
-    if not Self.RSW.IsMyPosBetweenPoints([94,105],[98,105]) then Self.WalkToPosition();
+    if not Self.RSW.IsMyPosBetweenTPoints([94,105],[98,105]) then Self.WalkToPosition();
     if not Inventory.IsOpen() then Inventory.Open();
     if Inventory.IsOpen() then if Inventory.CountItemStack('Coin pouch') >= 1 then Self.OpenPouch();
-    if Self.RSW.IsMyPosBetweenPoints([94,105],[98,105]) then if Inventory.IsOpen() then if Inventory.CountItemStack('Coin pouch') <= 27 then Self.DoPickpocketing();
+    if Self.RSW.IsMyPosBetweenTPoints([94,105],[98,105]) then if Inventory.IsOpen() then if Inventory.CountItemStack('Coin pouch') <= 27 then Self.DoPickpocketing();
     if Minimap.GetHPPercent <= 69 then TerminateScript('Trigger: Death Prevention! Heal Yourself!');
     wait(40, 115);
     Self.Report();
