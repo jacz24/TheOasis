@@ -18,7 +18,7 @@ Type
   end;
 
   TBot = record
-  BowType, LogType, ModeType, BankLocation, BowName, LogName, StrungName, StringName, CurrentTask                   : String;
+  BowType, LogType, ModeType, BankLocation, BowName, LogName, StrungName, StringName, KnifeName, CurrentTask                   : String;
   RSW                                            : TRSWalker;
   ABTimeMod, StartXP, XPGained, TotalB, TotalC, MaxRunTime, Version   : Int32;
   ShutdownTime                                   : Int64;
@@ -352,6 +352,7 @@ begin
     SetReadOnly(True);
     SetSelText('Pest Control');
     GetItems().Add('lleyta');
+    GetItems().Add('Yanille');
     GetItems().Add('Barb Assault');
     GetItems().Add('Fishing Guild');
     GetItems().Add('Varrock');
@@ -611,6 +612,59 @@ begin
 
 end;
 
+procedure TBot.OpenBank();
+begin
+  Self.WriteMsg('Openning Bank!');
+end;
+
+procedure TBot.HandleBanking();
+begin
+  //Self.WriteMsg('Cutting: ' + Self.LogName + ' Into: ' + Self.BowName);
+  Self.WriteMsg('Handling Banking!');
+  if Bank.IsOpen() then
+  begin
+    if Self.ModeType = 'Cut' then // Start cutting logs into unstring bows
+    begin
+      // if we find unstrung bows in our inventory then deposit them
+      if Inventory.FindItem(Self.BowName) then
+      begin
+        Bank.DepositItem([Self.BowName, BANK_DEPOSIT_ALL], True); // TODO IDK IF THIS WILL WORK?
+        WaitUntil(not Inventory.FindItem(Self.BowName), 75, 5000);
+      end;
+
+      // If no log(s) in inventory then withdraw log(s)
+      if not Inventory.FindItem(Self.LogName) then if not Bank.WithdrawItem([Self.LogName, BANK_WITHDRAW_ALL], True) then TerminateScript('No More Logs!');
+
+      // if log(s) in inventory then close the bank
+      if Inventory.FindItem(Self.LogName) then Bank.Close();
+
+    end;
+    if Self.ModeType = 'String' then // Start cutting logs into unstring bows
+    begin
+
+    end;
+  end;
+end;
+
+procedure TBot.CutLog();
+begin
+  Self.WriteMsg('Cutting Log(s)!');
+  if not Bank.IsOpen() then
+  begin
+    Inventory.ClickItem(Self.KnifeName);
+    //WaitUntil(); // Waituntil knife is selected needed?
+    Inventory.ClickItem(Self.LogName);
+    if Make.IsOpen(5000,75) then
+
+
+  end;
+end;
+
+procedure TBot.StringBow();
+begin
+  Self.WriteMsg('String Bow(s)!');
+end;
+
 procedure TBot.init();
 begin
   Self.WriteMsg('Starting Init');
@@ -620,6 +674,7 @@ begin
   Mouse.MissChance        := 7;
   Mouse.Brake             := True;
   Mouse.Distribution      := MOUSE_DISTRIBUTION_GAUSS;
+  ItemFinder.Similarity   := 0.9999;
 
   if Self.BowType = 'Longbow' then
   begin // For longbows
@@ -632,6 +687,7 @@ begin
   end;
   Self.LogName    := Self.LogType+' logs';
   Self.StringName := 'Bow string';
+  Self.KnifeName  := 'Knife';
 
   Self.DoEdgeCases();
 
@@ -645,18 +701,32 @@ begin // BowName, LogName, StrungName
     begin
       Self.WriteMsg('Cutting: ' + Self.LogName + ' Into: ' + Self.BowName);
 
+      // If no knife then shutdown because we can't fletch!
+      if not Inventory.FindItem(Self.KnifeName) then TerminateScript('No Knife Found!');
 
+      // If we find a log and knife in inventory and bank isn't open then cut log
+      if (Inventory.FindItem(Self.LogName)) and (Inventory.FindItem(Self.KnifeName)) and (not Bank.IsOpen()) then Self.CutLog();
+
+      // If Bank Open and we find a log and knife in inventory then Close bank so we can cut them
+      if (Bank.IsOpen()) and (Inventory.FindItem(Self.LogName)) and (Inventory.FindItem(Self.KnifeName)) then Bank.Close();
+
+      // If no log(s) in inventory but we find knife in inventory and bank isn't open then open bank
+      if (not Inventory.FindItem(Self.LogName)) and (Inventory.FindItem(Self.KnifeName)) and (not Bank.IsOpen()) then Self.OpenBank();
+
+      // If Bank Open then run our banking procedure for more checks and all things banking
+      if Bank.IsOpen() then Self.HandleBanking();
 
     end;
     if Self.ModeType = 'String' then // Start stringing unstrung bows
     begin
       Self.WriteMsg('Stringing: ' + Self.BowName + ' Into: ' + Self.StrungName);
 
-
-
+      // If we find a bow and string in inventory then string bow(s)
+      if (Inventory.FindItem(Self.BowName)) and (Inventory.FindItem(Self.StringName)) then Self.StringBow();
 
     end;
     TerminateScript('testy');
+    Wait(45,75); // Little wait to not overload
   end;
 
   TerminateScript('Time to shutdown');

@@ -1,0 +1,750 @@
+program JAIOFletcher;
+{$DEFINE SRL_USE_REMOTEINPUT}
+//{$DEFINE SRL_DISABLE_REMOTEINPUT}
+{$I SRL-F/OSR.simba}
+
+Type
+  TInitForm = record
+    Form: TForm;
+    tPic: TPicture;
+    FBGImg: TImage;
+    FStartButton, SaveButton, LoadButton: TButton;
+    TimeLabel,NameLabel,PassLabel,AccountLabel,PinLabel,BreakLabel,BreakLabel2,
+    BreakALabel,BreakFLabel,SettingsLabel,
+    ReportLabel, ModeLabel, BowTypeLabel, LogTypeLabel, BankLabel: TLabel;
+    RunInput,NameInput,PassInput,PinInput,BreakAfterInput,BreakForInput: TEdit;
+    FLogBox, FBowTypeBox, FModeBox, FBankBox: TComboBox;
+    BreaksButton,ReportButton: TCheckBox;
+  end;
+
+  TBot = record
+  BowType, LogType, ModeType, BankLocation, BowName, LogName, StrungName, StringName, KnifeName, CurrentTask                   : String;
+  RSW                                            : TRSWalker;
+  ABTimeMod, StartXP, XPGained, TotalB, TotalC, MaxRunTime, Version   : Int32;
+  ShutdownTime                                   : Int64;
+  TrueRunTime                                    : TStopwatch;
+  TakeBreaks,MSWalk,ScreenReport: Boolean;
+  end;
+
+var
+  Bot: TBot;
+  GUI: TInitForm;
+
+procedure TBot.WriteMsg(Message: String);
+begin
+  WriteLn('[Bot]: '+Message);
+end;
+
+procedure DownloadToFile(const URL, Filename: string);
+var
+  Client: Int32;
+begin
+  Bot.WriteMsg('Downloading assets');
+  Client := InitializeHTTPClient(False);
+  try
+    GetHTTPPageEx(Client, URL, Filename);
+  finally
+    FreeHTTPClient(Client);
+  end;
+end;
+
+procedure TInitForm.GUIStart(Sender: TObject);
+begin
+  Self.Form.Close();
+  Bot.WriteMsg('Starting script');
+
+  // Bot Setup Variables
+  Login.AddPlayer(Self.NameInput.GetText(), Self.PassInput.GetText(), Self.PinInput.GetText(), []);
+  Antiban.AddBreak(ONE_MINUTE*StrToInt(Self.BreakAfterInput.GetText()),
+                   ONE_MINUTE*StrToInt(Self.BreakForInput.GetText()), 0.2, 1.0);
+
+  Bot.MaxRunTime := StrToInt(Self.RunInput.GetText());
+  Bot.ScreenReport := (Self.ReportButton.GetState = cbChecked);
+  Bot.TakeBreaks := (Self.BreaksButton.GetState = cbChecked);
+  Bot.ShutdownTime := (Bot.MaxRunTime*60000)+Random(-(Bot.MaxRunTime*6000),(Bot.MaxRunTime*6000));
+
+  Bot.ModeType     := Self.FModeBox.GetText();
+  Bot.LogType      := Self.FLogBox.GetText();
+  Bot.BowType      := Self.FBowTypeBox.GetText();
+  Bot.BankLocation := Self.FBankBox.GetText();
+
+end;
+
+procedure TInitForm.SaveSettings(Sender: TObject);
+var
+  S: TObject;
+begin
+  with ScriptConfig do
+  begin
+    ScriptName    := 'AIOFletcher';
+    Player        := [Self.NameInput.GetText(), Self.PassInput.GetText(), Self.PinInput.GetText(), [], True];
+    VariableNames := ['Screen report', 'Take breaks', 'Break after',
+                      'Break for', 'Max run', 'Log', 'Mode', 'Bank', 'Type'];
+    Variables     := [(Self.ReportButton.GetState = cbChecked),
+                      (Self.BreaksButton.GetState = cbChecked),
+                       Self.BreakAfterInput.GetText(),
+                       Self.BreakForInput.GetText(),
+                       StrToInt(Self.RunInput.GetText()),
+                       Self.FLogBox.GetText(),
+                       Self.FModeBox.GetText(),
+                       Self.FBankBox.GetText(),
+                       Self.FBowTypeBox.GetText()];
+  end;
+  ScriptConfig.SaveSettings();
+  S := Sender;
+end;
+
+procedure TInitForm.LoadSettings(Sender: TObject);
+var
+  S: TObject;
+begin
+  with ScriptConfig do
+  begin
+    ScriptName    := 'AIOFletcher';
+    VariableNames := ['Screen report', 'Take breaks', 'Break after',
+                      'Break for', 'Max run', 'Log', 'Mode', 'Bank', 'Type'];
+
+    if (not ScriptConfig.LoadSettings()) then Exit;
+
+    Self.NameInput.setCaption(Player.User);
+    Self.PassInput.setCaption(Player.Password);
+    Self.PinInput.setCaption(Player.Pin);
+
+    if Variables[0] = True then Self.ReportButton.setState(cbChecked) else Self.ReportButton.setState(cbUnChecked);
+    if Variables[1] = True then Self.BreaksButton.setState(cbChecked) else Self.BreaksButton.setState(cbUnChecked);
+    Self.BreakAfterInput.setCaption(Variables[2]);
+    Self.BreakForInput.setCaption(Variables[3]);
+    Self.RunInput.setCaption(Variables[4]);
+    Self.FLogBox.setCaption(Variables[5]);
+    Self.FModeBox.setCaption(Variables[6]);
+    Self.FBankBox.setCaption(Variables[7]);
+    Self.FBowTypeBox.setCaption(Variables[8]);
+  end;
+
+  S := Sender;
+end;
+
+procedure TInitForm.Run;
+begin
+  Self.Form.Init(nil);
+  with Self.Form do
+  begin
+    SetCaption('JAIO Fletch');
+    SetHeight(357);
+    SetWidth(626);
+    SetPosition(poScreenCenter);
+    SetColor(0);
+  end;
+
+  tPic.init();
+  tPic.LoadFromFile(AppPath+'\Resources\AIOFletching_BGCanvas.png');
+
+  FBGImg.Init(Self.Form);
+  with FBGImg do
+  begin
+    SetParent(Self.Form);
+    SetBounds(0,0,Self.Form.getWidth,Self.Form.getHeight);
+    SetPicture(tPic);
+  end;
+
+  AccountLabel.Init(Self.Form);
+  with AccountLabel do
+  begin
+    SetParent(Self.Form);
+    SetCaption('Player settings');
+    SetLeft(0);
+    SetTop(0);
+    GetFont().SetName('Bahnschrift');
+    GetFont().SetColor(65280);
+    GetFont().SetSize(14);
+  end;
+
+  NameLabel.Init(Self.Form);
+  with NameLabel do
+  begin
+    SetParent(Self.Form);
+    SetCaption('Name');
+    SetLeft(30);
+    SetTop(33);
+    GetFont().SetName('Bahnschrift');
+    GetFont().SetColor(12632256);
+    GetFont().SetSize(12);
+  end;
+
+  PassLabel.Init(Self.Form);
+  with PassLabel do
+  begin
+    SetParent(Self.Form);
+    SetCaption('Pass');
+    SetLeft(33);
+    SetTop(90);
+    GetFont().SetName('Bahnschrift');
+    GetFont().SetColor(12632256);
+    GetFont().SetSize(12);
+  end;
+
+  PinLabel.Init(Self.Form);
+  with PinLabel do
+  begin
+    SetParent(Self.Form);
+    SetCaption('Pin');
+    SetLeft(39);
+    SetTop(144);
+    GetFont().SetName('Bahnschrift');
+    GetFont().SetColor(12632256);
+    GetFont().SetSize(12);
+  end;
+
+  BreakLabel.Init(Self.Form);
+  with BreakLabel do
+  begin
+    SetParent(Self.Form);
+    SetLeft(222);
+    SetTop(0);
+    SetCaption('Break settings');
+    GetFont().SetName('Bahnschrift');
+    GetFont().SetColor(65280);
+    GetFont().SetSize(14);
+  end;
+
+  TimeLabel.Init(Self.Form);
+  with TimeLabel do
+  begin
+    SetParent(Self.Form);
+    SetLeft(223);
+    SetTop(33);
+    SetCaption('Max run time');
+    GetFont().SetName('Bahnschrift');
+    GetFont().SetColor(12632256);
+    GetFont().SetSize(12);
+  end;
+
+  BreakALabel.Init(Self.Form);
+  with BreakALabel do
+  begin
+    SetParent(Self.Form);
+    SetLeft(226);
+    SetTop(138);
+    SetCaption('Break after');
+    GetFont().SetName('Bahnschrift');
+    GetFont().SetColor(12632256);
+    GetFont().SetSize(12);
+  end;
+
+  BreakFLabel.Init(Self.Form);
+  with BreakFLabel do
+  begin
+    SetParent(Self.Form);
+    SetLeft(234);
+    SetTop(213);
+    SetCaption('Break for');
+    GetFont().SetName('Bahnschrift');
+    GetFont().SetColor(12632256);
+    GetFont().SetSize(12);
+  end;
+
+  SettingsLabel.Init(Self.Form);
+  with SettingsLabel do
+  begin
+    SetParent(Self.Form);
+    SetLeft(447);
+    SetTop(0);
+    SetCaption('Script settings');
+    GetFont().SetName('Bahnschrift');
+    GetFont().SetColor(65280);
+    GetFont().SetSize(14);
+  end;
+
+  ModeLabel.Init(Self.Form);
+  with ModeLabel do
+  begin
+    SetParent(Self.Form);
+    SetLeft(462);
+    SetTop(32);
+    SetCaption('Cut Or String');
+    GetFont().SetName('Bahnschrift');
+    GetFont().SetColor(12632256);
+    GetFont().SetSize(12);
+  end;
+
+  FModeBox.Init(Self.Form);
+  with FModeBox do
+  begin
+    SetParent(Self.Form);
+    SetBounds(458,62,100,23);
+    SetReadOnly(True);
+    SetSelText('Cut');
+    GetItems().Add('Cut');
+    GetItems().Add('String');
+  end;
+
+
+  BowTypeLabel.Init(Self.Form);
+  with BowTypeLabel do
+  begin
+    SetParent(Self.Form);
+    SetLeft(462);
+    SetTop(212);
+    SetCaption('Bow Type');
+    GetFont().SetName('Bahnschrift');
+    GetFont().SetColor(12632256);
+    GetFont().SetSize(12);
+  end;
+
+  FBowTypeBox.Init(Self.Form);
+  with FBowTypeBox do
+  begin
+    SetParent(Self.Form);
+    SetBounds(458,232,100,23);
+    SetReadOnly(True);
+    SetSelText('Longbow');
+    GetItems().Add('Shortbow');
+    GetItems().Add('Longbow');
+  end;
+
+
+  LogTypeLabel.Init(Self.Form);
+  with LogTypeLabel do
+  begin
+    SetParent(Self.Form);
+    SetLeft(462);
+    SetTop(112);
+    SetCaption('Log Type');
+    GetFont().SetName('Bahnschrift');
+    GetFont().SetColor(12632256);
+    GetFont().SetSize(12);
+  end;
+
+  FLogBox.Init(Self.Form);
+  with FLogBox do
+  begin
+    SetParent(Self.Form);
+    SetBounds(458,132,100,23);
+    SetReadOnly(True);
+    SetSelText('Willow');
+    GetItems().Add('Wood');
+    GetItems().Add('Oak');
+    GetItems().Add('Willow');
+    GetItems().Add('Maple');
+    GetItems().Add('Yew');
+    GetItems().Add('Magic');
+  end;
+
+
+
+  BankLabel.Init(Self.Form);
+  with BankLabel do
+  begin
+    SetParent(Self.Form);
+    SetLeft(462);
+    SetTop(160);
+    SetCaption('Bank Location');
+    GetFont().SetName('Bahnschrift');
+    GetFont().SetColor(12632256);
+    GetFont().SetSize(12);
+  end;
+
+  FBankBox.Init(Self.Form);
+  with FBankBox do
+  begin
+    SetParent(Self.Form);
+    SetBounds(458,180,100,23);
+    SetReadOnly(True);
+    SetSelText('Pest Control');
+    GetItems().Add('lleyta');
+    GetItems().Add('Yanille');
+    GetItems().Add('Barb Assault');
+    GetItems().Add('Fishing Guild');
+    GetItems().Add('Varrock');
+    GetItems().Add('Castle Wars');
+    GetItems().Add('Falador');
+    GetItems().Add('Grand Exchange');
+  end;
+
+  NameInput.Init(Self.Form);
+  with NameInput do
+  begin
+    SetParent(Self.Form);
+    SetBounds(15,62,80,23);
+  end;
+
+  PassInput.Init(Self.Form);
+  with PassInput do
+  begin
+    SetParent(Self.Form);
+    SetBounds(15,119,80,23);
+  end;
+
+  PinInput.Init(Self.Form);
+  with PinInput do
+  begin
+    SetParent(Self.Form);
+    SetBounds(15,172,80,23);
+  end;
+
+  RunInput.Init(Self.Form);
+  with RunInput do
+  begin
+    SetParent(Self.Form);
+    SetText('224');
+    SetBounds(240,62,80,23);
+  end;
+
+  BreakAfterInput.Init(Self.Form);
+  with BreakAfterInput do
+  begin
+    SetParent(Self.Form);
+    SetText('115');
+    SetBounds(239,173,80,23);
+    GetFont().SetName('');
+    GetFont().SetColor(0);
+    GetFont().SetSize(9);
+  end;
+
+  BreakForInput.Init(Self.Form);
+  with BreakForInput do
+  begin
+    SetParent(Self.Form);
+    SetText('25');
+    SetBounds(240,242,80,23);
+  end;
+
+  BreakLabel2.Init(Self.Form);
+  with BreakLabel2 do
+  begin
+    SetParent(Self.Form);
+    SetLeft(241);
+    SetTop(99);
+    SetCaption('Take breaks');
+    GetFont().SetName('Bahnschrift');
+    GetFont().SetColor(12632256);
+    GetFont().SetSize(12);
+  end;
+
+  BreaksButton.Init(Self.Form);
+  with BreaksButton do
+  begin
+    SetParent(Self.Form);
+    SetCaption('');
+    SetLeft(215);
+    SetTop(101);
+  end;
+
+  ReportLabel.Init(Self.Form);
+  with ReportLabel do
+  begin
+    SetParent(Self.Form);
+    SetLeft(27);
+    SetTop(220);
+    SetCaption('Screen report');
+    GetFont().SetName('Bahnschrift');
+    GetFont().SetColor(12632256);
+    GetFont().SetSize(12);
+  end;
+
+  ReportButton.Init(Self.Form);
+  with ReportButton do
+  begin
+    SetParent(Self.Form);
+    SetCaption('');
+    SetBounds(4,222,25,19);
+  end;
+
+  FStartButton.Init(Self.Form);
+  with FStartButton do
+  begin
+    SetParent(Self.Form);
+    SetCaption('Start!');
+    SetBounds(235,295,116,47);
+    GetFont().SetName('Bahnschrift');
+    GetFont().SetSize(14);
+    SetOnClick(@Self.GUIStart);
+  end;
+
+  SaveButton.Init(Self.Form);
+  with SaveButton do
+  begin
+    SetParent(Self.Form);
+    SetCaption('Save settings');
+    SetBounds(535,290,85,25);
+    SetOnClick(@Self.SaveSettings);
+  end;
+
+  LoadButton.Init(Self.Form);
+  with LoadButton do
+  begin
+    SetParent(Self.Form);
+    SetCaption('Load settings');
+    SetBounds(535,319,85,25);
+    SetOnClick(@Self.LoadSettings);
+  end;
+
+  try
+    Self.Form.ShowModal();
+    Self.Form.Free();
+  except
+    Bot.WriteMsg('Encountered an exception while loading the GUI');
+  end;
+end;
+
+procedure TBot.Report();
+begin
+  ClearDebug();
+  Self.XPGained := Max(0, XPBar.Read()-Self.StartXP);
+
+end;
+
+// Combination of miss mouse + slowing near the target destination
+procedure TMouse.HumanMove(Point: TPoint);
+var
+  mPt: TPoint;
+  S: Int32;
+  Miss: Double;
+  Range: Int64;
+begin
+  S := Self.Speed;
+  Range := Trunc(Power(Self.Position().DistanceTo(Point), 0.80)); // how much possible range to miss
+  Miss := SRL.SkewedRand(0.9, 0.1, 1.5); // Where miss will happen. 1 = destination (P).
+
+  mPt.X := Trunc((1-Miss)*Self.Position().X + Miss*Point.X);
+  mPt.Y := Trunc((1-Miss)*Self.Position().Y + Miss*Point.Y);
+
+  mPt.X += SRL.NormalRange(-Range, Range);
+  mPt.Y += SRL.NormalRange(-Range, Range);
+
+  Self.Move(mPt);
+  Self.Speed := round(S*0.85);
+  Self.Move(Point);
+  Self.Speed := S;
+end;
+
+procedure TMouse.RandomMovement();
+var
+  S: Int32;
+begin
+  S := Self.Speed;
+  Self.Speed := 4;
+  Self.Move(Box(Mouse.Position, 75, 75), True, );
+  Self.Speed := S;
+end;
+procedure TBot.DoSkillHover();
+begin
+  Antiban.HoverSkill(ERSSKILL.FLETCHING, random(1700, 6900), True)
+end;
+
+procedure TBot.BankAntiban(Percent: Double);
+var
+  randP: Double;
+begin
+  if Random() <= (Percent/100) then
+  begin
+    Antiban.DebugLn('Bank screen antiban');
+    randP := Random();
+    if randP < 0.33 then
+      Antiban.SmallRandomMouse()
+    else if (randP >= 0.33) and (randP < 0.66) then
+      wait(2800, 4000)
+    else if randP > 0.66 then
+    begin
+      // Copied version of 'random right click' antiban, minus the additional debug msg
+      Mouse.Move(GetClientBounds(), True, MOUSE_DISTRIBUTION_RANDOM);
+
+      if ChooseOption.Open() then
+      begin
+        if Random() < 0.50 then
+          Mouse.Move(ChooseOption.Bounds);
+
+        Wait(0, 8000, wdLeft);
+
+        ChooseOption.Close();
+      end;
+    end;
+  end;
+end;
+
+procedure TBot.DoLoseFocus();
+Var T: Int32;
+begin
+  T := SRL.NormalRange(1700,8000);
+  Antiban.DebugLn('Losing focus for '+SRL.MsToTime(T, Time_Short));
+  Antiban.LoseFocus(T);
+end;
+
+procedure TBot.DoLongRest(); // Go AFK For a bit
+Var T: Int32;
+begin
+  T := SRL.NormalRange(32000,128000);
+  Antiban.DebugLn('Losing focus for '+SRL.MsToTime(T, Time_Short));
+  Antiban.LoseFocus(T);
+end;
+
+procedure TBot.SetupAntiban();
+begin
+  Antiban.AddTask(ONE_SECOND*10, @Mouse.RandomMovement);
+  Antiban.AddTask((ONE_MINUTE*4)*Self.ABTimeMod,  @Self.DoLoseFocus);
+  Antiban.AddTask(ONE_MINUTE*3,  @Antiban.RandomRotate);
+  Antiban.AddTask(ONE_MINUTE*4,  @Antiban.HoverMSItems);
+  Antiban.AddTask(ONE_MINUTE*4,  @Antiban.HoverMSNPCs);
+  Antiban.AddTask(ONE_MINUTE*4,  @Antiban.HoverMSPlayers);
+  Antiban.AddTask(ONE_MINUTE*8,  @Self.DoSkillHover);
+  Antiban.AddBreak(ONE_MINUTE*18, ONE_SECOND*40, 0.2, 0.0);
+end;
+
+procedure TBot.DoAB();
+begin
+  Antiban.DismissRandom();
+  if Antiban.DoAntiban() then
+    if (not RSClient.IsLoggedIn) then
+      Login.LoginPlayer();
+end;
+
+procedure TBot.DoEdgeCases() // For items
+begin
+  if Self.LogType = 'Wood' then if Self.BowType = 'Longbow' then
+  begin // For longbows
+    Self.BowName := 'Longbow (u)';
+    Self.StrungName := 'Longbow';
+  end else
+  begin // For shortbows
+    Self.BowName := 'Shortbow (u)';
+    Self.StrungName := 'Shortbow';
+  end;
+
+end;
+
+procedure TBot.OpenBank();
+begin
+  Self.WriteMsg('Openning Bank!');
+end;
+
+procedure TBot.HandleBanking();
+begin
+  //Self.WriteMsg('Cutting: ' + Self.LogName + ' Into: ' + Self.BowName);
+  Self.WriteMsg('Handling Banking!');
+  if Bank.IsOpen() then
+  begin
+    if Self.ModeType = 'Cut' then // Start cutting logs into unstring bows
+    begin
+      // if we find unstrung bows in our inventory then deposit them
+      if Inventory.FindItem(Self.BowName) then
+      begin
+        Bank.DepositItem([Self.BowName, BANK_DEPOSIT_ALL], True); // TODO IDK IF THIS WILL WORK?
+        WaitUntil(not Inventory.FindItem(Self.BowName), 75, 5000);
+      end;
+
+      // If no log(s) in inventory then withdraw log(s)
+      if not Inventory.FindItem(Self.LogName) then if not Bank.WithdrawItem([Self.LogName, BANK_WITHDRAW_ALL], True) then TerminateScript('No More Logs!');
+
+      // if log(s) in inventory then close the bank
+      if Inventory.FindItem(Self.LogName) then Bank.Close();
+
+    end;
+    if Self.ModeType = 'String' then // Start cutting logs into unstring bows
+    begin
+
+    end;
+  end;
+end;
+
+procedure TBot.CutLog();
+begin
+  Self.WriteMsg('Cutting Log(s)!');
+  if not Bank.IsOpen() then
+  begin
+    Inventory.ClickItem(Self.KnifeName);
+    //WaitUntil(); // Waituntil knife is selected needed?
+    Inventory.ClickItem(Self.LogName);
+    if Make.IsOpen(5000,75) then
+
+
+  end;
+end;
+
+procedure TBot.StringBow();
+begin
+  Self.WriteMsg('String Bow(s)!');
+end;
+
+procedure TBot.init();
+begin
+  Self.WriteMsg('Starting Init');
+  Self.Version            := 0;
+  Mouse.Speed             := Random(16, 24);
+  Mouse.CanIdle           := False;
+  Mouse.MissChance        := 7;
+  Mouse.Brake             := True;
+  Mouse.Distribution      := MOUSE_DISTRIBUTION_GAUSS;
+  ItemFinder.Similarity   := 0.9999;
+
+  if Self.BowType = 'Longbow' then
+  begin // For longbows
+    Self.BowName :=  Self.LogType+' longbow (u)';
+    Self.StrungName := Self.LogType+' longbow';
+  end else
+  begin // For shortbows
+    Self.BowName := Self.LogType + ' shortbow (u)';
+    Self.StrungName := Self.LogType + ' shortbow';
+  end;
+  Self.LogName    := Self.LogType+' logs';
+  Self.StringName := 'Bow string';
+  Self.KnifeName  := 'Knife';
+
+  Self.DoEdgeCases();
+
+end;
+
+procedure TBot.Run();
+begin // BowName, LogName, StrungName
+  while (getTimeRunning() < Self.ShutdownTime) do
+  begin
+    if Self.ModeType = 'Cut' then // Start cutting logs into unstring bows
+    begin
+      Self.WriteMsg('Cutting: ' + Self.LogName + ' Into: ' + Self.BowName);
+
+      // If no knife then shutdown because we can't fletch!
+      if not Inventory.FindItem(Self.KnifeName) then TerminateScript('No Knife Found!');
+
+      // If we find a log and knife in inventory and bank isn't open then cut log
+      if (Inventory.FindItem(Self.LogName)) and (Inventory.FindItem(Self.KnifeName)) and (not Bank.IsOpen()) then Self.CutLog();
+
+      // If Bank Open and we find a log and knife in inventory then Close bank so we can cut them
+      if (Bank.IsOpen()) and (Inventory.FindItem(Self.LogName)) and (Inventory.FindItem(Self.KnifeName)) then Bank.Close();
+
+      // If no log(s) in inventory but we find knife in inventory and bank isn't open then open bank
+      if (not Inventory.FindItem(Self.LogName)) and (Inventory.FindItem(Self.KnifeName)) and (not Bank.IsOpen()) then Self.OpenBank();
+
+      // If Bank Open then run our banking procedure for more checks and all things banking
+      if Bank.IsOpen() then Self.HandleBanking();
+
+    end;
+    if Self.ModeType = 'String' then // Start stringing unstrung bows
+    begin
+      Self.WriteMsg('Stringing: ' + Self.BowName + ' Into: ' + Self.StrungName);
+
+      // If we find a bow and string in inventory then string bow(s)
+      if (Inventory.FindItem(Self.BowName)) and (Inventory.FindItem(Self.StringName)) then Self.StringBow();
+
+    end;
+    TerminateScript('testy');
+    Wait(45,75); // Little wait to not overload
+  end;
+
+  TerminateScript('Time to shutdown');
+end;
+
+begin
+  if (not DirectoryExists(AppPath+'\Resources\')) then
+    CreateDirectory(AppPath+'\Resources');
+
+  if (not FileExists(AppPath+'\Resources\AIOFletching_BGCanvas.png')) then
+    DownloadToFile('https://i.imgur.com/sRpkdLS.png', AppPath+'\Resources\AIOFletching_BGCanvas.png');
+  if (not FileExists(AppPath+'\Resources\AIOFletching_ReportBG.png')) then
+    DownloadToFile('https://i.imgur.com/GY1KMko.png', AppPath+'\Resources\AIOFletching_ReportBG.png');
+
+  Sync(@GUI.Run);
+
+  if RSClient.IsLoggedIn() then
+    Bot.init();
+  Bot.Run();
+
+end.

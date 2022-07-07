@@ -1,0 +1,220 @@
+program CrabKiller;
+{$DEFINE SRL_USE_REMOTEINPUT}
+{$I SRL-F/osr.simba}
+
+var
+  RSW: TRSWalker;
+  AGGROEAST: TPoint := [1516, 312];
+  RESETEAST: TPoint := [1365, 372];
+  AGGROWEST: TPoint := [1457, 316];
+  RESETWEST: TPoint := [1351, 397];
+  AGGRO := AGGROEAST;
+  RESET := RESETEAST;
+  MSWALKING := False;
+  COMBATWAIT := 12;
+
+const
+  PNAME = '';
+  PPASS = '';
+  PPIN = '';
+  MAXRUNTIME = 245;
+
+type
+  TScript = record
+    ABTimeMod: Int32;
+    ShutdownTime: Int64;
+  end;
+
+var
+  Bot: TScript;
+
+procedure TScript.WriteMsg(Message: String);
+begin
+  WriteLn('[Bot]: ', Message);
+end;
+
+procedure TMouse.HumanMove(Point: TPoint);
+var
+  mPt: TPoint;
+  S: Int32;
+  Miss: Double;
+  Range: Int64;
+begin
+  S := Self.Speed;
+  Range := Trunc(Power(Self.Position().DistanceTo(Point), 0.80)); // how much possible range to miss
+  Miss := SRL.SkewedRand(0.9, 0.1, 1.5); // Where miss will happen. 1 = destination (P).
+
+  mPt.X := Trunc((1-Miss)*Self.Position().X + Miss*Point.X);
+  mPt.Y := Trunc((1-Miss)*Self.Position().Y + Miss*Point.Y);
+
+  mPt.X += SRL.NormalRange(-Range, Range);
+  mPt.Y += SRL.NormalRange(-Range, Range);
+
+  Self.Move(mPt);
+  Self.Speed := round(S*0.85);
+  Self.Move(Point);
+  Self.Speed := S;
+end;
+
+procedure TScript.DeclarePlayers();
+begin
+  Login.AddPlayer(PNAME, PPASS, PPIN, []);
+end;
+
+(* Some homegrown anti-ban *)
+procedure TMouse.RandomMovement();
+var
+  S: Int32;
+begin
+  S := Self.Speed;
+  Self.Speed := 4;
+  Self.Move(Box(Mouse.Position, 75, 75), True,);
+  Self.Speed := S;
+end;
+
+procedure TScript.DoLoseFocus();
+begin
+  Antiban.LoseFocus(SRL.NormalRange(3700, 500));
+end;
+
+(* Setup our antiban *)
+procedure TScript.SetupAntiban();
+begin
+  Antiban.Skills += ERSSKILL.STRENGTH;
+  Antiban.Skills += ERSSKILL.TOTAL;
+  Antiban.AddTask((ONE_MINUTE * 1) * Self.ABTimeMod, @ Antiban.SmallRandomMouse);
+  Antiban.AddTask((ONE_MINUTE * 4) * Self.ABTimeMod, @ Self.DoLoseFocus);
+  Antiban.AddTask((ONE_MINUTE * 5) * Self.ABTimeMod, @ Antiban.HoverMSPlayers);
+  Antiban.AddTask((ONE_MINUTE * 6) * Self.ABTimeMod, @ Antiban.HoverMSItems);
+  Antiban.AddTask((ONE_MINUTE * 6) * Self.ABTimeMod, @ Antiban.HoverMSNPCs);
+  Antiban.AddTask((ONE_MINUTE * 7) * Self.ABTimeMod, @ Antiban.RandomRotate);
+  Antiban.AddTask((ONE_MINUTE * 15) * Self.ABTimeMod, @ Antiban.HoverSkills);
+  //Antiban.AddTask((One_MINUTE * 6) * Self.ABTimeMod, @ Antiban.RandomTab);
+  Antiban.AddBreak(ONE_MINUTE * 18, ONE_SECOND * 40, 0.2, 0.0);
+end;
+
+procedure TScript.DoAB();
+begin
+  Antiban.DismissRandom();
+  Antiban.DoAntiban();
+end;
+
+function TRSMainScreen.InCombat: Boolean;
+begin
+  if Self.FindHitsplats <> [] then exit(True);
+  if Mainscreen.FindHPBars <> [] then exit(True);
+end;
+
+function AtTile(Tile: TPoint; Distance: Int32 = 15): Boolean;
+begin
+  Result := RSW.GetMyPos.DistanceTo(Tile) <= Distance;
+end;
+
+procedure TScript.WaitCombat(attempts: Int32);
+var
+ fails: Int32;
+begin
+  while (fails < attempts) do
+  begin
+   if(MainScreen.FindHitsplats <> []) then
+   begin
+     WriteLn('We found hitsplats, we must be in combat');
+     fails := 0;
+   end else
+   begin
+     WriteLn('We did not find hitsplats. Fails: ' + ToStr(fails));
+     Inc(fails); //increases fails by one
+   end;
+   Wait(500);
+   Self.DoAB();
+  end;
+end;
+
+procedure TScript.WalkInToPos();
+begin
+  Self.WriteMsg('Walking to exact pos');
+
+  if AtTile(AGGRO,0) then Exit();
+
+  if SRL.Dice(24) then // Occasionally change screenwalk
+  begin
+    if (MSWALKING) then
+    begin
+      RSW.ScreenWalk     := False;
+    end else
+      RSW.ScreenWalk     := True;
+  end;
+
+  Mouse.HumanMove(RSW.GetTileMS(AGGRO).Mean);
+  if MainScreen.IsUpText(['tta', 'mmo', 'nite']) then
+  begin
+    Self.WriteMsg('Crab under exact pos, right click walk');
+    ChooseOption.Select('Walk here');
+  end else Mouse.Click(MOUSE_LEFT);;
+
+  RSW.ScreenWalk     := MSWALKING;
+end;
+
+procedure TScript.GetAggro();
+begin
+  Self.WriteMsg('Returning to Crabs');
+  Minimap.EnableRun();
+  RSW.WebWalk(AGGRO, 0, 0.2);
+  repeat
+    if AtTile(AGGRO,24) then Bot.WalkInToPos();
+  until(AtTile(AGGRO,0));
+  //
+end;
+
+procedure TScript.ResetAggro();
+begin
+  Self.WriteMsg('Resetting Aggro');
+  RSW.WebWalk(RESET, 10, 0.2);
+end;
+
+procedure TScript.Init();
+begin
+  RSW.EnableRunAtEnergy := 85;
+  MM2MS.ZoomLevel := Options.GetZoomLevel();
+  Mouse.Speed := Random(19, 24);
+  Self.ABTimeMod := 1;
+  Self.ShutdownTime := (MAXRUNTIME * 60000) + Random(- (MAXRUNTIME * 6000), (MAXRUNTIME * 6000));
+  DeclarePlayers();
+  Self.SetupAntiban();
+
+  RSW.Setup('world');
+  RSW.ScreenWalk     := MSWALKING;
+end;
+
+procedure TScript.Run();
+begin
+  if RSClient.IsLoggedIn then
+    repeat
+      begin
+        Self.WaitCombat(COMBATWAIT);
+      end;
+      begin
+        Self.ResetAggro();
+        Self.GetAggro();
+      end;
+    until (getTimeRunning() > Self.ShutdownTime);
+  Logout.ClickLogout();
+  TerminateScript('Time to shutdown');
+end;
+
+procedure TScript.WritePosition();
+begin
+  Self.WriteMsg('{X = ' + IntToStr(RSW.GetMyPos().X) + ', Y = ' + IntToStr(RSW.GetMyPos().Y) + '}');
+end;
+
+begin
+  RSClient.Image.Clear(Mainscreen.Bounds);
+
+  ClearDebug;
+  Bot.Init();
+  //Bot.GetAggro();
+  //Bot.WritePosition();
+  //TerminateScript('Tight');
+
+  Bot.Run();
+end.
