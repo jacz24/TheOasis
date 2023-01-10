@@ -1,10 +1,26 @@
 THIS IS A TEMPLATE FOR RELEASES
 
-Requirements and setup:
+Requirements:
 
+ - Simba 1400 32bit with the official OSRS client (Non-Steam Version)
+ 
+ - Most up-to-date SRL's and Wasplib libraries
+ 
+ - Script setup in GUI upon running
 
 Future Features:
 
+
+In-game Settings:
+
+ - Max brightness
+ 
+ - XP bar permanently open with either total or skill to be trained displayed
+ 
+ - Adjust in-game zoom level if thing don't seem to work correctly
+
+How To Use:
+ - Have your player near your desired training spot
 
 Changes:
  - New Revisions support updated Forms!
