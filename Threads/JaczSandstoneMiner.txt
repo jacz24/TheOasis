@@ -1,0 +1,31 @@
+This is my first script release using Wasplib and I've been testing it for a couple weeks and feel it is time for a alpha release.
+
+Requirements and setup:
+
+- Circlet of Water is required for this script as it will not stop even while taking damage in its current state
+so make sure you have a ton of charges. Varrock armor and desert clothes are a plus! Graceful if you have it can be good :D
+
+- Make sure you are inside the sandstone mine and close to the ores by the grinder when you start the script
+
+- Just run the default option for now as the other options aren't in production yet.
+
+Future Features:
+
+- Dragon Pickaxe spec
+
+ - Full humidify for waterskins
+
+- Running to buy more waterskins from shanty pass
+
+- Better ore pathing
+
+- World hopping if player
+
+
+This is revision 1 so it is very bare bones but it works quite well all things considered. I'm unsure how much I will add to the future feautures as I have no need for them. If people would like they can reach me in the discord with additions. I will also upload this to the Oasis (will provide a link at a later date)
+
+For now it works well for me and i'm happy with its state. I recommend you keep an eye on it while it mines.
+
+Changes:
+ - New Revisions support updated Forms!
+
