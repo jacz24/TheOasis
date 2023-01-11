@@ -1,0 +1,16 @@
+Just A Place To Store A Bunch Of Colors For Things I Find Important
+
+Fossil_Island_Seaweed_Bank_Chest:
+	CTS2(1186382, 9, 0.28, 4.67); // Red Surrounding Black Color
+	CTS2(1776416, 1, 0.01, 0.01); // Black Inside Color
+	CTS2(5995662, 14, 0.04, 0.47); // Wood On The Outside 
+	CTS2(6383208, 11, 0.45, 0.07); // Silver Outline Outside 	
+	CTS2(2120729, 10, 0.19, 4.55); // Green Leaf Outside
+	CTS2(6325679, 13, 0.04, 0.84); // Starfish On The Back Of Chest CTS2(6128041, 11, 0.03, 0.74)
+	
+
+	
+	
+	
+
+

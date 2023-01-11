@@ -11,6 +11,7 @@ const
   VERSIONURL            = 'https://raw.githubusercontent.com/jacz24/TheOasis/main/Version';
   JUPDATEURL            = 'https://raw.githubusercontent.com/jacz24/TheOasis/main/Scripts/%5BSRL-F%5DJFunctions.simba';
   COOKERUPDATEURL       = 'https://raw.githubusercontent.com/jacz24/TheOasis/main/Scripts/JAIOCooker.simba';
+
   JVERSION              = 'JVERSION';
 type
   TScriptColor = record
@@ -73,36 +74,7 @@ begin
   end;
 end;
 
-function TScript.AttemptToFindObject(ObjFinder: TRSObjectFinder; TotalAttempts: Int32): Boolean;
-var
-  ATPA: T2DPointArray;
-  Attempts: Int32;
-begin
-  for Attempts:=0 to TotalAttempts do
-  begin
-    self.WriteMsg('Attempt: ' + IntToStr(Attempts));
-    Antiban.RandomRotate();
-    //Wait(50,250);
-    ATPA := MainScreen.FindObject(ObjFinder);
-    if ATPA.Len < 1 then
-    begin
-      Attempts += 1;
-    end else
-      Self.WriteMsg('Found!');
-      Exit(True);
-  end;
-end;
-
-function TScript.UpCaseFirstChar(const S: string): string;
-begin
-  Result := S;
-
-  if Length(Result) > 0 then
-    Result[1] := UpCase(Result[1]);
-end;
-
-
-procedure TScript.BankAntiban(Percent: Double);
+procedure TAntiban.BankAntiban(Percent: Double);
 var
   randP: Double;
 begin
@@ -167,7 +139,35 @@ begin
   Self.Speed := S;
 end;
 
-procedure TScript.DoLoseFocus();
+function TJLib.AttemptToFindObject(ObjFinder: TRSObjectFinder; TotalAttempts: Int32): Boolean;
+var
+  ATPA: T2DPointArray;
+  Attempts: Int32;
+begin
+  for Attempts:=0 to TotalAttempts do
+  begin
+    self.WriteMsg('Attempt: ' + IntToStr(Attempts));
+    Antiban.RandomRotate();
+    //Wait(50,250);
+    ATPA := MainScreen.FindObject(ObjFinder);
+    if ATPA.Len < 1 then
+    begin
+      Attempts += 1;
+    end else
+      Self.WriteMsg('Found!');
+      Exit(True);
+  end;
+end;
+
+function TJLib.UpCaseFirstChar(const S: string): string;
+begin
+  Result := S;
+
+  if Length(Result) > 0 then
+    Result[1] := UpCase(Result[1]);
+end;
+
+procedure TJLib.DoLoseFocus();
 Var T: Int32;
 begin
   T := SRL.NormalRange(1700,8000);
@@ -175,27 +175,27 @@ begin
   Antiban.LoseFocus(T);
 end;
 
-procedure TScript.WriteMsg(Message: String);
+procedure TJLib.WriteMsg(Message: String);
 begin
   WriteLn('[Bot]: ', Message);
 end;
 
 
-function TScript.IsJUpdated(): Boolean; // Compare the versions return true if match
+function TJLib.IsJUpdated(): Boolean; // Compare the versions return true if match
 begin
   if (RemoteJVersion = Script.ScriptVersion) then
   begin
     Exit(True);
   end else Exit(False);
 end;
-function TScript.IsBUpdated(): Boolean; // Compare the versions return true if match
+function TJLib.IsBUpdated(): Boolean; // Compare the versions return true if match
 begin
   if (RemoteBotVersion = Script.LocalBotVersion) then
   begin
     Exit(True);
   end else Exit(False);
 end;
-function TScript.DownloadScript(): Boolean; // Lets Install If We Find No File
+function TJLib.DownloadScript(): Boolean; // Lets Install If We Find No File
 var
   VerPage, JVersion, BotVersion: string;
 begin
@@ -234,13 +234,13 @@ begin
     //TerminateScript('Error: 101');
   end else Exit(True);
 end;
-procedure TScript.ScriptUpdateHandler();
+procedure TJLib.ScriptUpdateHandler();
 begin
   if (DownloadScript()) then
       Script.WriteMsg('Congrats You Are Running The Latest Version!');
 end;
 
-procedure TScript.DisplayMSTile(Tile: TRectangle; SizeMod: Int32=0);
+procedure TJLib.DisplayMSTile(Tile: TRectangle; SizeMod: Int32=0);
 begin
   if SizeMod > 0 then
     Tile.Expand(SizeMod);
@@ -256,7 +256,7 @@ begin
   end;
 end;
 
-procedure TScript.Setup();
+procedure TJLib.Setup();
 begin
   Script.WriteMsg('Setting Up JFunctions!');
   Script.ScriptVersion := 1; // Current Local JFunction Version

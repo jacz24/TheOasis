@@ -1,0 +1,9 @@
+program Tester;
+{$I Resources/[SRL-F]JFunctions.simba}
+
+var
+  lib: TJLib;
+
+begin
+  lib.WriteMsg('Its working!');
+end.

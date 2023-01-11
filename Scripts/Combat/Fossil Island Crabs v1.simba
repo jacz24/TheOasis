@@ -3,15 +3,29 @@ program CrabKiller;
 {$I SRL-F/osr.simba}
 
 var
-  RSW: TRSWalker;
+  (* General Settings *)
+  MSWALKING  := False;
   AGGROEAST: TPoint := [1516, 312];
   RESETEAST: TPoint := [1365, 372];
   AGGROWEST: TPoint := [1457, 316];
   RESETWEST: TPoint := [1351, 397];
+  COMBATWAIT := 16;
   AGGRO := AGGROEAST;
   RESET := RESETEAST;
-  MSWALKING := False;
-  COMBATWAIT := 12;
+
+  (* Spec Settings *)
+  SPEC       := False; // Enable using spec when available
+  MAINWEAPON := 'Dragon scimitar'; // Main Weapon To Use
+  SPECWEAPON := 'Dragon dagger'; // Item to spec with
+  SPECDRAIN: Int32;
+
+
+  (* Misc/Map Settings *)
+  EQUIPPEDITEM: String;
+  RSW: TRSWalker;
+
+
+
 
 const
   PNAME = '';
@@ -74,14 +88,21 @@ end;
 
 procedure TScript.DoLoseFocus();
 begin
-  Antiban.LoseFocus(SRL.NormalRange(3700, 500));
+  Antiban.LoseFocus(SRL.NormalRange(16000, 32000));
 end;
 
 (* Setup our antiban *)
 procedure TScript.SetupAntiban();
 begin
+  Antiban.Skills += ERSSKILL.ATTACK;
   Antiban.Skills += ERSSKILL.STRENGTH;
-  Antiban.Skills += ERSSKILL.TOTAL;
+  Antiban.Skills += ERSSKILL.DEFENCE;
+  Antiban.Skills += ERSSKILL.RANGE;
+  Antiban.Skills += ERSSKILL.PRAYER;
+  Antiban.Skills += ERSSKILL.MAGIC;
+  //Antiban.Ran
+  //Antiban.Skills += ERSSKILL.TOTAL;
+
   Antiban.AddTask((ONE_MINUTE * 1) * Self.ABTimeMod, @ Antiban.SmallRandomMouse);
   Antiban.AddTask((ONE_MINUTE * 4) * Self.ABTimeMod, @ Self.DoLoseFocus);
   Antiban.AddTask((ONE_MINUTE * 5) * Self.ABTimeMod, @ Antiban.HoverMSPlayers);
@@ -105,21 +126,31 @@ begin
   if Mainscreen.FindHPBars <> [] then exit(True);
 end;
 
+
 function AtTile(Tile: TPoint; Distance: Int32 = 15): Boolean;
 begin
   Result := RSW.GetMyPos.DistanceTo(Tile) <= Distance;
 end;
 
-procedure TScript.WaitCombat(attempts: Int32);
+procedure TScript.WritePosition();
+begin
+  Self.WriteMsg('{X = ' + IntToStr(RSW.GetMyPos().X) + ', Y = ' + IntToStr(RSW.GetMyPos().Y) + '}');
+end;
+
+
+
+function TScript.WaitCombat(attempts: Int32): Boolean;
 var
  fails: Int32;
 begin
+  attempts := SRL.NormalRange(attempts-4, attempts+4); // Slight random range to not look like such a bot
   while (fails < attempts) do
   begin
    if(MainScreen.FindHitsplats <> []) then
    begin
      WriteLn('We found hitsplats, we must be in combat');
      fails := 0;
+     Exit(True);
    end else
    begin
      WriteLn('We did not find hitsplats. Fails: ' + ToStr(fails));
@@ -127,11 +158,76 @@ begin
    end;
    Wait(500);
    Self.DoAB();
+   if SPEC then Self.HandleSpec(); // Handles all things spec related
+   if Minimap.GetSpecLevel <= SPECDRAIN then if Inventory.FindItem(MAINWEAPON) then Inventory.ClickItem(MAINWEAPON);
   end;
+  Exit(False);
+end;
+
+
+function TScript.CanSpec: Boolean;
+begin
+  if Minimap.GetSpecLevel() > SPECDRAIN then Exit(True);
+end;
+
+function TScript.GetSpecDrain(): Int32;
+begin
+  if Minimap.GetSpecLevel >= 30 then
+  begin
+    Self.WriteMsg('Attempting to Find Spec Drain, if this doesnt work im sorry!');
+    Self.DoSpec(); // Use Spec Once To Find The SpecDrain
+    WaitUntil(Minimap.GetSpecLevel < 100, 75,5000);
+    Exit(100-Minimap.GetSpecLevel);
+    //Self.WriteMsg('Found Spec Drain Of: ' + IntToStr(SPECDRAIN));
+  end;
+end;
+
+procedure TScript.HandleSpec();
+begin
+  //Self.WriteMsg(IntToStr(Minimap.GetSpecLevel));
+  if SPECDRAIN = 0 then SPECDRAIN := Self.GetSpecDrain;
+  if SPECDRAIN <> 0 then
+  begin
+    while SPECDRAIN < Minimap.GetSpecLevel do
+    begin
+      Self.WriteMsg('Found Spec Drain Of: ' + IntToStr(SPECDRAIN));
+      if Minimap.GetSpecLevel >= SPECDRAIN then Self.DoSpec() else Inventory.ClickItem(MAINWEAPON);
+    end;
+  end;
+
+end;
+
+procedure TScript.DoSpec();
+begin
+  // Equips and uses spec
+  if Inventory.FindItem(SPECWEAPON) then
+  begin
+    Self.WriteMsg('Equip Spec Weapon!');
+    Inventory.ClickItem(SPECWEAPON);
+    //Inventory.ClickItem(SPECWEAPON);
+    WaitUntil(Inventory.FindItem(MAINWEAPON),75, 5000);
+  end;
+
+  if Inventory.FindItem(MAINWEAPON) then
+  begin
+    Self.WriteMsg('Using Special Attack!');
+    Mouse.Click(Minimap.GetSpecAttackCircle, MOUSE_LEFT);
+  end;
+end;
+
+procedure TScript.GetWeapon();
+begin
+  Self.WriteMsg('Spec Enabled Setting Up');
+  if Inventory.FindItem(MAINWEAPON) then
+    EQUIPPEDITEM := SPECWEAPON
+  else EQUIPPEDITEM := MAINWEAPON;
+
+  Self.WriteMsg('Based on your config I believe you have equip: ' + EQUIPPEDITEM);
 end;
 
 procedure TScript.WalkInToPos();
 begin
+  Self.WritePosition();
   Self.WriteMsg('Walking to exact pos');
 
   if AtTile(AGGRO,0) then Exit();
@@ -151,19 +247,38 @@ begin
     Self.WriteMsg('Crab under exact pos, right click walk');
     ChooseOption.Select('Walk here');
   end else Mouse.Click(MOUSE_LEFT);;
-
+  WaitUntil(AtTile(AGGRO,0),75,4200);
   RSW.ScreenWalk     := MSWALKING;
 end;
 
 procedure TScript.GetAggro();
+var
+  attempts: Int32;
 begin
   Self.WriteMsg('Returning to Crabs');
   Minimap.EnableRun();
   RSW.WebWalk(AGGRO, 0, 0.2);
-  repeat
-    if AtTile(AGGRO,24) then Bot.WalkInToPos();
-  until(AtTile(AGGRO,0));
-  //
+  while attempts  > 2 do
+  begin
+    if AtTile(AGGRO,12) then Bot.WalkInToPos();
+    if SRL.Dice(24) then // Occasionally change screenwalk
+  begin
+    if (MSWALKING) then
+    begin
+      RSW.ScreenWalk     := False;
+    end else
+      RSW.ScreenWalk     := True;
+  end;
+    RSW.WebWalk(AGGRO, 2, 0.2);
+    RSW.ScreenWalk     := MSWALKING;
+    attempts := attempts + 1;
+
+    WaitUntil(AtTile(AGGRO, 0), 75, 1200);
+    if AtTile(AGGRO, 0) then break;
+  end;
+  // THis isnt working great! Sadge
+
+  //if not Self.WaitCombat(COMBATWAIT) then Self.WriteMsg('Got Aggro!') else TerminateScript('Could not Regain Aggro, someone probably stole our spot or the crabs found someone else');
 end;
 
 procedure TScript.ResetAggro();
@@ -189,22 +304,23 @@ end;
 procedure TScript.Run();
 begin
   if RSClient.IsLoggedIn then
+  begin
+    if SPEC then Self.GetWeapon();
+
     repeat
       begin
-        Self.WaitCombat(COMBATWAIT);
-      end;
-      begin
+        While Self.WaitCombat(COMBATWAIT) do
+        begin
+          if not AtTile(AGGRO,0) then Self.WalkInToPos;
+          ClearDebug();
+        end;
         Self.ResetAggro();
         Self.GetAggro();
       end;
     until (getTimeRunning() > Self.ShutdownTime);
-  Logout.ClickLogout();
-  TerminateScript('Time to shutdown');
-end;
-
-procedure TScript.WritePosition();
-begin
-  Self.WriteMsg('{X = ' + IntToStr(RSW.GetMyPos().X) + ', Y = ' + IntToStr(RSW.GetMyPos().Y) + '}');
+    Logout.ClickLogout();
+    TerminateScript('Time to shutdown');
+  end;
 end;
 
 begin
@@ -212,6 +328,8 @@ begin
 
   ClearDebug;
   Bot.Init();
+
+  // Stupid stuff i was testing, just wanted to find out how certain things functioned :D
   //Bot.GetAggro();
   //Bot.WritePosition();
   //TerminateScript('Tight');

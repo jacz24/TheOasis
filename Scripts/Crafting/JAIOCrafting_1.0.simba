@@ -11,14 +11,14 @@ Type
     FStartButton, SaveButton, LoadButton: TButton;
     TimeLabel,NameLabel,PassLabel,AccountLabel,PinLabel,BreakLabel,BreakLabel2,
     BreakALabel,BreakFLabel,SettingsLabel,
-    ReportLabel, ModeLabel, BowTypeLabel, LogTypeLabel, BankLabel: TLabel;
+    ReportLabel, ActivityLabel, BowTypeLabel, LogTypeLabel, BankLabel: TLabel;
     RunInput,NameInput,PassInput,PinInput,BreakAfterInput,BreakForInput: TEdit;
-    FLogBox, FBowTypeBox, FModeBox, FBankBox: TComboBox;
+    FGlassBox, FGemTypeBox, FActivityBox, FBankBox: TComboBox;
     BreaksButton,ReportButton: TCheckBox;
   end;
 
   TBot = record
-  BowType, LogType, ModeType, BankLocation, BowName, LogName, StrungName, StringName, KnifeName, CurrentTask                   : String;
+  ActivityType, GlassType, GemType, BankLocation, CurrentTask                   : String;
   RSW                                            : TRSWalker;
   ABTimeMod, StartXP, XPGained, TotalB, TotalC, MaxRunTime, Version   : Int32;
   ShutdownTime                                   : Int64;
@@ -63,9 +63,9 @@ begin
   Bot.TakeBreaks := (Self.BreaksButton.GetState = cbChecked);
   Bot.ShutdownTime := (Bot.MaxRunTime*60000)+Random(-(Bot.MaxRunTime*6000),(Bot.MaxRunTime*6000));
 
-  Bot.ModeType     := Self.FModeBox.GetText();
-  Bot.LogType      := Self.FLogBox.GetText();
-  Bot.BowType      := Self.FBowTypeBox.GetText();
+  Bot.ActivityType     := Self.FActivityBox.GetText();
+  Bot.GlassType      := Self.FGlassBox.GetText();
+  Bot.GemType      := Self.FGemTypeBox.GetText();
   Bot.BankLocation := Self.FBankBox.GetText();
 
 end;
@@ -76,19 +76,19 @@ var
 begin
   with ScriptConfig do
   begin
-    ScriptName    := 'AIOFletcher';
+    ScriptName    := 'JAIOCrafter';
     Player        := [Self.NameInput.GetText(), Self.PassInput.GetText(), Self.PinInput.GetText(), [], True];
     VariableNames := ['Screen report', 'Take breaks', 'Break after',
-                      'Break for', 'Max run', 'Log', 'Mode', 'Bank', 'Type'];
+                      'Break for', 'Max run', 'Log', 'Activity', 'Bank', 'Type'];
     Variables     := [(Self.ReportButton.GetState = cbChecked),
                       (Self.BreaksButton.GetState = cbChecked),
                        Self.BreakAfterInput.GetText(),
                        Self.BreakForInput.GetText(),
                        StrToInt(Self.RunInput.GetText()),
-                       Self.FLogBox.GetText(),
-                       Self.FModeBox.GetText(),
+                       Self.FGlassBox.GetText(),
+                       Self.FActivityBox.GetText(),
                        Self.FBankBox.GetText(),
-                       Self.FBowTypeBox.GetText()];
+                       Self.FGemTypeBox.GetText()];
   end;
   ScriptConfig.SaveSettings();
   S := Sender;
@@ -100,9 +100,9 @@ var
 begin
   with ScriptConfig do
   begin
-    ScriptName    := 'AIOFletcher';
+    ScriptName    := 'JAIOCrafter';
     VariableNames := ['Screen report', 'Take breaks', 'Break after',
-                      'Break for', 'Max run', 'Log', 'Mode', 'Bank', 'Type'];
+                      'Break for', 'Max run', 'Log', 'Activity', 'Bank', 'Type'];
 
     if (not ScriptConfig.LoadSettings()) then Exit;
 
@@ -115,10 +115,10 @@ begin
     Self.BreakAfterInput.setCaption(Variables[2]);
     Self.BreakForInput.setCaption(Variables[3]);
     Self.RunInput.setCaption(Variables[4]);
-    Self.FLogBox.setCaption(Variables[5]);
-    Self.FModeBox.setCaption(Variables[6]);
+    Self.FGlassBox.setCaption(Variables[5]);
+    Self.FActivityBox.setCaption(Variables[6]);
     Self.FBankBox.setCaption(Variables[7]);
-    Self.FBowTypeBox.setCaption(Variables[8]);
+    Self.FGemTypeBox.setCaption(Variables[8]);
   end;
 
   S := Sender;
@@ -137,7 +137,7 @@ begin
   end;
 
   tPic.init();
-  tPic.LoadFromFile(AppPath+'\Resources\AIOFletching_BGCanvas.png');
+  tPic.LoadFromFile(AppPath+'\Resources\AIOCrafting_BGCanvas.png');
 
   FBGImg.Init(Self.Form);
   with FBGImg do
@@ -211,7 +211,7 @@ begin
   with TimeLabel do
   begin
     SetParent(Self.Form);
-    SetLeft(223);
+    SetLeft(240);
     SetTop(33);
     SetCaption('Max run time');
     GetFont().SetName('Bahnschrift');
@@ -223,7 +223,7 @@ begin
   with BreakALabel do
   begin
     SetParent(Self.Form);
-    SetLeft(226);
+    SetLeft(240);
     SetTop(138);
     SetCaption('Break after');
     GetFont().SetName('Bahnschrift');
@@ -235,7 +235,7 @@ begin
   with BreakFLabel do
   begin
     SetParent(Self.Form);
-    SetLeft(234);
+    SetLeft(240);
     SetTop(213);
     SetCaption('Break for');
     GetFont().SetName('Bahnschrift');
@@ -255,27 +255,28 @@ begin
     GetFont().SetSize(14);
   end;
 
-  ModeLabel.Init(Self.Form);
-  with ModeLabel do
+  ActivityLabel.Init(Self.Form);
+  with ActivityLabel do
   begin
     SetParent(Self.Form);
     SetLeft(462);
     SetTop(32);
-    SetCaption('Cut Or String');
+    SetCaption('Activity');
     GetFont().SetName('Bahnschrift');
     GetFont().SetColor(12632256);
     GetFont().SetSize(12);
   end;
 
-  FModeBox.Init(Self.Form);
-  with FModeBox do
+  FActivityBox.Init(Self.Form);
+  with FActivityBox do
   begin
     SetParent(Self.Form);
     SetBounds(458,62,100,23);
     SetReadOnly(True);
-    SetSelText('Cut');
-    GetItems().Add('Cut');
-    GetItems().Add('String');
+    SetSelText('Glassblowing');
+    GetItems().Add('Glassblowing');
+    GetItems().Add('Gem Cutting');
+    GetItems().Add('Jewellery');
   end;
 
 
@@ -285,21 +286,27 @@ begin
     SetParent(Self.Form);
     SetLeft(462);
     SetTop(212);
-    SetCaption('Bow Type');
+    SetCaption('Item Type');
     GetFont().SetName('Bahnschrift');
     GetFont().SetColor(12632256);
     GetFont().SetSize(12);
   end;
 
-  FBowTypeBox.Init(Self.Form);
-  with FBowTypeBox do
+  FGemTypeBox.Init(Self.Form);
+  with FGemTypeBox do
   begin
     SetParent(Self.Form);
     SetBounds(458,232,100,23);
     SetReadOnly(True);
-    SetSelText('Longbow');
-    GetItems().Add('Shortbow');
-    GetItems().Add('Longbow');
+    SetSelText('Opal');
+    GetItems().Add('Jade');
+    GetItems().Add('Red Topaz');
+    GetItems().Add('Sapphire');
+    GetItems().Add('Emerald');
+    GetItems().Add('Ruby');
+    GetItems().Add('Diamond');
+    GetItems().Add('Dragonstone');
+    GetItems().Add('Onyx');
   end;
 
 
@@ -309,25 +316,27 @@ begin
     SetParent(Self.Form);
     SetLeft(462);
     SetTop(112);
-    SetCaption('Log Type');
+    SetCaption('Glass Type');
     GetFont().SetName('Bahnschrift');
     GetFont().SetColor(12632256);
     GetFont().SetSize(12);
   end;
 
-  FLogBox.Init(Self.Form);
-  with FLogBox do
+  FGlassBox.Init(Self.Form);
+  with FGlassBox do
   begin
     SetParent(Self.Form);
     SetBounds(458,132,100,23);
     SetReadOnly(True);
-    SetSelText('Willow');
-    GetItems().Add('Wood');
-    GetItems().Add('Oak');
-    GetItems().Add('Willow');
-    GetItems().Add('Maple');
-    GetItems().Add('Yew');
-    GetItems().Add('Magic');
+    SetSelText('Light orb');
+    GetItems().Add('Beer');
+    GetItems().Add('Candle Lantern');
+    GetItems().Add('Oil Lamp');
+    GetItems().Add('Vial');
+    GetItems().Add('Fishbowl');
+    GetItems().Add('Unpowered staff orb');
+    GetItems().Add('Lantern Lens');
+    GetItems().Add('Light orb');
   end;
 
 
@@ -487,6 +496,14 @@ begin
   end;
 end;
 
+function TBot.IsGlassblowing(): Boolean;
+begin
+Self.WriteMsg('Checking If Glassblowing');
+if WaitUntil(SRL.GetPixelShift(Inventory.Bounds, 400) > 24, 75, 1200) then Exit(True);
+
+Exit(False);
+end;
+
 procedure TBot.Report();
 begin
   ClearDebug();
@@ -598,73 +615,6 @@ begin
       Login.LoginPlayer();
 end;
 
-procedure TBot.DoEdgeCases() // For items
-begin
-  if Self.LogType = 'Wood' then if Self.BowType = 'Longbow' then
-  begin // For longbows
-    Self.BowName := 'Longbow (u)';
-    Self.StrungName := 'Longbow';
-  end else
-  begin // For shortbows
-    Self.BowName := 'Shortbow (u)';
-    Self.StrungName := 'Shortbow';
-  end;
-
-end;
-
-procedure TBot.OpenBank();
-begin
-  Self.WriteMsg('Openning Bank!');
-end;
-
-procedure TBot.HandleBanking();
-begin
-  //Self.WriteMsg('Cutting: ' + Self.LogName + ' Into: ' + Self.BowName);
-  Self.WriteMsg('Handling Banking!');
-  if Bank.IsOpen() then
-  begin
-    if Self.ModeType = 'Cut' then // Start cutting logs into unstring bows
-    begin
-      // if we find unstrung bows in our inventory then deposit them
-      if Inventory.FindItem(Self.BowName) then
-      begin
-        Bank.DepositItem([Self.BowName, BANK_DEPOSIT_ALL], True); // TODO IDK IF THIS WILL WORK?
-        WaitUntil(not Inventory.FindItem(Self.BowName), 75, 5000);
-      end;
-
-      // If no log(s) in inventory then withdraw log(s)
-      if not Inventory.FindItem(Self.LogName) then if not Bank.WithdrawItem([Self.LogName, BANK_WITHDRAW_ALL], True) then TerminateScript('No More Logs!');
-
-      // if log(s) in inventory then close the bank
-      if Inventory.FindItem(Self.LogName) then Bank.Close();
-
-    end;
-    if Self.ModeType = 'String' then // Start cutting logs into unstring bows
-    begin
-
-    end;
-  end;
-end;
-
-procedure TBot.CutLog();
-begin
-  Self.WriteMsg('Cutting Log(s)!');
-  if not Bank.IsOpen() then
-  begin
-    Inventory.ClickItem(Self.KnifeName);
-    //WaitUntil(); // Waituntil knife is selected needed?
-    Inventory.ClickItem(Self.LogName);
-    if Make.IsOpen(5000,75) then
-
-
-  end;
-end;
-
-procedure TBot.StringBow();
-begin
-  Self.WriteMsg('String Bow(s)!');
-end;
-
 procedure TBot.init();
 begin
   Self.WriteMsg('Starting Init');
@@ -676,58 +626,71 @@ begin
   Mouse.Distribution      := MOUSE_DISTRIBUTION_GAUSS;
   ItemFinder.Similarity   := 0.9999;
 
-  if Self.BowType = 'Longbow' then
-  begin // For longbows
-    Self.BowName :=  Self.LogType+' longbow (u)';
-    Self.StrungName := Self.LogType+' longbow';
-  end else
-  begin // For shortbows
-    Self.BowName := Self.LogType + ' shortbow (u)';
-    Self.StrungName := Self.LogType + ' shortbow';
+end;
+
+procedure TBot.Glassblowing();
+begin
+
+  Self.WriteMsg('Molten Glass and not blowing: Blowing Glass!');
+
+
+end;
+
+
+
+procedure TBot.DoJewelCrafting();
+begin
+  while (getTimeRunning() < Self.ShutdownTime) do
+  begin
+
+    Self.WriteMsg('Activity:  ' + Self.ActivityType + '  Bank:  ' + Self.BankLocation + '  GlassType:  ' + Self.GlassType + '  Gem:  ' + Self.GemType);
+
+
+    TerminateScript('Jewel');
+    Wait(45,75); // Little wait to not overload
   end;
-  Self.LogName    := Self.LogType+' logs';
-  Self.StringName := 'Bow string';
-  Self.KnifeName  := 'Knife';
+end;
 
-  Self.DoEdgeCases();
+procedure TBot.DoGemCutting();
+begin
+  while (getTimeRunning() < Self.ShutdownTime) do
+  begin
 
+    Self.WriteMsg('Activity:  ' + Self.ActivityType + '  Bank:  ' + Self.BankLocation + '  GlassType:  ' + Self.GlassType + '  Gem:  ' + Self.GemType);
+
+
+    TerminateScript('Gem');
+    Wait(45,75); // Little wait to not overload
+  end;
+end;
+
+procedure TBot.DoGlassblowing();
+begin
+  while (getTimeRunning() < Self.ShutdownTime) do
+  begin
+
+    Self.WriteMsg('Activity:  ' + Self.ActivityType + '  Bank:  ' + Self.BankLocation + '  GlassType:  ' + Self.GlassType + '  Gem:  ' + Self.GemType);
+
+    if Self.IsGlassblowing then Self.WriteMsg('Its Blowing Baby!');
+
+    if not Inventory.FindItem('Molten glass') and not Self.IsGlassblowing() then Self.WriteMsg('No Molten Glass and Not Blowing!');
+
+    if not Self.IsGlassblowing() and Inventory.FindItem('Molten glass') and not Self.IsGlassblowing() then Self.Glassblowing();
+
+
+    TerminateScript('Glass');
+    Wait(45,75); // Little wait to not overload
+  end;
 end;
 
 procedure TBot.Run();
 begin // BowName, LogName, StrungName
-  while (getTimeRunning() < Self.ShutdownTime) do
-  begin
-    if Self.ModeType = 'Cut' then // Start cutting logs into unstring bows
-    begin
-      Self.WriteMsg('Cutting: ' + Self.LogName + ' Into: ' + Self.BowName);
 
-      // If no knife then shutdown because we can't fletch!
-      if not Inventory.FindItem(Self.KnifeName) then TerminateScript('No Knife Found!');
+  if Self.ActivityType = 'Glassblowing' then Self.DoGlassblowing();
 
-      // If we find a log and knife in inventory and bank isn't open then cut log
-      if (Inventory.FindItem(Self.LogName)) and (Inventory.FindItem(Self.KnifeName)) and (not Bank.IsOpen()) then Self.CutLog();
+  if Self.ActivityType = 'Gem Cutting' then Self.DoGemCutting();
 
-      // If Bank Open and we find a log and knife in inventory then Close bank so we can cut them
-      if (Bank.IsOpen()) and (Inventory.FindItem(Self.LogName)) and (Inventory.FindItem(Self.KnifeName)) then Bank.Close();
-
-      // If no log(s) in inventory but we find knife in inventory and bank isn't open then open bank
-      if (not Inventory.FindItem(Self.LogName)) and (Inventory.FindItem(Self.KnifeName)) and (not Bank.IsOpen()) then Self.OpenBank();
-
-      // If Bank Open then run our banking procedure for more checks and all things banking
-      if Bank.IsOpen() then Self.HandleBanking();
-
-    end;
-    if Self.ModeType = 'String' then // Start stringing unstrung bows
-    begin
-      Self.WriteMsg('Stringing: ' + Self.BowName + ' Into: ' + Self.StrungName);
-
-      // If we find a bow and string in inventory then string bow(s)
-      if (Inventory.FindItem(Self.BowName)) and (Inventory.FindItem(Self.StringName)) then Self.StringBow();
-
-    end;
-    TerminateScript('testy');
-    Wait(45,75); // Little wait to not overload
-  end;
+  if Self.ActivityType = 'Jewellery' then Self.DoJewelCrafting();
 
   TerminateScript('Time to shutdown');
 end;
@@ -736,10 +699,10 @@ begin
   if (not DirectoryExists(AppPath+'\Resources\')) then
     CreateDirectory(AppPath+'\Resources');
 
-  if (not FileExists(AppPath+'\Resources\AIOFletching_BGCanvas.png')) then
-    DownloadToFile('https://i.imgur.com/sRpkdLS.png', AppPath+'\Resources\AIOFletching_BGCanvas.png');
-  if (not FileExists(AppPath+'\Resources\AIOFletching_ReportBG.png')) then
-    DownloadToFile('https://i.imgur.com/GY1KMko.png', AppPath+'\Resources\AIOFletching_ReportBG.png');
+  if (not FileExists(AppPath+'\Resources\AIOCrafting_BGCanvas.png')) then
+    DownloadToFile('https://i.imgur.com/MTD58KT.png', AppPath+'\Resources\AIOCrafting_BGCanvas.png');
+  if (not FileExists(AppPath+'\Resources\AIOCrafting_ReportBG.png')) then
+    DownloadToFile('https://i.imgur.com/IXDHR3g.png', AppPath+'\Resources\AIOCrafting_ReportBG.png');
 
   Sync(@GUI.Run);
 

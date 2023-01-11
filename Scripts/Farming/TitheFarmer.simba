@@ -551,23 +551,23 @@ begin
 
   Self.HandlePatchMaintenance(0);
   Self.HandlePatchMaintenance(1);
-  Self.HandlePatchMaintenance(2);
+  //Self.HandlePatchMaintenance(2);
   Self.HandlePatchMaintenance(3);
 
   Wait(45,75);
   Self.HandlePatchMaintenance(0);
   Self.HandlePatchMaintenance(1);
-  Self.HandlePatchMaintenance(2);
+  //Self.HandlePatchMaintenance(2);
   Self.HandlePatchMaintenance(3);
   Wait(45,75);
   Self.HandlePatchMaintenance(0);
   Self.HandlePatchMaintenance(1);
-  Self.HandlePatchMaintenance(2);
+  //Self.HandlePatchMaintenance(2);
   Self.HandlePatchMaintenance(3);
   Wait(45,75);
   Self.HandlePatchMaintenance(0);
   Self.HandlePatchMaintenance(1);
-  Self.HandlePatchMaintenance(2);
+  //Self.HandlePatchMaintenance(2);
   Self.HandlePatchMaintenance(3);
   (*
   *)

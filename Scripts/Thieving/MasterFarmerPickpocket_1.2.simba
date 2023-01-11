@@ -620,7 +620,7 @@ var
   i: Int32;
   fSlots,dSlots: TIntegerArray;
 begin
-  dSlots := [0,1,2,3];
+  dSlots := [0,1,2,3,4,5,6,7,8,9,10,11];
   //if (not Inventory.FindItem(Self.FoodType, fSlots)) then
   //begin
   //  Self.DoBanking();
@@ -931,7 +931,7 @@ var
   Miss: Double;
   Temp: Double := Mouse.MissChance;
 begin
-  if MainScreen.IsUpText(['Pickp','ocket Master','Pickpocket Mast','et M','r Far','Farmer']) then
+  if MainScreen.IsUpText(['Pickp','ocket Master','Pickpocket Mast','et M','r Far']) then
   begin
     wait(10,90);
     if Random() < 0.26 then
@@ -998,7 +998,7 @@ begin
     if Self.FarmerPnt.X > 0 then
       ASyncMouse.ChangeDestination(Self.FarmerPnt);
 
-    if MainScreen.IsUpText(['Pickp','ocket Master','Pickpocket Mast','et M','r Far','Farmer']) then
+    if MainScreen.IsUpText(['Pickp','ocket Master','Pickpocket Mast','et M','r Far']) then
     begin
       Mouse.Speed := S;
       Mouse.MissChance := Temp;
@@ -1008,7 +1008,7 @@ begin
     Wait(30);
   end;
 
-  Result := MainScreen.IsUpText(['Pickp','ocket Master','Pickpocket Mast','et M','r Far','Farmer']);
+  Result := MainScreen.IsUpText(['Pickp','ocket Master','Pickpocket Mast','et M','r Far']);
   Mouse.Speed := S;
   Mouse.MissChance := Temp;
 
@@ -1072,6 +1072,11 @@ begin
   Self.DoAB();
 end;
 
+procedure TScript.WritePosition();
+begin
+  Self.WriteMsg('{X = ' + IntToStr(RSW.GetMyPos().X) + ', Y = ' + IntToStr(RSW.GetMyPos().Y) + '}');
+end;
+
 procedure TScript.Free();
 begin
   RSClient.Image.Clear();
@@ -1089,7 +1094,7 @@ begin
 
   RSW.Setup('world');
 
-  Mouse.Speed       := 16;
+  Mouse.Speed       := Random(16, 19);
   ASyncMouse.Speed  := Mouse.Speed;
   MM2MS.ZoomLevel   := Options.GetZoomLevel();
   Self.StartXP      := XPBar.Read();
@@ -1110,9 +1115,76 @@ begin
   AddOnTerminate(@Self.Free);
 end;
 
+procedure TMouse.HumanMove(Point: TPoint);
+var
+  mPt: TPoint;
+  S: Int32;
+  Miss: Double;
+  Range: Int64;
+begin
+  S := Self.Speed;
+  Range := Trunc(Power(Self.Position().DistanceTo(Point), 0.80)); // how much possible range to miss
+  Miss := SRL.SkewedRand(0.9, 0.1, 1.5); // Where miss will happen. 1 = destination (P).
+
+  mPt.X := Trunc((1-Miss)*Self.Position().X + Miss*Point.X);
+  mPt.Y := Trunc((1-Miss)*Self.Position().Y + Miss*Point.Y);
+
+  mPt.X += SRL.NormalRange(-Range, Range);
+  mPt.Y += SRL.NormalRange(-Range, Range);
+
+  Self.Move(mPt);
+  Self.Speed := round(S*0.85);
+  Self.Move(Point);
+  Self.Speed := S;
+end;
+
+function TScript.FarmerInTrap(): Boolean;
+begin
+  if MainScreen.IsVisible(RSW.GetTileMS([2373, 2988]).mean) then if RSW.GetTileMS([2373, 2988]).Contains(Self.GetFarmer) then
+  begin
+    Self.WriteMsg('Farmer in Trap!');
+    Exit(True);
+  end;
+  //Antiban.RandomRotate();
+  Exit(False);
+end;
+
+procedure TScript.WalkInToPos();
+begin
+  Self.WritePosition();
+  Self.WriteMsg('Walking to exact pos');
+
+  if Self.AtTile([2373, 2996],0) then Exit();
+
+  if SRL.Dice(24) then // Occasionally change screenwalk
+  begin
+    if (MSWalk) then
+    begin
+      RSW.ScreenWalk     := False;
+    end else
+      RSW.ScreenWalk     := True;
+  end;
+
+  Mouse.HumanMove(RSW.GetTileMS([2373, 2996]).Mean);
+  if MainScreen.IsUpText(['Farmer']) then
+  begin
+    Self.WriteMsg('something under exact pos, right click walk');
+    ChooseOption.Select('Walk here');
+  end else Mouse.Click(MOUSE_LEFT);;
+  WaitUntil(Self.AtTile([2373, 2996],0),75,4200);
+  RSW.ScreenWalk     := MSWalk;
+end;
+
+function TScript.AtTile(Tile: TPoint; Distance: Int32 = 15): Boolean;
+begin
+  Result := RSW.GetMyPos.DistanceTo(Tile) <= Distance;
+end;
+
 procedure TScript.Run();
 var
-  slot: Int32;
+  TrapTime         : TStopwatch;
+  slot             : Int32;
+  TotalTrapTime    : Int64;
 begin
   if (not RSClient.IsLoggedIn) then
     if Login.Players[0].Password <> '' then
@@ -1127,7 +1199,42 @@ begin
     if RSW.GetMyPos().DistanceTo(Self.BankTile) < 10 then
       RSW.WebWalk(Self.MarketTile);
 
+  TrapTime.Start;
+  TotalTrapTime := 240000;
+
   while (getTimeRunning() < Self.ShutdownTime) do
+  begin
+    Self.WritePosition();
+    //Self.WriteMsg(IntToStr(TrapTime.ElapsedTime));
+    if RSW.GetMyPos().DistanceTo(Self.ArdyTile) < 128 then
+    begin
+      Self.DoPickpocketing();
+    end else
+      TerminateScript('Error: 69');
+
+    if Self.FarmerInTrap() then
+    begin
+      while (TrapTime.ElapsedTime < TotalTrapTime) do
+      begin
+        //Self.WriteMsg(IntToStr(TrapTime.ElapsedTime));
+        if RSW.GetMyPos().DistanceTo(Self.ArdyTile) < 128 then
+        begin
+          Self.DoPickpocketing();
+        end else
+          TerminateScript('Error: 69');
+        Self.DoAB();
+        wait(40, 115);
+      end;
+      Self.WalkInToPos();
+      if SRL.Dice(24) then Wait(24000,32000) else Antiban.LoseFocus(RandomRange(16000, 24000));
+      TotalTrapTime := RandomRange(206969, 226969);
+      TrapTime.Reset;
+    end;
+    Self.DoAB();
+  end;
+  TerminateScript('End');
+
+  (*
   begin
     Self.WriteMsg('Looping!');
     if (not RSClient.IsLoggedIn) then
@@ -1156,7 +1263,7 @@ begin
     Self.DoAB();
     wait(40, 115);
   end;
-
+  *)
   Logout.ClickLogout();
   TerminateScript('Time to shutdown');
 end;

@@ -1,0 +1,158 @@
+program BankFinder;
+{$I SRL-F/OSR.simba}
+type
+  ERSBankChest = (
+    FOSSIL_ISLAND_ISLAND_BANK_CHEST,
+    REGULAR_BANK_CHEST,
+    FOSSIL_ISLAND_MAIN_BANK_CHEST
+  );
+
+  ERSBANK = (
+    REGULAR_BANK,
+    FARMING_GUILD,
+    FALADOR
+  );
+
+type
+  TRSBankFinder = type TRSObjectFinder;
+
+  TScript = record
+    BankFinder                     : TRSBankFinder;
+    RSW                                 : TRSWalker;
+  end;
+
+
+Var
+  Bot: TScript;
+
+(*
+
+  FIIBankChest.Colors += CTS2(1186382, 9, 0.28, 4.67); // Red Surrounding Black Color
+  FIIBankChest.Colors += CTS2(1776416, 1, 0.01, 0.01); // Black Inside Color
+  FIIBankChest.Colors += CTS2(5995662, 14, 0.04, 0.47); // Wood On The Outside
+  FIIBankChest.Colors += CTS2(6383208, 11, 0.45, 0.07); // Silver Outline Outside
+  FIIBankChest.Colors += CTS2(2120729, 10, 0.19, 4.55); // Green Leaf Outside
+  FIIBankChest.Colors += CTS2(6325679, 13, 0.04, 0.84); // Starfish On The Back Of Chest CTS2(6128041, 11, 0.03, 0.74)
+  FIIBankChest.ClusterDistance := 6;
+  FIIBankChest.Erode := 2;
+*)
+
+function TRSBankFinder.FindBankChest(BankChest: ERSBankChest): Boolean;
+var
+  ATPA: T2DPointArray;
+begin
+  if BankChest = ERSBankChest.FOSSIL_ISLAND_ISLAND_BANK_CHEST then
+  begin
+    WriteLn('[Bot]: '+'Looking');
+    //Self.Colors := [CTS2(1186382, 9, 0.28, 4.67),
+    //CTS2(1776416, 1, 0.01, 0.01), CTS2(5995662, 14, 0.04, 0.47),
+    //CTS2(6383208, 11, 0.45, 0.07), CTS2(2120729, 10, 0.19, 4.55), CTS2(6325679, 13, 0.04, 0.84)];
+
+    Self.Colors += CTS2(1186382, 9, 0.28, 4.67); // Red Surrounding Black Color
+    Self.Colors += CTS2(1776416, 1, 0.01, 0.01); // Black Inside Color
+    Self.Colors += CTS2(5995662, 14, 0.04, 0.47); // Wood On The Outside
+    Self.Colors += CTS2(6383208, 11, 0.45, 0.07); // Silver Outline Outside
+    Self.Colors += CTS2(2120729, 10, 0.19, 4.55); // Green Leaf Outside
+    Self.Colors += CTS2(6325679, 13, 0.04, 0.84); // Starfish On The Back Of Chest CTS2(6128041, 11, 0.03, 0.74)
+    Self.ClusterDistance := 6;
+    Self.Erode := 2;
+
+    ATPA := MainScreen.FindObject(Self);
+    if ATPA.Len < 1 then Result := True;
+
+  end;
+  Exit(False);
+end;
+
+function TRSBankFinder.HoverBankChest(BankChest: ERSBankChest): Boolean;
+var
+  ATPA: T2DPointArray;
+  TPA:  TPointArray;
+begin
+  WriteLn('[Bot]: '+'Hovering Bank Chest');
+  ATPA := MainScreen.FindObject(Self);
+  if ATPA.Len < 1 then Exit();
+    ATPA.SortByMiddle(Mainscreen.Center);
+
+    for TPA in ATPA do
+    begin
+      Mouse.Move(TPA.Mean());
+      if MainScreen.IsUpText(['Bank','wreck']) then break;
+    end;
+
+end;
+
+function TRSBankFinder.ClickBankChest(BankChest: ERSBankChest): Boolean;
+var
+  ATPA: T2DPointArray;
+begin
+  WriteLn('[Bot]: '+'Clicking Bank Chest');
+
+
+end;
+
+function TRSBankFinder.FindBank(Bank: ERSBankChest): Boolean;
+begin
+
+  Result := True;
+end;
+
+procedure TScript.WriteMsg(Message: String);
+begin
+  WriteLn('[Bot]: '+Message);
+
+end;
+
+procedure TMouse.HumanMove(Point: TPoint);
+var
+  mPt: TPoint;
+  S: Int32;
+  Miss: Double;
+  Range: Int64;
+begin
+  S := Self.Speed;
+  Range := Trunc(Power(Self.Position().DistanceTo(Point), 0.80)); // how much possible range to miss
+  Miss := SRL.SkewedRand(0.9, 0.1, 1.5); // Where miss will happen. 1 = destination (P).
+
+  mPt.X := Trunc((1-Miss)*Self.Position().X + Miss*Point.X);
+  mPt.Y := Trunc((1-Miss)*Self.Position().Y + Miss*Point.Y);
+
+  mPt.X += SRL.NormalRange(-Range, Range);
+  mPt.Y += SRL.NormalRange(-Range, Range);
+
+  Self.Move(mPt);
+  Self.Speed := round(S*0.85);
+  Self.Move(Point);
+  Self.Speed := S;
+end;
+
+procedure TScript.Run();
+begin
+
+  //FossilBankChest.Setup;
+
+  Self.WriteMsg('Looking For Chest');
+
+  //if BankFinder.FindBankChest(ERSBankChest.FOSSIL_ISLAND_ISLAND_BANK_CHEST) then BankFinder.HoverBankChest(ERSBankChest.FOSSIL_ISLAND_ISLAND_BANK_CHEST);
+
+
+  (*
+  ATPA := MainScreen.FindObject(FIIBankChest);
+  if ATPA.Len < 1 then Exit();
+    ATPA.SortByMiddle(Mainscreen.Center);
+
+    for TPA in ATPA do
+    begin
+      Mouse.HumanMove(TPA.Mean());
+      if MainScreen.IsUpText(['Bank','wreck']) then break;
+    end;
+   *)
+end;
+
+
+
+begin
+  Bot.Run();
+
+
+end.

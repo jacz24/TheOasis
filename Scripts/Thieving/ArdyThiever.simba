@@ -2,6 +2,12 @@ program JArdyThiever;
 {$DEFINE SRL_USE_REMOTEINPUT} // DEFINE SRL_USE_REMOTEINPUT
 {$I SRL-F/OSR.simba}
 
+// These are to outline limitations of the system.
+// TODO:
+// 1. During high traffic other players will cover the the knight leading to a knight not found error
+// 2. Not crucial but smoother mouse adjustments would be nice. Such as when the mouse will go high and then go low
+// 3. Better inventory management (occasional missing pouches, clicking coins if they are next to pouches) Lame shit
+
 Const
 
 // START OF SETTINGS!
@@ -83,8 +89,9 @@ begin
     Self.TempTime := Self.TrueRunTime.ElapsedTime;
     ClearDebug();
   end;
-  Self.WriteMsg(IntToStr(Self.TrueRunTime.ElapsedTime));
-  Self.WriteMsg(IntToStr(Self.TempTime + 5*1000));
+  Self.WritePosition();
+  //Self.WriteMsg(IntToStr(Self.TrueRunTime.ElapsedTime));
+  //Self.WriteMsg(IntToStr(Self.TempTime + 5*1000));
 
   Self.XPGained := Max(0, XPBar.Read()-Self.StartXP);
   if TAKEBREAKS then
@@ -141,12 +148,12 @@ end;
 
 function TScript.FoundKnight(): Boolean;
 begin
-if MainScreen.IsUpText(['Pickp','ocket Knight','Pickpocket Kni','et K','of Ard','Ardougne']) then Exit(True);
+if MainScreen.IsUpText(['night','Pickpocket Kni','et K','of Ard','Ardougne']) then Exit(True);
 end;
 
 function TScript.FindKnight(): Boolean;
 var
-  i           : Int32;
+  i, atP           : Int32;
   ATPA        : T2DPointArray;
   KnightFinder: TRSObjectFinder;
   attempt     : TStopwatch;
@@ -155,7 +162,8 @@ begin
   // Grey 2 CTS2(7631997, 22, 0.40, 0.16)
   // CTS2(3411087, 23, 0.89, 0.70) // purple parts
   KnightFinder.ColorClusters += [CTS2(6382184, 23, 0.11, 0.10), CTS2(11018628, 19, 0.21, 1.09), 9];
-  KnightFinder.ClusterDistance := 4;
+  KnightFinder.ClusterDistance := 7;
+  Self.WritePosition();
   // Look for other tiles if we don't find the first
   attempt.Start();
 
@@ -168,24 +176,27 @@ begin
       if MainScreen.IsVisible(KnightTiles[i]) then
       begin
         ATPA := MainScreen.FindObject(KnightFinder);
-        if ATPA.Len <= 0 then TerminateScript('Knight Not Found!');
+        if ATPA.Len < 1 then TerminateScript('Knight Not Found!');
         ATPA.SortByMiddle(Self.RSW.GetTileMS(KnightTiles[i]).Mean);
-
-        ASyncMouse.HumanMove(ATPA[i].Mean());
-        while ASyncMouse.IsMoving() do
+        for atP:=0 to min(1, high(ATPA)) do
         begin
-          if Self.FoundKnight() then
+        //To fix we will likely have to use a nested loop for the ATPA. simple right?
+          ASyncMouse.HumanMove(ATPA[atP].Mean()); // this crashes the program because its iterating over an index thats not in range
+          while ASyncMouse.IsMoving() do
           begin
-            Self.CurrentTask := 'Found Knight!';
-            Self.Report();
-            if SRL.Dice(24) then;
+            if Self.FoundKnight() then
             begin
-              Mouse.Click(MOUSE_LEFT);
-              WaitUntil(MainScreen.DidRedClick, Random(25,50), 2500);
+              Self.CurrentTask := 'Found Knight!';
+              Self.Report();
+              if SRL.Dice(24) then;
+              begin
+                Mouse.Click(MOUSE_LEFT);
+                WaitUntil(MainScreen.DidRedClick, Random(25,50), 2500);
+              end;
+              Exit(True);
             end;
-            Exit(True);
+            Wait(30);
           end;
-          Wait(30);
         end;
       end;
     end;
@@ -334,7 +345,7 @@ begin
   repeat
     Self.DoAB();
     if ENABLEDEBUG then Self.WritePosition(); // Write RSW Pos
-    if not Self.RSW.IsMyPosBetweenTPoints([94,105],[98,105]) then Self.WalkToPosition();
+    if not Self.RSW.IsMyPosBetweenTPoints([92,105],[98,105]) then Self.WalkToPosition();
     if not Inventory.IsOpen() then Inventory.Open();
     if Inventory.IsOpen() then if Inventory.CountItemStack('Coin pouch') >= 1 then Self.OpenPouch();
     if Self.RSW.IsMyPosBetweenTPoints([94,105],[98,105]) then if Inventory.IsOpen() then if Inventory.CountItemStack('Coin pouch') <= 27 then Self.DoPickpocketing();

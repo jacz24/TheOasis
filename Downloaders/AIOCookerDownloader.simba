@@ -21,12 +21,12 @@ procedure DownloadLocal();
 begin
   if (Local) then
   begin
-    DownloadToFile(BotPage, AppPath+'\Resources\JAIOCooker.simba');
+    DownloadToFile(BotPage, AppPath+'\Scripts\JAIOCooker.simba');
     DownloadToFile(ScriptPage, AppPath+'\Resources\[SRL-F]JFunctions.simba');
   end;
   if (not Local) then
   begin
-    DownloadToFile(BotPage, AppPath+'\Resources\JAIOCooker.simba');
+    DownloadToFile(BotPage, AppPath+'\Script\JAIOCooker.simba');
     DownloadToFile(ScriptPage, AppPath+'\Resources\[SRL-F]JFunctions.simba');
   end;
 end;
