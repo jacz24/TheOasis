@@ -38,7 +38,7 @@ Var
   Bot: TScript;
   RSW: TRSWalker;
   GUI: TInitForm;
-  LOCATION := "ARDY"; // ARDY, DRAYNOR
+  LOCATION := "DRAYNOR"; // ARDY, DRAYNOR
   FOOD := "NONE";
 
 procedure TScript.WriteMsg(Message: String);
