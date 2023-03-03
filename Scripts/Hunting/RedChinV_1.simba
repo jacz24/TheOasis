@@ -1,36 +1,56 @@
 program RedChin_V1;
-{$DEFINE SRL_USE_REMOTEINPUT}
+{$UNDEF SCRIPT_REVISION}{$DEFINE SCRIPT_REVISION := '1'}
+{$IFDEF WINDOWS}{$DEFINE SCRIPT_GUI}{$ENDIF}
 {$I SRL-F/OSR.simba}
-Const
-(* General settings *)
-  MAXRUNTIME = 6900;     // Max run time (in minutes)
-  NUMTRAPS   = 5;        // Number of traps you can use
-  SPOT       = 0;        // What Spot 0-4
-(* Player settings *)
-  PNAME        = '';    // Username
-  PPASS        = '';    // Password
-  PPIN         = '';                // PIN
-(* Break settings *)
-  BREAKAFTER   = '115'; // Break after how long (in minutes)
-  BREAKFOR     = '15';  // Break for how long (in minutes)
+{$I WaspLib/osr.simba}
 
-  DRAW         = False; // Will Draw on screen boxes around ores and such
-  MSWalking    = True;
 
-Type
-  TScript = record
-  Version                   : String;
-  TrueRunTime               : TStopwatch;
-  SpotOne, SpotTwo          : TPointArray;
-  BoxTrapCol, ActiveBoxTrapCol, TrappedBoxTrapCol, FailedBoxTrapCol                : TCTS2Color;
-  RSW                       : TRSWalker;
-  ABTimeMod, StartXP        : Int32;
-  ShutdownTime              : Int64;
-  TileTable                 : array of TPointArray;
+begin
+  Login.PlayerIndex     := 0;
+  StatsPayload.SetUsername('');
+end;
+
+type
+  ETask = (
+    INSIDE_CAVE, // Not Working
+    OUTSIDE_CAVE // Working
+  );
+
+type
+  EState = (
+    // TRAP STATES
+    PLANT_TRAP,
+    PICKUP_TRAP,
+    CHECK_TRAP_STATE,
+    HAS_TRAP,
+
+    // Misc States
+    WAIT_STATE,
+    CLOSE_INTERFACE,
+    LEVEL_UP,
+    END_SCRIPT
+  );
+
+  TScript = record(TBaseWalkerScript)
+    State: EState;
+    RSFailedBoxTrap: TRSObject; // Object if nothing was caught... idk if this required?
+    RSCaughtBoxTrap: TRSObject; // Object if a chin has been caught
+    RSIdleBoxTrap: TRSObject; // Object if nothing has happened yet
+
   end;
 
 var
-  Bot: TScript;
+  CurrentTask: ETask := ETask.OUTSIDE_CAVE;
+
+procedure TAntiban.Setup; override;
+begin
+  inherited;
+
+  Antiban.Skills := [ERSSkill.HUNTER, ERSSkill.TOTAL];
+  Antiban.MinZoom := 39;
+  Antiban.MaxZoom := 69;
+
+end;
 
 procedure TScript.WriteMsg(Message: String);
 begin
@@ -42,115 +62,36 @@ begin
   Self.WriteMsg('{X = ' + IntToStr(Self.RSW.GetMyPos().X) + ', Y = ' + IntToStr(Self.RSW.GetMyPos().Y) + '}');
 end;
 
-procedure TScript.DeclarePlayers();
+procedure TScript.Init();
 begin
-  Login.AddPlayer(PNAME, PPASS, PPIN, []);
-end;
 
-// Combination of miss mouse + slowing near the target destination
-procedure TMouse.HumanMove(Point: TPoint);
-var
-  mPt: TPoint;
-  S: Int32;
-  Miss: Double;
-  Range: Int64;
-begin
-  S := Self.Speed;
-  Range := Trunc(Power(Self.Position().DistanceTo(Point), 0.80)); // how much possible range to miss
-  Miss := SRL.SkewedRand(0.9, 0.1, 1.5); // Where miss will happen. 1 = destination (P).
+  Self.RSW.Setup([RSRegions.CORSAIR_COVE]); // Load the CORSAIR DUNGEON if inside cave selected
 
-  mPt.X := Trunc((1-Miss)*Self.Position().X + Miss*Point.X);
-  mPt.Y := Trunc((1-Miss)*Self.Position().Y + Miss*Point.Y);
+  RSCaughtBoxTrap :=
 
-  mPt.X += SRL.NormalRange(-Range, Range);
-  mPt.Y += SRL.NormalRange(-Range, Range);
-
-  Self.Move(mPt);
-  Self.Speed := round(S*0.85);
-  Self.Move(Point);
-  Self.Speed := S;
-end;
-
-procedure TMouse.RandomMovement();
-var
-  S: Int32;
-begin
-  S := Self.Speed;
-  Self.Speed := 4;
-  Self.Move(Box(Mouse.Position, 75, 75), True, );
-  Self.Speed := S;
-end;
+  Self.BoxTrapCol   := CTS2(6323854, 11, 0.05, 0.34); //CTS2(6916249, 8, 0.05, 0.47) // Box trap color
+  Self.ActiveBoxTrapCol := CTS2(1952205, 8, 0.14, 3.27); // Yellow Runelite Col
+  Self.FailedBoxTrapCol := CTS2(3366334, 10, 0.51, 4.24); // Red Runelite Col
+  Self.TrappedBoxTrapCol := CTS2(3055692, 20, 0.23, 2.26); // Red Runelite Col
 
 
-procedure TScript.DoSkillHover();
-begin
-  Antiban.HoverSkill(ERSSKILL.HUNTER, random(1700, 3200), True)
-end;
 
-procedure TScript.DoLoseFocus();
-Var T: Int32;
-begin
-  T := SRL.NormalRange(1700,6969);
-  Antiban.DebugLn('Losing focus for '+SRL.MsToTime(T, Time_Short));
-  Antiban.LoseFocus(T);
-end;
+                    //  BTMLEFT    BTMRIGHT  TOPRIGHT  Middle   TOP LEFT
+  //Self.SpotOne      := [[116,163],[107,163],[107,170],[112,166],[116,170]];
 
-procedure TScript.DoLongRest(); // Go AFK For a bit
-Var T: Int32;
-begin
-  T := SRL.NormalRange(32000,128000);
-  Antiban.DebugLn('Losing focus for '+SRL.MsToTime(T, Time_Short));
-  Antiban.LoseFocus(T);
-end;
+  //                   //  BTMLEFT    BTMRIGHT  TOPRIGHT  Middle   TOP LEFT
+  //Self.SpotOne      := [[101,60],[94,60],[94,68],[96,64],[96,68]];
 
-procedure TScript.SetupAntiban();
-begin
-  Antiban.AddTask(ONE_SECOND*10, @Mouse.RandomMovement);
-  Antiban.AddTask(ONE_MINUTE*3,  @Antiban.RandomRotate);
+                        //  BTMLEFT    BTMRIGHT  TOPRIGHT  TOP LEFT  Middle
+  Self.SpotOne      := [[109,100],[100,100],[100,107],[109,107],[103,103]];
 
-  //Antiban.AddTask(ONE_MINUTE*10,  @Self.DoLoseFocus);
+  Self.SpotTwo      := [[107,163],[98,161],[98,170],[103,170],[103,166]];
+  Self.TileTable    := [Self.SpotOne, Self.SpotTwo];
 
-  //Antiban.AddTask(ONE_MINUTE*4,  @Antiban.HoverMSItems);
-  //Antiban.AddTask(ONE_MINUTE*4,  @Antiban.HoverMSNPCs);
-  //Antiban.AddTask(ONE_MINUTE*4,  @Antiban.HoverMSPlayers);
-  Antiban.AddTask(ONE_MINUTE*24,  @Self.DoSkillHover);
-  //sssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssAntiban.AddBreak(ONE_MINUTE*18, ONE_SECOND*40, 0.2, 0.0);
-end;
-
-procedure TScript.DoAB();
-begin
-  Antiban.DismissRandom();
-  if Antiban.DoAntiban() then
-    if (not RSClient.IsLoggedIn) then
-      Login.LoginPlayer();
-end;
-
-procedure OnWalkEvent(Sender: PRSWalker; Position: TPoint; Destination: TPoint);
-begin
-  WriteLn('Running!');
-  //if (Bot.RSW.GetMyPos().DistanceTo(Bot.BankTile) >= 4) then Bot.FindBank();
-
-  Position    := [];  // For the sake of mitigating compile warnings
-  Destination := [];
-end;
-
-procedure TScript.DisplayMSTile(Tile: TRectangle; SizeMod: Int32=0);
-begin
-  if SizeMod > 0 then
-    Tile.Expand(SizeMod);
-  if MainScreen.Bounds.Contains(Tile.Bounds) then
-  begin
-    RSClient.Image.Clear(Mainscreen.Bounds);
-    RSClient.Image.DrawRect(Tile, clAqua);
-  end;
-end;
-
-function TScript.Animating(): Boolean;
-begin
-//Self.WriteMsg('Checking If Animating');
-//if SRL.IsAnimating(MainScreen.GetPlayerBox, 25, 320, 3) then Exit(True);
-  //if SRL.GetPixelShift(MainScreen.GetPlayerBox, 224) > 420 then Exit(True);
-  if SRL.IsAnimating(MainScreen.GetPlayerBox,60, 120) then Exit(True) else Exit(False);
+  if Antiban.BioDice then
+    Options.SetNPCAttackOption(ERSAttackOption.HIDDEN)
+  else
+    Options.SetNPCAttackOption(ERSAttackOption.ALWAYS_RIGHT_CLICK);
 end;
 
 function TScript.FindTrapFailed(Tile: TBox): Boolean;
@@ -295,43 +236,7 @@ begin
   Self.WriteMsg('Thanks for using Jacz'#39's Chin Farmer!');
 end;
 
-procedure TScript.Init();
-begin
-  Mouse.Speed             := Random(19, 24);
-  Mouse.CanIdle           := False;
-  Mouse.MissChance        := 7;
-  Mouse.Brake             := True;
-  Mouse.Distribution      := MOUSE_DISTRIBUTION_GAUSS;
-  ItemFinder.Similarity   := 0.998;
-  Self.RSW.Setup('Fel');
-  Self.RSW.ScreenWalk     := MSWALKING;
-  //Self.RSW.OnWalkingEvent := @OnWalkEvent;
-  Self.RSW.EnableRunAtEnergy := 85;
 
-  MM2MS.ZoomLevel   := Options.GetZoomLevel();
-  //Self.RSW.Min
-  Self.BoxTrapCol   := CTS2(6323854, 11, 0.05, 0.34); //CTS2(6916249, 8, 0.05, 0.47) // Box trap color
-  Self.ActiveBoxTrapCol := CTS2(1952205, 8, 0.14, 3.27); // Yellow Runelite Col
-  Self.FailedBoxTrapCol := CTS2(3366334, 10, 0.51, 4.24); // Red Runelite Col
-  Self.TrappedBoxTrapCol := CTS2(3055692, 20, 0.23, 2.26); // Red Runelite Col
-                    //  BTMLEFT    BTMRIGHT  TOPRIGHT  Middle   TOP LEFT
-  //Self.SpotOne      := [[116,163],[107,163],[107,170],[112,166],[116,170]];
-
-  //                   //  BTMLEFT    BTMRIGHT  TOPRIGHT  Middle   TOP LEFT
-  //Self.SpotOne      := [[101,60],[94,60],[94,68],[96,64],[96,68]];
-
-                        //  BTMLEFT    BTMRIGHT  TOPRIGHT  TOP LEFT  Middle
-  Self.SpotOne      := [[109,100],[100,100],[100,107],[109,107],[103,103]];
-
-  Self.SpotTwo      := [[107,163],[98,161],[98,170],[103,170],[103,166]];
-  Self.TileTable    := [Self.SpotOne, Self.SpotTwo];
-
-  Self.DeclarePlayers();
-
-  Self.SetupAntiban();
-  Self.ShutdownTime  := (MAXRUNTIME * 60000) + Random(- (MAXRUNTIME * 6000), (MAXRUNTIME * 6000));
-  if DRAW then AddOnTerminate(@Self.Free);
-end;
 
 function TScript.GetBoxTrapState(Tile: TBox): String;
 begin
