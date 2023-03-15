@@ -1,0 +1,412 @@
+{$UNDEF SCRIPT_REVISION}{$DEFINE SCRIPT_REVISION := '1'}
+
+{$IFDEF WINDOWS}{$DEFINE SCRIPT_GUI}{$ENDIF}
+
+program JaczIslandBoy;
+{$I SRL-T/OSR.simba}
+{$I WaspLib/osr.simba}
+
+begin
+  Login.PlayerIndex     := 0;
+  StatsPayload.SetUsername('');
+end;
+type
+  ETask = (
+    WOODCUTTING_HARDWOOD_TREE_PATCH,
+    RUN_HERBIBOAR, // NOT WORKING
+    MINE_VOLCANIC_ASH, // Not Working
+    HARVEST_SEAWEED, // Not Working
+    COLLECT_SEAWEED_SPORES // Not Working
+  );
+  ERSTree = (
+    TEAK_TREE, MAHOGANY_TREE, SULLIUSCEP_MUSHROOM
+  );
+  ERSBank = (
+    FOSSIL_ISLAND_N, FOSSIL_ISLAND_S, VOLCANIC_MINE
+  );
+var
+  CurrentTask: ETask := ETask.WOODCUTTING_HARDWOOD_TREE_PATCH;
+  PickNests: Boolean := True;
+type
+  EState = (
+
+    // WALKING STATES
+    USE_NORTH_SHORTCUT,
+    USE_SOUTH_SHORTCUT,
+    RUN_BANK_N,
+    RUN_BANK_S,
+
+    // Woodcutting States
+    EQUIP_CUTTING_GEAR,
+    PICKUP_NEST,
+    CUT_TREE,
+    USE_SPEC,
+    DEPOSIT_LOGS,
+
+    // Banking States
+    OPEN_BANK,
+
+    // Misc States
+    WAIT_STATE,
+    CLOSE_INTERFACE,
+    LEVEL_UP,
+    END_SCRIPT
+  );
+
+  TScript = record(TBaseWalkerScript)
+    State: EState;
+    AgilityLVL: Int32;
+
+    RSBank: TRSObject;
+    RSFossilIslandHoleShortcutSouth: TRSObject;
+    RSFossilIslandHoleShortcutNorth: TRSObject;
+    RSHardwoodTreePatch: TRSObject;
+
+    GearOutfit: TRSItemArray;
+    BankList: TRSItemArray;
+    DropList: TRSItemArray;
+    TreeTimerMultiplier: Int32;
+    WoodcuttingGearOutfit: TRSItemArray;
+
+    Woodcutting: Boolean;
+    UseBank: Boolean;
+    UseShortcut: Boolean;
+  end;
+
+procedure TAntiban.Setup; override;
+begin
+  inherited;
+
+  Antiban.Skills := [ERSSkill.WOODCUTTING, ERSSkill.TOTAL];
+  Antiban.MinZoom := 30;
+  Antiban.MaxZoom := 59;
+
+end;
+
+function TSRL.IsAnimating(Area:TBox; Shift, WaitTime:UInt32; Iter:UInt32=1): Boolean; override;
+var
+  i:Int32;
+begin
+  for i:=1 to Iter do
+    if (Self.GetPixelShift(Area, WaitTime) > shift) or XPBar.EarnedXP then
+      Exit(True);
+end;
+
+function TScript.IsCutting(): Boolean;
+var
+  B: TBox := MainScreen.GetPlayerBox;
+begin
+  Result := Woodcutting := SRL.IsAnimating(B, MainScreen.NormalizeDistance(600), 350, 10 * TreeTimerMultiplier);
+end;
+function TScript.WaitCutting(): Boolean;
+begin
+  if Result := Self.IsCutting then WL.Activity.Restart();
+end;
+
+function TScript.CanUseShortcut: Boolean;
+begin
+  if MainScreen.HasInterface then
+    MainScreen.CloseInterface();
+
+  UseShortcut := False; // Check if you can use shortcut
+  AgilityLVL := Stats.GetCurrentLevel(ERSSkill.AGILITY);
+  Result := AgilityLVL >= 70;
+end;
+
+procedure TScript.SetupWoodcutting;
+begin
+  Writeln('Setting up Woodcutting');
+  TreeTimerMultiplier := 1;
+  GearOutfit := [
+    'Lumberjack hat',
+    'Lumberjack top',
+    'Lumberjack legs',
+    'Lumberjack boots',
+    'Strung rabbit foot'
+  ];
+
+  DropList := [
+    'Logs', 'Oak logs', 'Willow logs', 'Teak logs', 'Maple logs',
+    'Mahogany logs', 'Yew logs', 'Blisterwood logs', 'Magic logs'
+  ];
+
+  BankList := DropList;
+
+  // Setup South Fossil Island Bank
+  RSBank := RSObjects.BankChestFossilIsland;
+  //Debug(RSBank);
+
+  RSHardwoodTreePatch.Setup(12, [[9256, 955], [9232, 963]]);
+  RSHardwoodTreePatch.Setup(['Tea']);
+  RSHardwoodTreePatch.Finder.Colors += CTS2(5214845, 18, 0.03, 0.43);
+  //RSHardwoodTreePatch.Finder.Colors += CTS2(5480070, 16, 0.04, 0.54);
+
+  //RSHardwoodTreePatch.Finder.Colors += CTS2(7184829, 16, 0.03, 0.95);
+  //RSHardwoodTreePatch.Finder.Colors += CTS2(3497320, 7, 0.26, 0.33);
+  RSHardwoodTreePatch.Finder.MinShortSide := 30;
+  //Debug(RSHardwoodTreePatch);
+
+  //RSHardwoodTreePatch.Click();
+
+end;
+
+procedure TScript.Init(MaxActions: Int32; MaxTime: Int64); override;
+begin
+  Name := 'Jacz Fossil Island AIO';
+  inherited;
+
+  RSW.Setup([RSRegions.FOSSIL_ISLAND]);
+
+  if not RSClient.IsLoggedIn then
+    Login.LoginPlayer;
+
+  // Self.CanUseShortcut
+  UseShortcut := True; // For testing
+  UseBank := True;
+  if UseShortcut then
+  begin
+    UseShortcut := True;
+    if UseShortcut then
+      Writeln('Using Shortcut!');
+
+    RSFossilIslandHoleShortcutNorth := RSObjects.FossilIslandHoleShortcutNorth;
+    RSFossilIslandHoleShortcutSouth := RSObjects.FossilIslandHoleShortcutSouth;
+  end;
+
+  // Setup Woodcutting If Woodcutting Is The Task
+  if CurrentTask = ETask.WOODCUTTING_HARDWOOD_TREE_PATCH then
+    Self.SetupWoodcutting;
+
+  if Antiban.BioDice then
+    Options.SetNPCAttackOption(ERSAttackOption.HIDDEN)
+  else
+    Options.SetNPCAttackOption(ERSAttackOption.ALWAYS_RIGHT_CLICK);
+
+
+  if WLSettings.RemoteInput.ScriptDebug then
+  begin
+    DebugObjectArray += RSHardwoodTreePatch;
+    DebugObjectArray += RSBank;
+    DebugObjectArray += RSFossilIslandHoleShortcutNorth;
+    DebugObjectArray += RSFossilIslandHoleShortcutSouth;
+  end;
+end;
+
+
+
+function TScript.Deposit: Boolean;
+begin
+  WaitUntil(Bank.IsOpen, 500, 10000);
+  Bank.DepositAll();
+  Writeln('Depositing');
+  TotalActions += 1;
+end;
+
+function TScript.UseNorthShortcut: Boolean
+begin
+  WriteLn('Taking North Shortcut');
+  RSFossilIslandHoleShortcutNorth.WalkClick;
+  Minimap.WaitPlayerMoving();
+  WaitUntil(RSW.AtTile(RSFossilIslandHoleShortcutSouth.Coordinates.First, 12), 250, 5000);
+  WriteLn('Short Cut Taken!');
+end;
+
+function TScript.UseSouthShortcut: Boolean
+begin
+  WriteLn('Taking South Shortcut');
+  //RSW.WalkBlind(RSFossilIslandHoleShortcutSouth.Coordinates.First);
+  RSFossilIslandHoleShortcutSouth.WalkClick;
+  Minimap.WaitPlayerMoving();
+  WaitUntil(RSW.AtTile(RSFossilIslandHoleShortcutNorth.Coordinates.First, 12), 250, 5000);
+  WriteLn('Short Cut Taken!');
+end;
+
+function TScript.CutTree(): Boolean;
+begin
+  WriteLn('Cutting Tree');
+  if (UseBank and RSHardwoodTreePatch.WalkClick) or RSHardwoodTreePatch.Click then
+  begin
+    Minimap.WaitMoving;
+    Result := Woodcutting := True;
+  end;
+end;
+
+function TScript.OpenBank(): Boolean;
+begin
+  WriteLn('Running/Openning Bank');
+  if (UseBank and RSBank.WalkClick) or RSBank.Click then
+  begin
+    Minimap.WaitMoving;
+    WaitUntil(Bank.IsOpen, 500, 10000);
+    //Result := Woodcutting := True;
+  end;
+end;
+
+function TScript.CheckNest(): Boolean;
+begin
+  Result := PickNests and RSGroundItems.BirdNest.Find();
+end;
+
+function TScript.PickNest(): Boolean;
+begin
+  if Result := RSGroundItems.BirdNest.Click(True, 0) then
+  begin
+    Woodcutting := False;
+    Wait(800);
+    Minimap.WaitPlayerMoving(300, 8000);
+    Wait(300);
+  end;
+end;
+
+function TScript.EndScript: Boolean;
+begin
+  if Logout.ClickLogout() then
+    TerminateScript('Ending Script! Shutdown');
+end;
+
+function TScript.GetState: EState;
+begin
+  if WL.Activity.IsFinished then
+    Exit(EState.END_SCRIPT);
+
+  if CurrentTask = ETask.WOODCUTTING_HARDWOOD_TREE_PATCH then
+  begin
+    if Woodcutting then
+      Exit(EState.WAIT_STATE);
+
+    if Chat.LeveledUp then
+    begin
+      Woodcutting := False;
+      Exit(EState.LEVEL_UP);
+    end;
+
+    if MainScreen.HasInterface() then
+    begin
+      if Bank.IsOpen() and Inventory.ContainsAny(BankList) then
+      Exit(EState.DEPOSIT_LOGS);
+    Exit(EState.CLOSE_INTERFACE);
+    end;
+
+    if Inventory.IsFull then
+    begin
+      WriteLn('Inventory is full!');
+      Woodcutting := False;
+      if Bank.IsOpen then
+        Exit(EState.DEPOSIT_LOGS);
+
+      if not Bank.IsOpen then
+      begin
+      if RSW.AtTile(RSFossilIslandHoleShortcutSouth.Coordinates.First, 16) then
+        Exit(EState.OPEN_BANK);
+      if RSW.AtTile(RSBank.Coordinates.First, 42) then
+        Exit(EState.OPEN_BANK);
+      if RSW.AtTile(RSHardwoodTreePatch.Coordinates.First, 12) then
+        Exit(EState.USE_NORTH_SHORTCUT);
+      end;
+
+    end;
+
+    if RSW.AtTile(RSBank.Coordinates, 32) then
+      Exit(EState.USE_SOUTH_SHORTCUT);
+
+    if RSW.AtTile(RSFossilIslandHoleShortcutSouth.Coordinates.First, 12) then
+      Exit(EState.USE_SOUTH_SHORTCUT);
+
+    if Self.CheckNest() then
+      Exit(EState.PICKUP_NEST);
+
+    if Minimap.IsSpecWeapon() and (Minimap.GetSpecLevel = 100) then
+      Exit(EState.USE_SPEC);
+
+    if not Inventory.IsFull then
+      Exit(EState.CUT_TREE);
+
+  end;
+
+
+
+end;
+
+procedure TScript.Run(MaxActions: Int32; MaxTime: Int64);
+begin
+  ClearDebug;
+  Self.Init(MaxActions, MaxTime);
+
+  while not Self.ShouldStop do
+  begin
+    State := Self.GetState;
+    Action := ToStr(State);
+    case State of
+      EState.WAIT_STATE: Self.WaitCutting;
+      EState.LEVEL_UP: Chat.HandleLevelUp;
+      EState.CUT_TREE: Self.CutTree;
+      EState.USE_NORTH_SHORTCUT: Self.UseNorthShortcut;
+      EState.USE_SOUTH_SHORTCUT: Self.UseSouthShortcut;
+      EState.PICKUP_NEST: Self.PickNest();
+      EState.USE_SPEC: Minimap.EnableSpec(100);
+      EState.OPEN_BANK: Self.OpenBank();
+      EState.DEPOSIT_LOGS: Self.Deposit;
+      EState.END_SCRIPT: Self.EndScript;
+      EState.CLOSE_INTERFACE: MainScreen.CloseInterface;
+      EState.RUN_BANK_S: RSW.WalkBlind(RSBank.Coordinates.First)
+    end;
+
+    //PrevInvCount := InvCount;
+    Self.DoAntiban;
+  end;
+end;
+
+var
+  Script: TScript;
+
+type
+  TConfig = record(TScriptForm)
+    Selector: TLabeledCombobox;
+  end;
+
+procedure TConfig.StartScript(Sender: TObject);
+begin
+  Self.Init(Sender);
+
+  CurrentTask := ETask(Selector.Combobox.getItemIndex);
+
+
+end;
+
+procedure TConfig.Setup; override;
+begin
+  inherited;
+
+  with Selector do
+  begin
+    Init(Self.SSPanel.Panel);
+    SetCaption('Activity:');
+    SetLeft(15);
+    SetTop(35);
+    SetWidth(200);
+    Combobox.setStyle(csDropDownList);
+    AddItem('Hardwood Tree Patch');
+    //AddItem('Mine (Humidify)');
+    //AddItem('Mine (Buy Waterskins)');
+    Combobox.setItemIndex(Ord(CurrentTask));
+  end;
+
+  Self.WLPanel.StartButton.setOnClick(@Self.StartScript);
+end;
+
+procedure TConfig.Run; override;
+begin
+  Self.Setup;
+
+  inherited;
+end;
+
+var
+  Config: TConfig;
+
+begin
+  {$IFDEF SCRIPT_GUI}
+  Sync(@Config.Run);
+  {$ENDIF}
+  Script.Run(WLSettings.MaxActions, WLSettings.MaxTime);
+end.
