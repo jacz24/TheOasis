@@ -16,7 +16,8 @@ type
     RUN_HERBIBOAR, // NOT WORKING
     MINE_VOLCANIC_ASH, // Not Working
     HARVEST_SEAWEED, // Not Working
-    COLLECT_SEAWEED_SPORES // Not Working
+    COLLECT_SEAWEED_SPORES, // Not Working
+    DO_EVERYTHING
   );
   ERSTree = (
     TEAK_TREE, MAHOGANY_TREE, SULLIUSCEP_MUSHROOM
@@ -25,11 +26,57 @@ type
     FOSSIL_ISLAND_N, FOSSIL_ISLAND_S, VOLCANIC_MINE
   );
 var
-  CurrentTask: ETask := ETask.WOODCUTTING_HARDWOOD_TREE_PATCH;
+  CurrentTask: ETask := ETask.COLLECT_SEAWEED_SPORES;
+  DoAlchemy := True;
   PickNests: Boolean := True;
 type
-  EState = (
 
+  EBaseState = ( // Basic States For All Or Most Scripts
+    // Banking States
+    OPEN_BANK,
+
+    // Misc States
+    WAIT_STATE,
+    CLOSE_INTERFACE,
+    LEVEL_UP,
+    END_SCRIPT,
+
+    OPEN_MAGIC_TAB,
+    OPEN_INV_TAB,
+
+    CLOSE_CONTEXT,
+    DESELECT_ITEM,
+
+    NO_BASIC
+  );
+
+  TBaseScript = record // Handles everything with basic states
+    BasicState: EBaseState;
+    AgilityLVL: Int32;
+    WoodcuttingLVL: Int32;
+    HuntingLVL: Int32;
+
+
+  end;
+
+
+  EAlchState = ( // States for alch
+    WITHDRAW_NATS,
+    WITHDRAW_MONEY,
+
+    OPEN_COLLECT,
+    HANDLE_COLLECT,
+
+    CHOOSE_SPELL,
+
+    CHOOSE_ITEM,
+    HANDLE_WARNING,
+    WALK_ALCH,
+
+    OUT_OF_SUPPLIES
+  );
+
+  EWoodcuttingState = ( // States for woodcutting
     // WALKING STATES
     USE_NORTH_SHORTCUT,
     USE_SOUTH_SHORTCUT,
@@ -41,21 +88,45 @@ type
     PICKUP_NEST,
     CUT_TREE,
     USE_SPEC,
-    DEPOSIT_LOGS,
+    DEPOSIT_LOGS
 
-    // Banking States
-    OPEN_BANK,
 
-    // Misc States
-    WAIT_STATE,
-    CLOSE_INTERFACE,
-    LEVEL_UP,
-    END_SCRIPT
   );
 
-  TScript = record(TBaseWalkerScript)
-    State: EState;
-    AgilityLVL: Int32;
+  ESporeState = ( // States for finding Spores (Also handles Alch)
+    // WALKING STATES
+    BOAT_DIVE,
+    CLIMB_ROPE,
+    PATCH_WALK,
+
+    // Spore Finding States
+    PICKUP_SPORE,
+    DO_ALCH,
+    WITHDRAW_GEAR
+  );
+
+
+
+  TSporeScript = record(TBaseWalkerScript)
+    BaseScript: TBasicScript;
+    BasicState: EBasicState;
+    State: ESporeState;
+
+    AlchValue: Int32;
+
+    AlchItem: TRSItem;
+  end;
+
+  TAlchScript = record(TBaseWalkerScript)
+    BasicState: EBasicState;
+    State: EAlchState;
+  end;
+
+  TWoodcuttingScript = record(TBaseWalkerScript)
+    BasicState: EBasicState;
+    State: EWoodcuttingState;
+
+    AgilityLVL: Int32; // Transfer this to basic script
 
     RSBank: TRSObject;
     RSFossilIslandHoleShortcutSouth: TRSObject;
@@ -72,6 +143,125 @@ type
     UseBank: Boolean;
     UseShortcut: Boolean;
   end;
+
+  TScriptHandler = record
+    ScriptWoodcutting: TWoodcuttingScript;
+    ScriptSporeFinding: TSporeScript;
+  end;
+
+
+procedure TScriptHandler.Run(MaxActions: Int32; MaxTime: Int64);
+begin
+  ClearDebug;
+
+  if CurrentTask = ETask.WOODCUTTING_HARDWOOD_TREE_PATCH then
+    Writeln('Hardwood Woodcutting!');
+    //ScriptWoodcutting.Run(WLSettings.MaxActions, WLSettings.MaxTime);
+
+  if CurrentTask = ETask.RUN_HERBIBOAR then
+    Writeln('Running Herbiboar!');
+    //ScriptWoodcutting.Run(WLSettings.MaxActions, WLSettings.MaxTime);
+
+  if CurrentTask = ETask.MINE_VOLCANIC_ASH then
+    Writeln('Volcanic Ash Mining!');
+    //ScriptWoodcutting.Run(WLSettings.MaxActions, WLSettings.MaxTime);
+
+  if CurrentTask = ETask.HARVEST_SEAWEED then
+    Writeln('Harvesting Seaweed!');
+    //ScriptWoodcutting.Run(WLSettings.MaxActions, WLSettings.MaxTime);
+
+  if CurrentTask = ETask.COLLECT_SEAWEED_SPORES then
+    Writeln('Collecting Seaweed Spores!');
+    ScriptSporeFinding.Run(WLSettings.MaxActions, WLSettings.MaxTime);
+
+  if CurrentTask = ETask.DO_EVERYTHING then
+    Writeln('Doing A Little Of Everything!');
+    //ScriptWoodcutting.Run(WLSettings.MaxActions, WLSettings.MaxTime);
+end;
+
+
+// Spore Finder SCRIPT STARTS BELOW HERE!
+
+function TSporeScript.EndScript: Boolean;
+begin
+  //if Logout.ClickLogout() then
+  TerminateScript('Ending Script! Shutdown');
+end;
+
+
+function TSporeScript.GetBasicState: EBasicState;
+begin
+  if WL.Activity.IsFinished then
+    Exit(EBasicState.END_SCRIPT);
+
+
+  Exit(EBasicState.NO_BASIC);
+end;
+
+function TSporeScript.GetState: ESporeState;
+begin
+  if 0 = 0 then
+    Exit(ESporeState.DO_ALCH);
+
+end;
+
+procedure TSporeScript.RunUnqiueState;
+begin
+  State := Self.GetState;
+  Action := ToStr(State);
+  case State of
+    ESporeState.DO_ALCH: Self.DoAlch;
+  end;
+end;
+
+procedure TSporeScript.Init(MaxActions: Int32; MaxTime: Int64); override;
+begin
+  Name := 'Jacz Fossil Island AIO';
+  inherited;
+
+  RSW.Setup([RSRegions.FOSSIL_ISLAND_UNDERWATER]); // needs to be changed
+
+  //if not RSClient.IsLoggedIn then
+  //  Login.LoginPlayer;
+
+  if Antiban.BioDice then
+    Options.SetNPCAttackOption(ERSAttackOption.HIDDEN)
+  else
+    Options.SetNPCAttackOption(ERSAttackOption.ALWAYS_RIGHT_CLICK);
+
+
+  if WLSettings.RemoteInput.ScriptDebug then
+  begin
+    Writeln('Setup Debug');
+  end;
+end;
+
+procedure TSporeScript.Run(MaxActions: Int32; MaxTime: Int64);
+begin
+  Writeln('Starting Spore finder!');
+  ClearDebug;
+  Self.Init(MaxActions, MaxTime);
+
+  while not Self.ShouldStop do
+  begin
+    BasicState := Self.GetBasicState;
+    case BasicState of
+      EBasicState.END_SCRIPT: Self.EndScript;
+      EBasicState.NO_BASIC: Self.RunUnqiueState;
+    end;
+
+
+    //PrevInvCount := InvCount;
+    Self.DoAntiban;
+  end;
+end;
+
+procedure TSporeScript.DoAlch();
+begin
+  Writeln('Alching!');
+end;
+
+// WOODCUTTING SCRIPT STARTS BELOW HERE!
 
 procedure TAntiban.Setup; override;
 begin
@@ -92,18 +282,18 @@ begin
       Exit(True);
 end;
 
-function TScript.IsCutting(): Boolean;
+function TWoodcuttingScript.IsCutting(): Boolean;
 var
   B: TBox := MainScreen.GetPlayerBox;
 begin
   Result := Woodcutting := SRL.IsAnimating(B, MainScreen.NormalizeDistance(600), 350, 10 * TreeTimerMultiplier);
 end;
-function TScript.WaitCutting(): Boolean;
+function TWoodcuttingScript.WaitCutting(): Boolean;
 begin
   if Result := Self.IsCutting then WL.Activity.Restart();
 end;
 
-function TScript.CanUseShortcut: Boolean;
+function TWoodcuttingScript.CanUseShortcut: Boolean;
 begin
   if MainScreen.HasInterface then
     MainScreen.CloseInterface();
@@ -113,7 +303,7 @@ begin
   Result := AgilityLVL >= 70;
 end;
 
-procedure TScript.SetupWoodcutting;
+procedure TWoodcuttingScript.SetupWoodcutting;
 begin
   Writeln('Setting up Woodcutting');
   TreeTimerMultiplier := 1;
@@ -150,7 +340,7 @@ begin
 
 end;
 
-procedure TScript.Init(MaxActions: Int32; MaxTime: Int64); override;
+procedure TWoodcuttingScript.Init(MaxActions: Int32; MaxTime: Int64); override;
 begin
   Name := 'Jacz Fossil Island AIO';
   inherited;
@@ -173,9 +363,7 @@ begin
     RSFossilIslandHoleShortcutSouth := RSObjects.FossilIslandHoleShortcutSouth;
   end;
 
-  // Setup Woodcutting If Woodcutting Is The Task
-  if CurrentTask = ETask.WOODCUTTING_HARDWOOD_TREE_PATCH then
-    Self.SetupWoodcutting;
+  Self.SetupWoodcutting;
 
   if Antiban.BioDice then
     Options.SetNPCAttackOption(ERSAttackOption.HIDDEN)
@@ -194,7 +382,7 @@ end;
 
 
 
-function TScript.Deposit: Boolean;
+function TWoodcuttingScript.Deposit: Boolean;
 begin
   WaitUntil(Bank.IsOpen, 500, 10000);
   Bank.DepositAll();
@@ -202,7 +390,14 @@ begin
   TotalActions += 1;
 end;
 
-function TScript.UseNorthShortcut: Boolean
+function TWoodcuttingScript.InterfaceHandler: Boolean;
+begin
+  if Bank.IsOpen() and Inventory.ContainsAny(BankList) then
+      Self.Deposit;
+  MainScreen.CloseInterface;
+end;
+
+function TWoodcuttingScript.UseNorthShortcut: Boolean
 begin
   WriteLn('Taking North Shortcut');
   RSFossilIslandHoleShortcutNorth.WalkClick;
@@ -211,7 +406,7 @@ begin
   WriteLn('Short Cut Taken!');
 end;
 
-function TScript.UseSouthShortcut: Boolean
+function TWoodcuttingScript.UseSouthShortcut: Boolean
 begin
   WriteLn('Taking South Shortcut');
   //RSW.WalkBlind(RSFossilIslandHoleShortcutSouth.Coordinates.First);
@@ -221,7 +416,7 @@ begin
   WriteLn('Short Cut Taken!');
 end;
 
-function TScript.CutTree(): Boolean;
+function TWoodcuttingScript.CutTree(): Boolean;
 begin
   WriteLn('Cutting Tree');
   if (UseBank and RSHardwoodTreePatch.WalkClick) or RSHardwoodTreePatch.Click then
@@ -231,7 +426,7 @@ begin
   end;
 end;
 
-function TScript.OpenBank(): Boolean;
+function TWoodcuttingScript.OpenBank(): Boolean;
 begin
   WriteLn('Running/Openning Bank');
   if (UseBank and RSBank.WalkClick) or RSBank.Click then
@@ -242,12 +437,12 @@ begin
   end;
 end;
 
-function TScript.CheckNest(): Boolean;
+function TWoodcuttingScript.CheckNest(): Boolean;
 begin
   Result := PickNests and RSGroundItems.BirdNest.Find();
 end;
 
-function TScript.PickNest(): Boolean;
+function TWoodcuttingScript.PickNest(): Boolean;
 begin
   if Result := RSGroundItems.BirdNest.Click(True, 0) then
   begin
@@ -258,118 +453,130 @@ begin
   end;
 end;
 
-function TScript.EndScript: Boolean;
+function TWoodcuttingScript.EndScript: Boolean;
 begin
   if Logout.ClickLogout() then
     TerminateScript('Ending Script! Shutdown');
 end;
 
-function TScript.GetState: EState;
+function TWoodcuttingScript.GetState: EWoodcuttingState;
 begin
-  if WL.Activity.IsFinished then
-    Exit(EState.END_SCRIPT);
-
-  if CurrentTask = ETask.WOODCUTTING_HARDWOOD_TREE_PATCH then
-  begin
-    if Woodcutting then
-      Exit(EState.WAIT_STATE);
-
-    if Chat.LeveledUp then
-    begin
-      Woodcutting := False;
-      Exit(EState.LEVEL_UP);
-    end;
-
-    if MainScreen.HasInterface() then
-    begin
-      if Bank.IsOpen() and Inventory.ContainsAny(BankList) then
-      Exit(EState.DEPOSIT_LOGS);
-    Exit(EState.CLOSE_INTERFACE);
-    end;
-
     if Inventory.IsFull then
     begin
       WriteLn('Inventory is full!');
       Woodcutting := False;
       if Bank.IsOpen then
-        Exit(EState.DEPOSIT_LOGS);
+        Exit(EWoodcuttingState.DEPOSIT_LOGS);
 
       if not Bank.IsOpen then
-      begin
-      if RSW.AtTile(RSFossilIslandHoleShortcutSouth.Coordinates.First, 16) then
-        Exit(EState.OPEN_BANK);
-      if RSW.AtTile(RSBank.Coordinates.First, 42) then
-        Exit(EState.OPEN_BANK);
-      if RSW.AtTile(RSHardwoodTreePatch.Coordinates.First, 12) then
-        Exit(EState.USE_NORTH_SHORTCUT);
-      end;
+        if RSW.AtTile(RSHardwoodTreePatch.Coordinates.First, 12) then
+          Exit(EWoodcuttingState.USE_NORTH_SHORTCUT);
 
     end;
 
     if RSW.AtTile(RSBank.Coordinates, 32) then
-      Exit(EState.USE_SOUTH_SHORTCUT);
+      Exit(EWoodcuttingState.USE_SOUTH_SHORTCUT);
 
     if RSW.AtTile(RSFossilIslandHoleShortcutSouth.Coordinates.First, 12) then
-      Exit(EState.USE_SOUTH_SHORTCUT);
+      Exit(EWoodcuttingState.USE_SOUTH_SHORTCUT);
 
     if Self.CheckNest() then
-      Exit(EState.PICKUP_NEST);
+      Exit(EWoodcuttingState.PICKUP_NEST);
 
     if Minimap.IsSpecWeapon() and (Minimap.GetSpecLevel = 100) then
-      Exit(EState.USE_SPEC);
+      Exit(EWoodcuttingState.USE_SPEC);
 
     if not Inventory.IsFull then
-      Exit(EState.CUT_TREE);
-
-  end;
-
+      Exit(EWoodcuttingState.CUT_TREE);
 
 
 end;
 
-procedure TScript.Run(MaxActions: Int32; MaxTime: Int64);
+function TWoodcuttingScript.GetBasicState: EBasicState;
+begin
+  if WL.Activity.IsFinished then
+    Exit(EBasicState.END_SCRIPT);
+
+  if Woodcutting then
+    Exit(EBasicState.WAIT_STATE);
+
+  if not Bank.IsOpen then
+  begin
+      if RSW.AtTile(RSFossilIslandHoleShortcutSouth.Coordinates.First, 16) then
+        Exit(EBasicState.OPEN_BANK);
+      if RSW.AtTile(RSBank.Coordinates.First, 42) then
+        Exit(EBasicState.OPEN_BANK);
+  end;
+
+  if Chat.LeveledUp then
+  begin
+    Woodcutting := False;
+    Exit(EBasicState.LEVEL_UP);
+  end;
+
+  if MainScreen.HasInterface() then
+    Exit(EBasicState.CLOSE_INTERFACE);
+
+
+
+  Exit(EBasicState.NO_BASIC);
+end;
+
+procedure TWoodcuttingScript.RunUniqueState; // Unique States
+begin
+    State := Self.GetState;
+    Action := ToStr(State);
+    case State of
+      EWoodcuttingState.CUT_TREE: Self.CutTree;
+      EWoodcuttingState.USE_NORTH_SHORTCUT: Self.UseNorthShortcut;
+      EWoodcuttingState.USE_SOUTH_SHORTCUT: Self.UseSouthShortcut;
+      EWoodcuttingState.PICKUP_NEST: Self.PickNest();
+      EWoodcuttingState.USE_SPEC: Minimap.EnableSpec(100);
+      EWoodcuttingState.DEPOSIT_LOGS: Self.Deposit;
+      EWoodcuttingState.RUN_BANK_S: RSW.WalkBlind(RSBank.Coordinates.First)
+    end;
+end;
+
+procedure TWoodcuttingScript.Run(MaxActions: Int32; MaxTime: Int64);
 begin
   ClearDebug;
   Self.Init(MaxActions, MaxTime);
 
   while not Self.ShouldStop do
   begin
-    State := Self.GetState;
+    BasicState := Self.GetBasicState;
     Action := ToStr(State);
-    case State of
-      EState.WAIT_STATE: Self.WaitCutting;
-      EState.LEVEL_UP: Chat.HandleLevelUp;
-      EState.CUT_TREE: Self.CutTree;
-      EState.USE_NORTH_SHORTCUT: Self.UseNorthShortcut;
-      EState.USE_SOUTH_SHORTCUT: Self.UseSouthShortcut;
-      EState.PICKUP_NEST: Self.PickNest();
-      EState.USE_SPEC: Minimap.EnableSpec(100);
-      EState.OPEN_BANK: Self.OpenBank();
-      EState.DEPOSIT_LOGS: Self.Deposit;
-      EState.END_SCRIPT: Self.EndScript;
-      EState.CLOSE_INTERFACE: MainScreen.CloseInterface;
-      EState.RUN_BANK_S: RSW.WalkBlind(RSBank.Coordinates.First)
+    case BasicState of
+      EBasicState.WAIT_STATE: Self.WaitCutting;
+      EBasicState.LEVEL_UP: Chat.HandleLevelUp;
+      EBasicState.OPEN_BANK: Self.OpenBank();
+      EBasicState.END_SCRIPT: Self.EndScript;
+      EBasicState.CLOSE_INTERFACE: Self.InterfaceHandler;
+      EBasicState.NO_BASIC: Self.RunUniqueState;
     end;
 
     //PrevInvCount := InvCount;
     Self.DoAntiban;
   end;
 end;
+// END OF WOODCUTTING SCRIPT!
 
+// GUI Handler
 var
-  Script: TScript;
+  ScriptHandler: TScriptHandler; // HANDLES ALL
 
 type
   TConfig = record(TScriptForm)
-    Selector: TLabeledCombobox;
+    ActivitySelector: TLabeledCombobox;
+    AlchState: TCheckBox;
   end;
 
 procedure TConfig.StartScript(Sender: TObject);
 begin
   Self.Init(Sender);
 
-  CurrentTask := ETask(Selector.Combobox.getItemIndex);
-
+  CurrentTask := ETask(ActivitySelector.Combobox.getItemIndex);
+  DoAlchemy := Self.AlchState.IsChecked();
 
 end;
 
@@ -377,18 +584,32 @@ procedure TConfig.Setup; override;
 begin
   inherited;
 
-  with Selector do
+  with ActivitySelector do
   begin
-    Init(Self.SSPanel.Panel);
+    Create(Self.SSPanel.Panel);
     SetCaption('Activity:');
-    SetLeft(15);
+    SetLeft(5);
     SetTop(35);
     SetWidth(200);
     Combobox.setStyle(csDropDownList);
     AddItem('Hardwood Tree Patch');
-    //AddItem('Mine (Humidify)');
-    //AddItem('Mine (Buy Waterskins)');
+    AddItem('Mine Volcanic Ash');
+    AddItem('Herbiboar');
+    AddItem('Farm Seaweed');
+    AddItem('Collect Seaweed Spores');
+    AddItem('Everything!'); // This should always be last
     Combobox.setItemIndex(Ord(CurrentTask));
+  end;
+
+  with Self.AlchState do
+  begin
+    Create(Self.SSPanel.Panel);
+    SetCaption('High alchemy');
+    SetLeft(Self.ActivitySelector.GetLeft() + Self.ActivitySelector.GetWidth() + 15);
+    SetTop(Self.ActivitySelector.GetTop() + 20);
+    SetWidth(50);
+    SetHeight(10);
+    SetChecked(DoAlchemy);
   end;
 
   Self.WLPanel.StartButton.setOnClick(@Self.StartScript);
@@ -408,5 +629,10 @@ begin
   {$IFDEF SCRIPT_GUI}
   Sync(@Config.Run);
   {$ENDIF}
-  Script.Run(WLSettings.MaxActions, WLSettings.MaxTime);
+
+  Writeln('Running Island Boy Task: ' + ToStr(CurrentTask) + ' With Alchemy: ' + BoolToStr(DoAlchemy));
+
+  // Basic Logic Handler
+
+  ScriptHandler.Run(WLSettings.MaxActions, WLSettings.MaxTime);
 end.

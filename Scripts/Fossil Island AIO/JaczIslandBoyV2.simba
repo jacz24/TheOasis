@@ -1,0 +1,300 @@
+{$UNDEF SCRIPT_REVISION}{$DEFINE SCRIPT_REVISION := '2'}
+
+{$IFDEF WINDOWS}{$DEFINE SCRIPT_GUI}{$ENDIF}
+
+program JaczIslandBoy;
+{$I SRL-T/OSR.simba}
+{$I WaspLib/osr.simba}
+
+
+
+begin
+  Login.PlayerIndex     := 0;
+  StatsPayload.SetUsername('');
+end;
+
+type
+  ETask = (
+    WOODCUTTING_HARDWOOD_TREE_PATCH,
+    RUN_HERBIBOAR, // NOT WORKING
+    MINE_VOLCANIC_ASH, // Not Working
+    HARVEST_SEAWEED, // Not Working
+    COLLECT_SEAWEED_SPORES, // Not Working
+    DO_EVERYTHING
+  );
+
+var
+  CurrentTask: ETask := ETask.COLLECT_SEAWEED_SPORES;
+  DoAlchemy := True;
+  PickNests: Boolean := True;
+
+type
+
+EBasicState = ( // Basic States For All Or Most Scripts
+    // Banking States
+    OPEN_BANK,
+
+    // Misc States
+    WAIT_STATE,
+    CLOSE_INTERFACE,
+    LEVEL_UP,
+    END_SCRIPT,
+
+    OPEN_MAGIC_TAB,
+    OPEN_INV_TAB,
+
+    CLOSE_CONTEXT,
+    DESELECT_ITEM,
+
+    NO_BASIC
+  );
+
+EAlchState = ( // States for alch
+    WITHDRAW_NATS,
+    WITHDRAW_MONEY,
+
+    OPEN_COLLECT,
+    HANDLE_COLLECT,
+
+    CHOOSE_SPELL,
+
+    CHOOSE_ITEM,
+    HANDLE_WARNING,
+    WALK_ALCH,
+
+    OUT_OF_SUPPLIES
+  );
+
+// Used so every script can use these variables globably
+TBasicScript = record // Handles everything with basic states
+    BasicState: EBasicState;
+    AlchState: EAlchState;
+
+    AgilityLVL: Int32;
+    WoodcuttingLVL: Int32;
+    HuntingLVL: Int32;
+end;
+
+ESporeState = ( // States for finding Spores (Also handles Alch)
+    // WALKING STATES
+    BOAT_DIVE,
+    CLIMB_ROPE,
+    PATCH_WALK,
+
+    // Spore Finding States
+    PICKUP_SPORE,
+    DO_ALCH,
+    WITHDRAW_GEAR
+  );
+
+TSporeScript = record(TBaseWalkerScript)
+  BaseScript: TBasicScript;
+
+  State: ESporeState;
+end;
+
+TScriptHandler = record
+    //ScriptWoodcutting: TWoodcuttingScript;
+    ScriptSporeFinding: TSporeScript;
+  end;
+
+procedure TScriptHandler.Run(MaxActions: Int32; MaxTime: Int64);
+begin
+  ClearDebug;
+  Writeln('Running!');
+
+  if CurrentTask = ETask.WOODCUTTING_HARDWOOD_TREE_PATCH then
+    Writeln('Hardwood Woodcutting!');
+    //ScriptWoodcutting.Run(WLSettings.MaxActions, WLSettings.MaxTime);
+
+  if CurrentTask = ETask.RUN_HERBIBOAR then
+    Writeln('Running Herbiboar!');
+    //ScriptWoodcutting.Run(WLSettings.MaxActions, WLSettings.MaxTime);
+
+  if CurrentTask = ETask.MINE_VOLCANIC_ASH then
+    Writeln('Volcanic Ash Mining!');
+    //ScriptWoodcutting.Run(WLSettings.MaxActions, WLSettings.MaxTime);
+
+  if CurrentTask = ETask.HARVEST_SEAWEED then
+    Writeln('Harvesting Seaweed!');
+    //ScriptWoodcutting.Run(WLSettings.MaxActions, WLSettings.MaxTime);
+
+  if CurrentTask = ETask.COLLECT_SEAWEED_SPORES then
+    Writeln('Collecting Seaweed Spores!');
+    ScriptSporeFinding.Run(WLSettings.MaxActions, WLSettings.MaxTime);
+
+  if CurrentTask = ETask.DO_EVERYTHING then
+    Writeln('Doing A Little Of Everything That is Available To Player!');
+    //ScriptWoodcutting.Run(WLSettings.MaxActions, WLSettings.MaxTime);
+end;
+
+
+
+
+
+
+
+
+
+// Spore Finder SCRIPT STARTS BELOW HERE!
+
+function TSporeScript.EndScript: Boolean;
+begin
+  //if Logout.ClickLogout() then
+  TerminateScript('Ending Script! Shutdown');
+end;
+
+
+function TSporeScript.GetBasicState: EBasicState;
+begin
+  if WL.Activity.IsFinished then
+    Exit(EBasicState.END_SCRIPT);
+
+
+  Exit(EBasicState.NO_BASIC);
+end;
+
+function TSporeScript.GetState: ESporeState;
+begin
+  if 0 = 0 then
+    Exit(ESporeState.DO_ALCH);
+
+end;
+
+procedure TSporeScript.RunUnqiueState;
+begin
+  State := Self.GetState;
+  Action := ToStr(State);
+  case State of
+    ESporeState.DO_ALCH: Writeln('Alching');//Self.DoAlch;
+  end;
+end;
+
+procedure TSporeScript.Init(MaxActions: Int32; MaxTime: Int64); override;
+begin
+  Name := 'Jacz Fossil Island AIO';
+  inherited;
+
+  RSW.Setup([RSRegions.FOSSIL_ISLAND_UNDERWATER]);
+
+  //if not RSClient.IsLoggedIn then
+  //  Login.LoginPlayer;
+
+  if Antiban.BioDice then
+    Options.SetNPCAttackOption(ERSAttackOption.HIDDEN)
+  else
+    Options.SetNPCAttackOption(ERSAttackOption.ALWAYS_RIGHT_CLICK);
+
+
+  if WLSettings.RemoteInput.ScriptDebug then
+  begin
+    Writeln('Setup Debug');
+  end;
+end;
+
+procedure TSporeScript.Run(MaxActions: Int32; MaxTime: Int64);
+begin
+  Writeln('Starting Spore finder!');
+  ClearDebug;
+  Self.Init(MaxActions, MaxTime);
+
+  while not Self.ShouldStop do
+  begin
+    BaseScript.BasicState := Self.GetBasicState;
+    case BaseScript.BasicState of
+      EBasicState.END_SCRIPT: Self.EndScript;
+      EBasicState.NO_BASIC: Self.RunUnqiueState;
+    end;
+
+
+    //PrevInvCount := InvCount;
+    Self.DoAntiban;
+  end;
+end;
+
+
+
+
+
+
+
+
+
+
+
+
+// GUI Handler
+var
+  ScriptHandler: TScriptHandler; // HANDLES ALL
+
+type
+  TConfig = record(TScriptForm)
+    ActivitySelector: TLabeledCombobox;
+    AlchState: TCheckBox;
+  end;
+
+procedure TConfig.StartScript(Sender: TObject);
+begin
+  Self.Init(Sender);
+
+  CurrentTask := ETask(ActivitySelector.Combobox.getItemIndex);
+  DoAlchemy := Self.AlchState.IsChecked();
+
+end;
+
+procedure TConfig.Setup; override;
+begin
+  inherited;
+
+  with ActivitySelector do
+  begin
+    Create(Self.SSPanel.Panel);
+    SetCaption('Activity:');
+    SetLeft(5);
+    SetTop(35);
+    SetWidth(200);
+    Combobox.setStyle(csDropDownList);
+    AddItem('Hardwood Tree Patch');
+    AddItem('Mine Volcanic Ash');
+    AddItem('Herbiboar');
+    AddItem('Farm Seaweed');
+    AddItem('Collect Seaweed Spores');
+    AddItem('Everything!'); // This should always be last
+    Combobox.setItemIndex(Ord(CurrentTask));
+  end;
+
+  with Self.AlchState do
+  begin
+    Create(Self.SSPanel.Panel);
+    SetCaption('High alchemy');
+    SetLeft(Self.ActivitySelector.GetLeft() + Self.ActivitySelector.GetWidth() + 15);
+    SetTop(Self.ActivitySelector.GetTop() + 20);
+    SetWidth(50);
+    SetHeight(10);
+    SetChecked(DoAlchemy);
+  end;
+
+  Self.WLPanel.StartButton.setOnClick(@Self.StartScript);
+end;
+
+procedure TConfig.Run; override;
+begin
+  Self.Setup;
+
+  inherited;
+end;
+
+var
+  Config: TConfig;
+
+begin
+  {$IFDEF SCRIPT_GUI}
+  Sync(@Config.Run);
+  {$ENDIF}
+
+  Writeln('Running Island Boy Task: ' + ToStr(CurrentTask) + ' With Alchemy: ' + BoolToStr(DoAlchemy));
+
+  // Basic Logic Handler
+
+  ScriptHandler.Run(WLSettings.MaxActions, WLSettings.MaxTime);
+end.
