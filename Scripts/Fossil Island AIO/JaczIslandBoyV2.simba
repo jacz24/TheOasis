@@ -68,11 +68,16 @@ EAlchState = ( // States for alch
 // Used so every script can use these variables globably
 TBasicScript = record // Handles everything with basic states
     BasicState: EBasicState;
-    AlchState: EAlchState;
+
 
     AgilityLVL: Int32;
     WoodcuttingLVL: Int32;
     HuntingLVL: Int32;
+end;
+
+TAlchScript = record(TBaseWalkerScript)
+    AlchState: EAlchState;
+    AlchItem: TRSItem;
 end;
 
 ESporeState = ( // States for finding Spores (Also handles Alch)
@@ -89,7 +94,7 @@ ESporeState = ( // States for finding Spores (Also handles Alch)
 
 TSporeScript = record(TBaseWalkerScript)
   BaseScript: TBasicScript;
-
+  AlchScript: TAlchScript;
   State: ESporeState;
 end;
 
@@ -124,8 +129,10 @@ begin
     ScriptSporeFinding.Run(WLSettings.MaxActions, WLSettings.MaxTime);
 
   if CurrentTask = ETask.DO_EVERYTHING then
+  begin
     Writeln('Doing A Little Of Everything That is Available To Player!');
     //ScriptWoodcutting.Run(WLSettings.MaxActions, WLSettings.MaxTime);
+  end;
 end;
 
 

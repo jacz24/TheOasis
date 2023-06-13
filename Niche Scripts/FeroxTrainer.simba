@@ -1,0 +1,26 @@
+{$UNDEF SCRIPT_ID}{$DEFINE SCRIPT_ID := '7bc987a4-3f39-4dd1-840a-6c298132db22'}
+{$UNDEF SCRIPT_REVISION}{$DEFINE SCRIPT_REVISION := '1'}
+program FeroxKiller;
+{$DEFINE SRL_USE_REMOTEINPUT}
+{$DEFINE FORMS_V2}
+{$I SRL-T/OSR.simba}
+{$I WaspLib/osr.simba}
+
+Const
+{---------Start setup---------}
+
+{ Advanced settings }
+  FIGHTINGSTYLE = 'Mage'; // Melee, Range, Mage
+  GEAR = ['Monk robetop', 'Monk legs', 'Earth battlestaff', ETC... Whatever you want]
+  MAGICSPELL = 'Fire Surge'; // What magic spell to cast if training mage
+  LOCATION = 0 // You can designate a certain spot where the bot will run to in the arena.
+  // If Location is 0 it will go to a random location within the arena.
+  // Could be nice if you wanted the bot to run to multi or a certain area.
+  WORLDLIST        = [305..308,313..315,320..323,329..332,337..340,443..446,477..482,
+                      484..493]; // Whatever worlds you want to use the bot can hop to
+  // If u just want world 308 then it would just be [308] but if u want more
+{----------End setup----------}
+
+Type
+begin
+end.
