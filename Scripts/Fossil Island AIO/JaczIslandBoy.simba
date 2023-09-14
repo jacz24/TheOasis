@@ -50,7 +50,7 @@ type
     NO_BASIC
   );
 
-  TBaseScript = record // Handles everything with basic states
+  TBasicScript = record // Handles everything with basic states
     BasicState: EBaseState;
     AgilityLVL: Int32;
     WoodcuttingLVL: Int32;
