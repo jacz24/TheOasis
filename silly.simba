@@ -1,0 +1,80 @@
+(*
+Tool Create RegionTeleporter
+===========
+Simple tool to ensure when you teleport to a new region.
+The new map is initalized.
+*)
+
+{$DEFINE SRL_DISABLE_REMOTEINPUT}
+{$I SRL-T/osr.simba}
+{$I WaspLib/osr.simba}
+
+var
+  rsw: TRSWalker;
+  currentXP: Int32;
+
+function DidIncreaseBy(): Boolean;
+begin
+
+
+end;
+
+function IncreasedBy(waitTime: Int32 = 600; increasedXP: Int32; interval: Int32 = -1): Boolean;
+var
+  newXP: Int32
+begin
+
+  newXP := XPBar.Read + 30;
+
+  WriteLn('Current XP ' + IntToStr(XPBar.Read) + '  '  + IntToStr(increasedXP) + ' New XP ' + IntToStr(newXP));
+  if (interval = -1) then
+    interval := SRL.TruncatedGauss(50, 200);
+
+
+
+  Result := WaitUntil(XPBar.Read = newXP, 50, 600);
+end;
+
+function TRSMagic.CastedPOH(): Boolean;
+begin
+
+  Result := IncreasedBy(3200, 30, 200);
+end;
+
+procedure Setup();
+begin
+
+  //currentXP := XPBar.Read();
+  //Magic.CastSpell(ERSSpell.TELEPORT_TO_HOUSE);
+  //Magic.CastSpell(ERSSpell.TELEPORT_TO_HOUSE);
+  //if Magic.CastedPOH() then
+  //begin
+  //  Writeln('We Did It Boys!');
+  //end;
+
+  // The Above code only works in crazy loops and is great
+
+
+  while True do
+  begin
+    {
+    if Magic.CastedPOH() then
+    begin
+      currentXP := XPBar.Read();
+      Writeln('Casted POH Tele');
+    end;}
+
+    WriteLn(rsw.GetMyPos);
+
+   end;
+
+end;
+
+
+
+
+begin
+  rsw.Setup('world');
+  ClearDebug();
+  Setup();
+end.
