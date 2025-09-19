@@ -6,12 +6,14 @@ Ready Player One:
 	
 
 Libraries In Use:
+
 	https://github.com/Torwent/SRL-T
+
 	https://github.com/Torwent/WaspLib
 
 	https://github.com/J-Flight/SRL-F (No longer in main usage but may be needed to run older scripts)
-	
 
 
 For more info visit: https://waspscripts.com/
+
 ~~For More Info Visit: https://villavu.com/forum/ (RIP)~~
