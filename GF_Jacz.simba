@@ -1,0 +1,667 @@
+{$UNDEF SCRIPT_ID}{$DEFINE SCRIPT_ID := ''}
+{$UNDEF SCRIPT_REVISION}{$DEFINE SCRIPT_REVISION := '1'}
+{$IFDEF WINDOWS}{$DEFINE SCRIPT_GUI}{$ENDIF}
+{$I SRL-T/osr.simba}
+{$I WaspLib/osr.simba}
+type
+  ETask = (
+    TASK_TO_DO
+  );
+
+var
+  CurrentTask: ETask := ETask.TASK_TO_DO;
+
+type
+  EGFState = (
+    RUN_TEST,
+    WAIT_STATE,
+    NO_ACTIVITY,
+    END_SCRIPT
+  );
+
+  EProgressState = (WHEEL, STONE, HAMMER, NOTFOUND);
+  ETemperatureState = (COLD, MEDIUM, HOT, USELESS);
+
+  TRefineTask = record
+    TaskBounds: TBox;
+    Refining: EProgressState;
+    Active: Boolean;
+    Idx: Int32;
+  end;
+
+  TRefineTaskBarArray = array of TRefineTask;
+
+  TTempBar = record
+    TemperatureBounds: TBox;
+    SweetSpotBounds: TBox;
+    Temperature: ETemperatureState;
+    Active: Boolean;
+    Idx: Int32;
+  end;
+
+  TTempBarArray = array of TTempBar;
+
+  TRSRefineInterface = record
+      Quality: TBox;
+      AllBars: TBoxArray;
+      IsSetup: Boolean;
+      Temperature: record
+        Cold, Medium, Hot, Total: TBox;
+        Useless, Combined: TBoxArray;
+        TempBarArray: TTempBarArray;
+      end;
+
+      ProgressState: record
+        Current, Total: TBox;
+        TaskBoxArray, AllProgressTasks: TBoxArray; // Outline of each progress task, and all tasks combined
+        RefineTaskArray: TRefineTaskBarArray;
+      end;
+
+    end;
+
+  TGiantsFoundry = record(TBaseScript)
+    State: EGFState;
+
+    RefineInterface: TRSRefineInterface;
+
+    BankChest, LavaPool, Waterfall, PolishingWheel,
+    Grindstone, TripHammer, Crucible, MouldJig: TRSObjectV2;
+
+
+  end;
+procedure TGiantsFoundry.SetupInterface();
+var
+  tmp: TBox;
+  i: Int32;
+begin
+  // Get Entire Quality Box
+  Self.RefineInterface.Quality.X1 := MainScreen.Bounds.X1 + 48;
+  Self.RefineInterface.Quality.Y1 := MainScreen.Bounds.Y1 + 38;
+
+  Self.RefineInterface.Quality.X2 := Self.RefineInterface.Quality.X1 + 441;
+  Self.RefineInterface.Quality.Y2 := Self.RefineInterface.Quality.Y1 + 14;
+
+  // Get Entire Temperature Box
+  Self.RefineInterface.Temperature.Total := Self.RefineInterface.Quality.Offset([0, 21]);
+
+  // Get Entire Progress Bar and adjust to fit the bars size
+  Self.RefineInterface.ProgressState.Total := Self.RefineInterface.Temperature.Total.Offset([0, 21]);
+  Self.RefineInterface.ProgressState.Total.Y2 := Self.RefineInterface.ProgressState.Total.Y2 + 5;
+
+  // Find First Useless(Grey) Part Of Temperature Bar
+  tmp.X1 := Self.RefineInterface.Temperature.Total.X1;
+  tmp.Y1 := Self.RefineInterface.Temperature.Total.Y1;
+  tmp.X2 := Self.RefineInterface.Temperature.Total.X1 + 24;
+  tmp.Y2 := Self.RefineInterface.Temperature.Total.Y2;
+  Self.RefineInterface.Temperature.Useless += tmp;
+
+
+  // Find Second Useless(Grey) Part Of Temperature Bar
+  tmp.X1 := Self.RefineInterface.Temperature.Useless[0].X2 + 97;
+  tmp.X2 := tmp.X1 + 50;
+  Self.RefineInterface.Temperature.Useless += tmp;
+
+  // Find Third Useless(Grey) Part Of Temperature Bar
+  tmp.X1 := Self.RefineInterface.Temperature.Useless[1].X2 + 97;
+  tmp.X2 := tmp.X1 + 50;
+  Self.RefineInterface.Temperature.Useless += tmp;
+
+  // Find Fourth Useless(Grey) Part Of Temperature Bar
+  tmp.X1 := Self.RefineInterface.Temperature.Useless[2].X2 + 97;
+  tmp.X2 := tmp.X1 + 26;
+  Self.RefineInterface.Temperature.Useless += tmp;
+
+  // Find Cold(Green) Part of Temperature Bar
+  Self.RefineInterface.Temperature.Cold.X1 := Self.RefineInterface.Temperature.Useless[0].X2 + 1;
+  Self.RefineInterface.Temperature.Cold.Y1 := Self.RefineInterface.Temperature.Total.Y1;
+  Self.RefineInterface.Temperature.Cold.X2 := Self.RefineInterface.Temperature.Cold.X1 + 95;
+  Self.RefineInterface.Temperature.Cold.Y2 := Self.RefineInterface.Temperature.Total.Y2;
+
+  // Find Medium(Orange) Part of Temperature Bar
+  Self.RefineInterface.Temperature.Medium.X1 := Self.RefineInterface.Temperature.Useless[1].X2 + 1;
+  Self.RefineInterface.Temperature.Medium.Y1 := Self.RefineInterface.Temperature.Total.Y1;
+  Self.RefineInterface.Temperature.Medium.X2 := Self.RefineInterface.Temperature.Medium.X1 + 95;
+  Self.RefineInterface.Temperature.Medium.Y2 := Self.RefineInterface.Temperature.Total.Y2;
+
+  // Find Hot(Red) Part of Temperature Bar
+  Self.RefineInterface.Temperature.Hot.X1 := Self.RefineInterface.Temperature.Useless[2].X2 + 1;
+  Self.RefineInterface.Temperature.Hot.Y1 := Self.RefineInterface.Temperature.Total.Y1;
+  Self.RefineInterface.Temperature.Hot.X2 := Self.RefineInterface.Temperature.Hot.X1 + 95;
+  Self.RefineInterface.Temperature.Hot.Y2 := Self.RefineInterface.Temperature.Total.Y2;
+
+  Self.RefineInterface.Temperature.Combined += [Self.RefineInterface.Temperature.Useless[0],
+  Self.RefineInterface.Temperature.Cold, Self.RefineInterface.Temperature.Useless[1],
+  Self.RefineInterface.Temperature.Medium, Self.RefineInterface.Temperature.Useless[2],
+  Self.RefineInterface.Temperature.Hot, Self.RefineInterface.Temperature.Useless[3]];
+
+  // Sets the length of the TempBarArray to the number of temp bars in the array
+  SetLength(Self.RefineInterface.Temperature.TempBarArray, Self.RefineInterface.Temperature.Combined.Len);
+
+
+  // Populate the TempBoundsArray with correct info
+  for i := 0 to High(Self.RefineInterface.Temperature.Combined) do
+  begin
+    Self.RefineInterface.Temperature.TempBarArray[i].TemperatureBounds := Self.RefineInterface.Temperature.Combined[i];
+    Self.RefineInterface.Temperature.TempBarArray[i].Idx := i;
+  end;
+
+  Self.RefineInterface.Temperature.TempBarArray[0].Temperature := ETemperatureState.USELESS;
+  Self.RefineInterface.Temperature.TempBarArray[1].Temperature := ETemperatureState.COLD;
+  Self.RefineInterface.Temperature.TempBarArray[2].Temperature := ETemperatureState.USELESS;
+  Self.RefineInterface.Temperature.TempBarArray[3].Temperature := ETemperatureState.MEDIUM;
+  Self.RefineInterface.Temperature.TempBarArray[4].Temperature := ETemperatureState.USELESS;
+  Self.RefineInterface.Temperature.TempBarArray[5].Temperature := ETemperatureState.HOT;
+  Self.RefineInterface.Temperature.TempBarArray[6].Temperature := ETemperatureState.USELESS;
+
+  // Hard Coded For Adamant and Mithril... To Add a case switch for difficulty
+  tmp.X1 := Self.RefineInterface.ProgressState.Total.X1;
+  tmp.Y1 := Self.RefineInterface.ProgressState.Total.Y1;
+  tmp.X2 := Self.RefineInterface.ProgressState.Total.X1 + 88;
+  tmp.Y2 := Self.RefineInterface.ProgressState.Total.Y2;
+  Self.RefineInterface.ProgressState.TaskBoxArray += tmp;
+
+  tmp.X1 := Self.RefineInterface.ProgressState.TaskBoxArray[0].X2 + 1;
+  tmp.Y1 := Self.RefineInterface.ProgressState.Total.Y1;
+  tmp.X2 := Self.RefineInterface.ProgressState.TaskBoxArray[0].X2 + 88;
+  tmp.Y2 := Self.RefineInterface.ProgressState.Total.Y2;
+  Self.RefineInterface.ProgressState.TaskBoxArray += tmp;
+
+  tmp.X1 := Self.RefineInterface.ProgressState.TaskBoxArray[1].X2 + 1;
+  tmp.Y1 := Self.RefineInterface.ProgressState.Total.Y1;
+  tmp.X2 := Self.RefineInterface.ProgressState.TaskBoxArray[1].X2 + 88;
+  tmp.Y2 := Self.RefineInterface.ProgressState.Total.Y2;
+  Self.RefineInterface.ProgressState.TaskBoxArray += tmp;
+
+  tmp.X1 := Self.RefineInterface.ProgressState.TaskBoxArray[2].X2 + 1;
+  tmp.Y1 := Self.RefineInterface.ProgressState.Total.Y1;
+  tmp.X2 := Self.RefineInterface.ProgressState.TaskBoxArray[2].X2 + 88;
+  tmp.Y2 := Self.RefineInterface.ProgressState.Total.Y2;
+  Self.RefineInterface.ProgressState.TaskBoxArray += tmp;
+
+  tmp.X1 := Self.RefineInterface.ProgressState.TaskBoxArray[3].X2 + 1;
+  tmp.Y1 := Self.RefineInterface.ProgressState.Total.Y1;
+  tmp.X2 := Self.RefineInterface.ProgressState.TaskBoxArray[3].X2 + 88;
+  tmp.Y2 := Self.RefineInterface.ProgressState.Total.Y2;
+  Self.RefineInterface.ProgressState.TaskBoxArray += tmp;
+
+  // Sets the length of the RefineTaskArray to the number of taskboxs in the array
+  SetLength(Self.RefineInterface.ProgressState.RefineTaskArray, Self.RefineInterface.ProgressState.TaskBoxArray.Len);
+
+  // Add Bars To A Large Array Of All The Bars For Debugging
+  Self.RefineInterface.AllBars += Self.RefineInterface.Quality;
+  //Self.RefineInterface.AllBars += Self.RefineInterface.Temperature.Total;
+  //Self.RefineInterface.AllBars += Self.RefineInterface.ProgressState.Total;
+
+  Self.RefineInterface.AllBars += Self.RefineInterface.Temperature.Cold;
+  Self.RefineInterface.AllBars += Self.RefineInterface.Temperature.Medium;
+  Self.RefineInterface.AllBars += Self.RefineInterface.Temperature.Hot;
+  Self.RefineInterface.AllBars += Self.RefineInterface.Temperature.Useless;
+
+  //Self.RefineInterface.AllBars += Self.RefineInterface.ProgressState.TaskBoxArray;
+
+  Debug(Self.RefineInterface.AllBars);
+end;
+
+procedure TGiantsFoundry.Init(maxActions: UInt32; maxTime: UInt64); override;
+begin
+  inherited;
+
+  Map.SetupChunk(Chunk([51, 180, 53, 178], 0));
+  Objects.Setup(Map.Objects(), @Map.Walker);
+
+  Self.BankChest := Objects.get('Bank chest');
+  Self.BankChest.Finder.Colors += CTS2(2313603, 23, 0.19, 1.91);
+
+  Self.Crucible := TRSObjectV2.Setup(3, [[9396, 4472]]);
+  Self.Crucible.SetupUpText('rucible');
+  Self.Crucible.Finder.Colors += CTS2(6637890, 15, 0.14, 0.87);
+  Self.Crucible.Walker := @Map.Walker;
+
+  Self.MouldJig := TRSObjectV2.Setup(2, [[9386, 4472]]);
+  Self.MouldJig.SetupUpText('ould');
+  Self.MouldJig.Finder.Colors += CTS2(7438191, 17, 1.49, 0.24);
+  Self.MouldJig.Walker := @Map.Walker;
+
+  Self.LavaPool := Objects.Get('Lava pool');
+  Self.Waterfall := Objects.Get('Waterfall');
+
+  Self.PolishingWheel := Objects.Get("Polishing wheel");
+  Self.PolishingWheel.Finder.Colors += CTS2(8549247, 17, 1.33, 0.30);
+
+  Self.Grindstone := Objects.Get("Grindstone");
+  Self.TripHammer := Objects.Get("Trip Hammer");
+
+  Self.SetupInterface;
+end;
+
+
+
+function TGiantsFoundry.InterfaceIsOpen(): Boolean;
+begin
+  Result := SRL.CountColor(CTS0(4621632, 0), Self.RefineInterface.Temperature.Total) > 0
+end;
+
+function TGiantsFoundry.GetActiveRefineTask(): TRefineTask;
+var
+  i: Int32;
+begin
+  for i := 0 to High(Self.RefineInterface.ProgressState.RefineTaskArray) do
+  begin
+    if SRL.CountColor(CTS0(16777215, 0), Self.RefineInterface.ProgressState.RefineTaskArray[i].TaskBounds) > 0 then
+    begin
+      Exit(Self.RefineInterface.ProgressState.RefineTaskArray[i]);
+    end else
+      Self.RefineInterface.ProgressState.RefineTaskArray[i].Active := False;
+  end;
+
+  Result := [];
+end;
+
+// Sets the Active flag to true in the object
+procedure TGiantsFoundry.SetActiveRefineTask();
+begin
+  Self.RefineInterface.ProgressState.RefineTaskArray[Self.GetActiveRefineTask.Idx].Active := True;
+end;
+
+
+
+function TGiantsFoundry.SetupProgressStates(): Boolean;
+var
+  i: Int32;
+begin
+  if not Self.InterfaceIsOpen() then
+    Exit(False);
+  Self.RefineInterface.ProgressState.AllProgressTasks := [];
+  //Self.RefineInterface.ProgressState.RefineTaskArray := [];
+
+  for i := 0 to High(Self.RefineInterface.ProgressState.TaskBoxArray) do
+  begin
+    Self.RefineInterface.ProgressState.RefineTaskArray[i].Refining := EProgressState.NOTFOUND;
+    if SRL.CountColor(CTS0(1927902, 0), Self.RefineInterface.ProgressState.TaskBoxArray[i]) > 0 then // For Orange
+    begin
+      Self.RefineInterface.ProgressState.RefineTaskArray[i].TaskBounds := Self.RefineInterface.ProgressState.TaskBoxArray[i];
+      Self.RefineInterface.ProgressState.RefineTaskArray[i].Refining := EProgressState.STONE;
+      Self.RefineInterface.ProgressState.AllProgressTasks += Self.RefineInterface.ProgressState.RefineTaskArray[i].TaskBounds;
+    end;
+    if SRL.CountColor(CTS0(4482857, 0), Self.RefineInterface.ProgressState.TaskBoxArray[i]) > 0 then // For Green
+    begin
+      Self.RefineInterface.ProgressState.RefineTaskArray[i].TaskBounds := Self.RefineInterface.ProgressState.TaskBoxArray[i];
+      Self.RefineInterface.ProgressState.RefineTaskArray[i].Refining := EProgressState.WHEEL;
+      Self.RefineInterface.ProgressState.AllProgressTasks += Self.RefineInterface.ProgressState.RefineTaskArray[i].TaskBounds;
+    end;
+    if SRL.CountColor(CTS0(3810928, 0), Self.RefineInterface.ProgressState.TaskBoxArray[i]) > 0 then // For Red
+    begin
+      Self.RefineInterface.ProgressState.RefineTaskArray[i].TaskBounds := Self.RefineInterface.ProgressState.TaskBoxArray[i];
+      Self.RefineInterface.ProgressState.RefineTaskArray[i].Refining := EProgressState.HAMMER;
+      Self.RefineInterface.ProgressState.AllProgressTasks += Self.RefineInterface.ProgressState.RefineTaskArray[i].TaskBounds;
+    end;
+
+
+    Self.RefineInterface.ProgressState.RefineTaskArray[i].Idx := i; // Sets the index of the array to the object
+  end;
+  //Debug(Self.RefineInterface.ProgressState.AllProgressTasks);
+  Exit(True);
+end;
+
+function TGiantsFoundry.FindCursor(bar: TBox): TPoint;
+var
+  tpa: TPointArray;
+begin
+  if SRL.FindColors(tpa, CTS0(13421772, 0), bar) = 0 then
+    Exit;
+  Result := tpa.First();
+end;
+
+function TGiantsFoundry.IsCursorInBox(bar: TBox): Boolean;
+begin
+  Result := bar.Contains(Self.FindCursor(bar));
+end;
+
+//function TGiantsFoundry.CoolOrHeat()
+function TGiantsFoundry.IsCursorBehindBox(wholebar, bar: TBox): Boolean;
+begin
+  Result := Self.FindCursor(wholebar).X < bar.X1;
+end;
+
+function TGiantsFoundry.IsCursorInFrontBox(wholebar, bar: TBox): Boolean;
+begin
+  Result := Self.FindCursor(wholebar).X > bar.X2;
+end;
+
+function TGiantsFoundry.IsSwordComplete(): Boolean;
+begin
+  Result := SRL.CountColor(CTS0(1119339, 0), Self.RefineInterface.ProgressState.Total) > 0;
+end;
+
+function TGiantsFoundry.IsCoolingSword(): Boolean;
+var
+  temprange: Double;
+  test: Boolean;
+begin
+
+  Result := Self.Waterfall.Coordinates.AnyInRange(Map.Position(), 8);
+
+  (*
+  temprange := Self.FindCursor(Self.RefineInterface.Temperature.Total).DistanceTo(Point(Self.RefineInterface.Temperature.Total.X1,
+  Self.RefineInterface.Temperature.Total.Y1));
+
+  test := WaitUntil(temprange > Self.FindCursor(Self.RefineInterface.Temperature.Total).DistanceTo(Point(Self.RefineInterface.Temperature.Total.X1,
+  Self.RefineInterface.Temperature.Total.Y1)), 100, 1200);
+
+  Writeln(temprange);
+  Writeln(test);
+
+  Result := test
+  *)
+end;
+
+function TGiantsFoundry.IsHeatingSword(): Boolean;
+var
+  temprange: Double;
+  test: Boolean;
+begin
+
+  Result := Self.LavaPool.Coordinates.AnyInRange(Map.Position(), 8);
+  (*
+
+  temprange := Self.FindCursor(Self.RefineInterface.Temperature.Total).DistanceTo(Point(Self.RefineInterface.Temperature.Total.X1,
+  Self.RefineInterface.Temperature.Total.Y1));
+
+
+
+  test := WaitUntil(temprange < Self.FindCursor(Self.RefineInterface.Temperature.Total).DistanceTo(Point(Self.RefineInterface.Temperature.Total.X1,
+  Self.RefineInterface.Temperature.Total.Y1)), 100, 1200);
+
+  Writeln(temprange);
+  Writeln(test);
+  Result := test
+  *)
+end;
+
+procedure TGiantsFoundry.UseLavaPool();
+begin
+  Self.LavaPool.WalkClick();
+end;
+
+procedure TGiantsFoundry.UseWaterFall();
+begin
+  Self.Waterfall.WalkClick();
+end;
+
+procedure TGiantsFoundry.UseGrindstonePool();
+begin
+  Self.Grindstone.WalkClick();
+end;
+
+procedure TGiantsFoundry.UsePolishingWheelPool();
+begin
+  Self.PolishingWheel.WalkClick();
+end;
+
+procedure TGiantsFoundry.UseTripHammerPool();
+begin
+  Self.TripHammer.WalkClick();
+end;
+
+procedure TGiantsFoundry.HandleWheel();
+begin
+  XPBar.EarnedXP();
+
+  //Writeln("Refining Wheel");
+  Self.RefineInterface.Temperature.TempBarArray[1].SweetSpotBounds :=
+  Box(Self.RefineInterface.Temperature.Cold.X1 + 58, Self.RefineInterface.Temperature.Cold.Y1,
+  Self.RefineInterface.Temperature.Cold.X2, Self.RefineInterface.Temperature.Cold.Y2);
+
+  if Self.IsCursorInFrontBox(Self.RefineInterface.Temperature.Total, Self.RefineInterface.Temperature.Cold) then
+  begin
+    if not Self.IsCursorInBox(Self.RefineInterface.Temperature.TempBarArray[1].SweetSpotBounds) then
+    begin
+      Writeln("Need to cool down");
+      Self.UseWaterFall();
+    end;
+  end;
+
+  if Self.IsCursorBehindBox(Self.RefineInterface.Temperature.Total, Self.RefineInterface.Temperature.Cold) then
+  begin
+    if not Self.IsCursorInBox(Self.RefineInterface.Temperature.TempBarArray[1].SweetSpotBounds) then
+    begin
+      Writeln("Need to Warm up");
+      Self.UseLavaPool();
+    end;
+  end;
+
+  if Self.IsCursorInBox(Self.RefineInterface.Temperature.TempBarArray[1].SweetSpotBounds) then
+  begin
+    if not WaitUntil(XPBar.EarnedXP(), 300, 2400) then
+    begin
+      Writeln("Time To Use Wheel!");
+      Self.UsePolishingWheelPool();
+    end;
+  end;
+end;
+
+procedure TGiantsFoundry.HandleStone();
+begin
+  XPBar.EarnedXP();
+
+  //Writeln("Refining Grindstone");
+  Self.RefineInterface.Temperature.TempBarArray[3].SweetSpotBounds :=
+  Box(Self.RefineInterface.Temperature.Medium.X1 + 5, Self.RefineInterface.Temperature.Medium.Y1,
+  Self.RefineInterface.Temperature.Medium.X2 - 55, Self.RefineInterface.Temperature.Medium.Y2);
+
+  if Self.IsCursorInFrontBox(Self.RefineInterface.Temperature.Total, Self.RefineInterface.Temperature.Medium) then
+  begin
+    if not Self.IsCursorInBox(Self.RefineInterface.Temperature.TempBarArray[3].SweetSpotBounds) then
+    begin
+      Writeln("Need to cool down");
+      Self.UseWaterFall();
+    end;
+  end;
+
+  if Self.IsCursorBehindBox(Self.RefineInterface.Temperature.Total, Self.RefineInterface.Temperature.Medium) then
+  begin
+    if not Self.IsCursorInBox(Self.RefineInterface.Temperature.TempBarArray[3].SweetSpotBounds) then
+    begin
+      Writeln("Need to Warm up");
+      Self.UseLavaPool();
+    end;
+  end;
+
+  if Self.IsCursorInBox(Self.RefineInterface.Temperature.TempBarArray[3].SweetSpotBounds) then
+  begin
+    if not WaitUntil(XPBar.EarnedXP(), 300, 2400) then
+    begin
+      Writeln("Time To Use Grindstone!");
+      Self.UseGrindstonePool();
+    end;
+
+  end;
+end;
+
+procedure TGiantsFoundry.HandleHammer();
+begin
+  XPBar.EarnedXP();
+
+  //Writeln("Refining Hammer");
+  Self.RefineInterface.Temperature.TempBarArray[5].SweetSpotBounds :=
+  Box(Self.RefineInterface.Temperature.Hot.X1 + 55, Self.RefineInterface.Temperature.Hot.Y1,
+  Self.RefineInterface.Temperature.Hot.X2, Self.RefineInterface.Temperature.Hot.Y2);
+
+  if Self.IsCursorInFrontBox(Self.RefineInterface.Temperature.Total, Self.RefineInterface.Temperature.Hot) then
+  begin
+    if not Self.IsCursorInBox(Self.RefineInterface.Temperature.TempBarArray[5].SweetSpotBounds) then
+    begin
+      Writeln("Need to cool down");
+      Self.UseWaterFall();
+    end;
+  end;
+
+  if Self.IsCursorBehindBox(Self.RefineInterface.Temperature.Total, Self.RefineInterface.Temperature.Hot) then
+  begin
+    if not Self.IsCursorInBox(Self.RefineInterface.Temperature.TempBarArray[5].SweetSpotBounds) then
+    begin
+      Writeln("Need to Warm up");
+      Self.UseLavaPool();
+    end;
+  end;
+
+  if Self.IsCursorInBox(Self.RefineInterface.Temperature.TempBarArray[5].SweetSpotBounds) then
+  begin
+    if not WaitUntil(XPBar.EarnedXP(), 300, 2400) then
+    begin
+      Writeln("Time To Use Hammer!");
+      Self.UseTripHammerPool();
+    end;
+  end;
+end;
+
+
+procedure TGiantsFoundry.RunTest();
+var
+  i: Int32;
+  activetask: TRefineTask;
+begin
+  Self.RefineInterface.IsSetup := Self.SetupProgressStates();
+  //Self.SetActiveRefineTask(); // Get Current Active TRefineTask
+  activetask := Self.GetActiveRefineTask(); // Get Current Active TRefineTask
+  (*
+  for i := 0 to High(Self.RefineInterface.ProgressState.RefineTaskArray) do
+  begin
+    if Self.IsCursorInBox(Self.RefineInterface.ProgressState.RefineTaskArray[i].TaskBounds) then
+      Writeln(Self.RefineInterface.ProgressState.RefineTaskArray[i]);
+  end;
+
+  for i := 0 to High(Self.RefineInterface.Temperature.TempBarArray) do
+  begin
+    if Self.IsCursorInBox(Self.RefineInterface.Temperature.TempBarArray[i].TemperatureBounds) then
+      Writeln(Self.RefineInterface.Temperature.TempBarArray[i]);
+  end;
+  *)
+
+  writeln(Self.IsHeatingSword);
+  writeln(Self.IsCoolingSword);
+  (*
+
+  if (activetask.Refining = EProgressState.WHEEL) and not Self.IsSwordComplete then
+  begin
+    Self.HandleWheel();
+  end;
+  if (activetask.Refining = EProgressState.STONE) and not Self.IsSwordComplete then
+  begin
+    Self.HandleStone();
+  end;
+
+  if (activetask.Refining = EProgressState.HAMMER) and not Self.IsSwordComplete then
+  begin
+    Self.HandleHammer();
+  end;
+  *)
+  if Self.IsSwordComplete then
+  begin
+    Writeln("Sword Is Complete!");
+  end;
+
+
+  Wait(50, 100);
+
+end;
+
+function TGiantsFoundry.GetState(): EGFState;
+begin
+  if Self.ShouldStop() then
+    Exit(EGFState.END_SCRIPT);
+
+  if Self.InterfaceIsOpen() then
+    Exit(EGFState.RUN_TEST);
+
+  if WL.Activity.IsFinished() then
+    Exit(EGFState.NO_ACTIVITY);
+
+  Exit(EGFState.WAIT_STATE);
+end;
+
+procedure TGiantsFoundry.Run(maxActions: UInt32; maxTime: UInt64);
+begin
+  Self.Init(maxActions, maxTime);
+
+  repeat
+    Self.State := Self.GetState();
+    Self.SetAction(ToStr(Self.State));
+
+    case Self.State of
+      EGFState.RUN_TEST: Self.RunTest();
+      EGFState.WAIT_STATE: Wait(500, 800);//Self.GetActiveProgressState();//
+      EGFState.NO_ACTIVITY, EGFState.END_SCRIPT: Break;
+    end;
+
+    //Self.DoAntiban();
+  until False;
+end;
+
+var
+  GiantsFoundry: TGiantsFoundry;
+
+procedure TAntiban.Setup(); override;
+begin
+  Self.Skills := [ERSSkill.SMITHING, ERSSkill.TOTAL];
+  Self.MinZoom := 15;
+  Self.MaxZoom := 40;
+
+  inherited;
+end;
+
+{$IFDEF SCRIPT_GUI}
+type
+  TGiantsFoundryConfig = record(TScriptForm)
+    Selector: TLabeledCombobox;
+  end;
+
+procedure TGiantsFoundryConfig.StartScript(sender: TObject); override;
+begin
+  CurrentTask := ETask(Self.Selector.Combobox.getItemIndex);
+  inherited;
+end;
+
+procedure TGiantsFoundryConfig.Run(); override;
+var
+  tab: TTabSheet;
+begin
+  Self.Setup('Giants Foundry By Jacz');
+  Self.Start.setOnClick(@Self.StartScript);
+
+  Self.AddTab('Script Settings');
+  tab := Self.Tabs[High(Self.Tabs)];
+
+  Self.CreateAccountManager(tab);
+
+  with Self.Selector do
+  begin
+    Create(tab);
+    SetCaption('Item type:');
+    SetLeft(TControl.AdjustToDPI(40));
+    SetTop(TControl.AdjustToDPI(170));
+    SetStyle(csDropDownList);
+    AddItemArray(['Item1', 'Mithril & Adamant', 'Item3', 'Item4']);
+    SetItemIndex(2);
+  end;
+
+  Self.CreateVersionPanel(tab);
+
+  Self.CreateAntibanManager();
+  Self.CreateBankSettings();
+  Self.CreateWaspLibSettings();
+  Self.CreateAPISettings();
+
+  inherited;
+end;
+
+var
+  Config: TGiantsFoundryConfig;
+{$ENDIF}
+
+begin
+  {$IFDEF SCRIPT_GUI}
+  Config.Run();
+  {$ENDIF}
+  GiantsFoundry.Run(WLSettings.MaxActions(), WLSettings.MaxTime());
+end.
