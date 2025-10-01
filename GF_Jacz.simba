@@ -45,7 +45,9 @@ type
       Quality: TBox;
       AllBars: TBoxArray;
       IsSetup: Boolean;
+
       Temperature: record
+        CursorPos: TPoint;
         Cold, Medium, Hot, Total: TBox;
         Useless, Combined: TBoxArray;
         TempBarArray: TTempBarArray;
@@ -380,27 +382,42 @@ end;
 
 procedure TGiantsFoundry.UseLavaPool();
 begin
-  Self.LavaPool.WalkClick();
+  if Self.LavaPool.WalkClick() then
+  begin
+    Minimap.WaitMoving();
+  end;
 end;
 
 procedure TGiantsFoundry.UseWaterFall();
 begin
-  Self.Waterfall.WalkClick();
+  if Self.Waterfall.WalkClick() then
+  begin
+    Minimap.WaitMoving();
+  end;
 end;
 
 procedure TGiantsFoundry.UseGrindstonePool();
 begin
-  Self.Grindstone.WalkClick();
+  if Self.Grindstone.WalkClick() then
+  begin
+    Minimap.WaitMoving();
+  end;
 end;
 
 procedure TGiantsFoundry.UsePolishingWheelPool();
 begin
-  Self.PolishingWheel.WalkClick();
+  if Self.PolishingWheel.WalkClick() then
+  begin
+    Minimap.WaitMoving();
+  end;
 end;
 
 procedure TGiantsFoundry.UseTripHammerPool();
 begin
-  Self.TripHammer.WalkClick();
+  if Self.TripHammer.WalkClick() then
+  begin
+    Minimap.WaitMoving();
+  end;
 end;
 
 procedure TGiantsFoundry.HandleWheel();
@@ -409,34 +426,25 @@ begin
 
   //Writeln("Refining Wheel");
   Self.RefineInterface.Temperature.TempBarArray[1].SweetSpotBounds :=
-  Box(Self.RefineInterface.Temperature.Cold.X1 + 58, Self.RefineInterface.Temperature.Cold.Y1,
+  Box(Self.RefineInterface.Temperature.Cold.X1 + 55, Self.RefineInterface.Temperature.Cold.Y1,
   Self.RefineInterface.Temperature.Cold.X2, Self.RefineInterface.Temperature.Cold.Y2);
 
-  if Self.IsCursorInFrontBox(Self.RefineInterface.Temperature.Total, Self.RefineInterface.Temperature.Cold) then
+  if Self.IsCursorInFrontBox(Self.RefineInterface.Temperature.Total, Self.RefineInterface.Temperature.Cold) and not Self.IsCoolingSword and not Self.IsCursorInBox(Self.RefineInterface.Temperature.TempBarArray[1].SweetSpotBounds) then
   begin
-    if not Self.IsCursorInBox(Self.RefineInterface.Temperature.TempBarArray[1].SweetSpotBounds) then
-    begin
-      Writeln("Need to cool down");
-      Self.UseWaterFall();
-    end;
+    Writeln("Need to cool down");
+    Self.UseWaterFall();
   end;
 
-  if Self.IsCursorBehindBox(Self.RefineInterface.Temperature.Total, Self.RefineInterface.Temperature.Cold) then
+  if Self.IsCursorBehindBox(Self.RefineInterface.Temperature.Total, Self.RefineInterface.Temperature.Cold) and not Self.IsHeatingSword and not Self.IsCursorInBox(Self.RefineInterface.Temperature.TempBarArray[1].SweetSpotBounds) then
   begin
-    if not Self.IsCursorInBox(Self.RefineInterface.Temperature.TempBarArray[1].SweetSpotBounds) then
-    begin
-      Writeln("Need to Warm up");
-      Self.UseLavaPool();
-    end;
+    Writeln("Need to Warm up");
+    Self.UseLavaPool();
   end;
 
-  if Self.IsCursorInBox(Self.RefineInterface.Temperature.TempBarArray[1].SweetSpotBounds) then
+  if not Self.PolishingWheel.Coordinates.AnyInRange(Map.Position(), 8) and Self.IsCursorInBox(Self.RefineInterface.Temperature.TempBarArray[1].SweetSpotBounds) then
   begin
-    if not WaitUntil(XPBar.EarnedXP(), 300, 2400) then
-    begin
-      Writeln("Time To Use Wheel!");
-      Self.UsePolishingWheelPool();
-    end;
+    Writeln("Time To Use Wheel!");
+    Self.UsePolishingWheelPool();
   end;
 end;
 
@@ -449,32 +457,22 @@ begin
   Box(Self.RefineInterface.Temperature.Medium.X1 + 5, Self.RefineInterface.Temperature.Medium.Y1,
   Self.RefineInterface.Temperature.Medium.X2 - 55, Self.RefineInterface.Temperature.Medium.Y2);
 
-  if Self.IsCursorInFrontBox(Self.RefineInterface.Temperature.Total, Self.RefineInterface.Temperature.Medium) then
+  if Self.IsCursorInFrontBox(Self.RefineInterface.Temperature.Total, Self.RefineInterface.Temperature.Medium) and not Self.IsCoolingSword and not Self.IsCursorInBox(Self.RefineInterface.Temperature.TempBarArray[3].SweetSpotBounds) then
   begin
-    if not Self.IsCursorInBox(Self.RefineInterface.Temperature.TempBarArray[3].SweetSpotBounds) then
-    begin
-      Writeln("Need to cool down");
-      Self.UseWaterFall();
-    end;
+    Writeln("Need to cool down");
+    Self.UseWaterFall();
   end;
 
-  if Self.IsCursorBehindBox(Self.RefineInterface.Temperature.Total, Self.RefineInterface.Temperature.Medium) then
+  if Self.IsCursorBehindBox(Self.RefineInterface.Temperature.Total, Self.RefineInterface.Temperature.Medium) and not Self.IsHeatingSword and not Self.IsCursorInBox(Self.RefineInterface.Temperature.TempBarArray[3].SweetSpotBounds) then
   begin
-    if not Self.IsCursorInBox(Self.RefineInterface.Temperature.TempBarArray[3].SweetSpotBounds) then
-    begin
-      Writeln("Need to Warm up");
-      Self.UseLavaPool();
-    end;
+    Writeln("Need to Warm up");
+    Self.UseLavaPool();
   end;
 
-  if Self.IsCursorInBox(Self.RefineInterface.Temperature.TempBarArray[3].SweetSpotBounds) then
+  if not Self.Grindstone.Coordinates.AnyInRange(Map.Position(), 8) and Self.IsCursorInBox(Self.RefineInterface.Temperature.TempBarArray[3].SweetSpotBounds) then
   begin
-    if not WaitUntil(XPBar.EarnedXP(), 300, 2400) then
-    begin
-      Writeln("Time To Use Grindstone!");
-      Self.UseGrindstonePool();
-    end;
-
+    Writeln("Time To Use Grindstone!");
+    Self.UseGrindstonePool();
   end;
 end;
 
@@ -487,31 +485,22 @@ begin
   Box(Self.RefineInterface.Temperature.Hot.X1 + 55, Self.RefineInterface.Temperature.Hot.Y1,
   Self.RefineInterface.Temperature.Hot.X2, Self.RefineInterface.Temperature.Hot.Y2);
 
-  if Self.IsCursorInFrontBox(Self.RefineInterface.Temperature.Total, Self.RefineInterface.Temperature.Hot) then
+  if Self.IsCursorInFrontBox(Self.RefineInterface.Temperature.Total, Self.RefineInterface.Temperature.Hot) and not Self.IsCoolingSword and not Self.IsCursorInBox(Self.RefineInterface.Temperature.TempBarArray[5].SweetSpotBounds) then
   begin
-    if not Self.IsCursorInBox(Self.RefineInterface.Temperature.TempBarArray[5].SweetSpotBounds) then
-    begin
       Writeln("Need to cool down");
       Self.UseWaterFall();
-    end;
   end;
 
-  if Self.IsCursorBehindBox(Self.RefineInterface.Temperature.Total, Self.RefineInterface.Temperature.Hot) then
+  if Self.IsCursorBehindBox(Self.RefineInterface.Temperature.Total, Self.RefineInterface.Temperature.Hot) and not Self.IsHeatingSword and not Self.IsCursorInBox(Self.RefineInterface.Temperature.TempBarArray[5].SweetSpotBounds) then
   begin
-    if not Self.IsCursorInBox(Self.RefineInterface.Temperature.TempBarArray[5].SweetSpotBounds) then
-    begin
-      Writeln("Need to Warm up");
-      Self.UseLavaPool();
-    end;
+    Writeln("Need to Warm up");
+    Self.UseLavaPool();
   end;
 
-  if Self.IsCursorInBox(Self.RefineInterface.Temperature.TempBarArray[5].SweetSpotBounds) then
+  if not Self.TripHammer.Coordinates.AnyInRange(Map.Position(), 16) and Self.IsCursorInBox(Self.RefineInterface.Temperature.TempBarArray[5].SweetSpotBounds) then
   begin
-    if not WaitUntil(XPBar.EarnedXP(), 300, 2400) then
-    begin
-      Writeln("Time To Use Hammer!");
-      Self.UseTripHammerPool();
-    end;
+    Writeln("Time To Use Hammer!");
+    Self.UseTripHammerPool();
   end;
 end;
 
@@ -538,8 +527,17 @@ begin
   end;
   *)
 
-  writeln(Self.IsHeatingSword);
-  writeln(Self.IsCoolingSword);
+  Self.RefineInterface.Temperature.TempBarArray[1].SweetSpotBounds :=
+  Box(Self.RefineInterface.Temperature.Cold.X1 + 55, Self.RefineInterface.Temperature.Cold.Y1,
+  Self.RefineInterface.Temperature.Cold.X2, Self.RefineInterface.Temperature.Cold.Y2);
+
+  //Writeln(WaitUntil(not XPBar.EarnedXP() and Self.IsCursorInBox(Self.RefineInterface.Temperature.TempBarArray[1].SweetSpotBounds), 300, 1500))
+  //writeln(Self.IsHeatingSword);
+  //writeln(Self.IsCoolingSword);
+  //Writeln(Self.LavaPool.Coordinates.AnyInRange(Map.Position(), 8) and Self.IsCursorInBox(Self.RefineInterface.Temperature.TempBarArray[1].SweetSpotBounds) or Self.Waterfall.Coordinates.AnyInRange(Map.Position(), 8) and Self.IsCursorInBox(Self.RefineInterface.Temperature.TempBarArray[1].SweetSpotBounds));
+  //Writeln(not Self.PolishingWheel.Coordinates.AnyInRange(Map.Position(), 8) and Self.IsCursorInBox(Self.RefineInterface.Temperature.TempBarArray[1].SweetSpotBounds));
+  Writeln(Map.Position());
+
   (*
 
   if (activetask.Refining = EProgressState.WHEEL) and not Self.IsSwordComplete then
@@ -556,13 +554,14 @@ begin
     Self.HandleHammer();
   end;
   *)
+
+
   if Self.IsSwordComplete then
   begin
-    Writeln("Sword Is Complete!");
+    Writeln("Sword Complete, Hand-In To Kovac!");
   end;
 
-
-  Wait(50, 100);
+  Wait(25, 50);
 
 end;
 
