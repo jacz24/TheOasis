@@ -14,6 +14,12 @@ var
 type
   EGFState = (
     RUN_TEST,
+    HEAT_SWORD,
+    COOL_SWORD,
+    USE_POLISHING_WHEEL,
+    USE_GRINDSTONE,
+    USE_TRIP_HAMMER,
+    SWORD_COMPLETE,
     WAIT_STATE,
     NO_ACTIVITY,
     END_SCRIPT
@@ -21,6 +27,13 @@ type
 
   EProgressState = (WHEEL, STONE, HAMMER, NOTFOUND);
   ETemperatureState = (COLD, MEDIUM, HOT, USELESS);
+
+  EMouldType = (FORTE, BLADES, TIPS, MOULDNONE);
+  EBladeSize = (NARROW, BROAD, SizeNone);
+  EBladeWeight = (HEAVY, LIGHT, WeightNone);
+  EBladeType = (FLAT, SPIKED, TypeNone);
+
+  ERSMouldSetupButton = (RESET_MOULD, SET_MOULD);
 
   TRefineTask = record
     TaskBounds: TBox;
@@ -45,32 +58,644 @@ type
       Quality: TBox;
       AllBars: TBoxArray;
       IsSetup: Boolean;
-
+      CurrentCommision: TStringArray;
       Temperature: record
         CursorPos: TPoint;
+        CursorPosArray: TPointArray;
+        CursorAttempt: Int32;
         Cold, Medium, Hot, Total: TBox;
         Useless, Combined: TBoxArray;
         TempBarArray: TTempBarArray;
       end;
 
       ProgressState: record
-        Current, Total: TBox;
+        Total: TBox;
         TaskBoxArray, AllProgressTasks: TBoxArray; // Outline of each progress task, and all tasks combined
         RefineTaskArray: TRefineTaskBarArray;
+        CurrentRefineTask: TRefineTask;
       end;
 
     end;
 
-  TGiantsFoundry = record(TBaseScript)
-    State: EGFState;
 
-    RefineInterface: TRSRefineInterface;
 
-    BankChest, LavaPool, Waterfall, PolishingWheel,
-    Grindstone, TripHammer, Crucible, MouldJig: TRSObjectV2;
-
+  TRSGFMouldSetup = record(TRSTitledInterface)
+    MouldTypeBoxes, Moulds, SetResetButtons: TBoxArray;
+    //MouldSelect: TBoxArray;
+    FINDER_UPTEXT: TStringArray;
 
   end;
+
+
+
+  TProperties = record
+    BladeSize: record
+      SizeType: EBladeSize;
+      Value: Int32;
+    end;
+
+    BladeWeight: record
+      WeightType: EBladeWeight;
+      Value: Int32;
+    end;
+
+    BladeType: record
+      BladeType: EBladeType;
+      Value: Int32;
+    end;
+  end;
+
+  TRSGFMould = record
+    //MouldType: EMouldType;
+    MouldName: String;
+    Properties: TProperties;
+  end;
+
+  TRSGFMouldArray = array of TRSGFMould;
+
+  TGiantsFoundry = record(TBaseScript)
+    State: EGFState;
+    Commision: TStringArray;
+    StuckTimer: TCountDown;
+    MouldSetup: TRSGFMouldSetup;
+    RefineInterface: TRSRefineInterface;
+    ForteMoulds, BladeMoulds, TipMoulds: TRSGFMouldArray;
+    BankChest, LavaPool, Waterfall, PolishingWheel,
+    Grindstone, TripHammer, Crucible, MouldJig: TRSObjectV2;
+    KovacNPC: TRSNPCV2;
+
+  end;
+
+
+procedure TRSGFMouldSetup.Setup(); overload;
+begin
+  //inherited;
+  Self.Name := 'Giants'' Foundry Mould Setup';
+
+end;
+
+procedure TRSGFMouldSetup.SetupAlignment(); overload;
+var
+  alignment: TRSInterfaceAlignment;
+  i: Int32;
+begin
+  alignment.Left := InterfaceArea.Bounds.X1;
+  alignment.Right := InterfaceArea.Bounds.X2;
+
+  alignment.Top := InterfaceArea.Bounds.Y1 + 2;
+  alignment.Bottom := InterfaceArea.Bounds.Y2;
+  alignment.MaxWidth := 488;
+  alignment.MaxHeight := 800;
+
+  (*
+  case RSClient.Mode of
+    ERSClientMode.FIXED:
+      alignment.Bottom := InterfaceArea.Bounds.Y2 - 1;
+    ERSClientMode.RESIZABLE_CLASSIC, ERSClientMode.RESIZABLE_MODERN:
+      alignment.Bottom := InterfaceArea.Bounds.Y2 - 2;
+  end;
+  *)
+
+  Self.SetupAlignment(alignment);
+  //Writeln(Self.Bounds);
+  //Writeln(Self.Height);
+  //Writeln(Self.Bounds);
+  //Writeln(MainScreen.Bounds);
+  //Writeln(InterfaceArea.Bounds);
+
+  Self.ScrollArea.X1 := Self.Bounds.X1 + 139;
+  Self.ScrollArea.Y1 := Self.Bounds.Y1 + 138;
+  Self.ScrollArea.X2 := Self.ScrollArea.X1 + 308;
+  Self.ScrollArea.Y2 := Self.ScrollArea.Y1 + 162;
+
+  Self.MouldTypeBoxes := Grid(1, 3, 106, 28, [0, 13], [Self.Bounds.X1 + 16, Self.Bounds.Y1 + 130]);
+  Self.Moulds := Grid(1, 11, 308, 41, [0, -1], [Self.ScrollArea.X1, Self.ScrollArea.Y1]);
+
+  Self.SetResetButtons := Grid(1, 2, 112, 26,[0, 16], [Self.Bounds.X1 + 356, Self.Bounds.Y1 + 50]);
+  Debug(Self.SetResetButtons);
+  for i := 0 to High(Self.Moulds) do
+    Self.Moulds[i] := Self.Moulds[i].Expand(-5); //shrink boxes because calculating scrolling is not linear.
+
+  //Writeln(Self.Moulds.Len);
+  //Self.ScrollArea.X1 := Self.Bounds.X1 + 140;
+  //Self.ScrollArea.Y1 := Self.Bounds.Y1 + 139;
+  //Self.ScrollArea.X2 := Self.ScrollArea.X1 + 322
+  //Writeln(Self.GetScrollPosition());
+  //Debug(Emotes.Area);
+  //Debug(Self.Moulds);
+  //Writeln(Self.GetScrollBar);
+  //Writeln(Self.Moulds);
+  //Debug(Self.ScrollArea);
+  //Debug(Self.MouldTypeBoxes);
+  //Debug(Self.Moulds);
+end;
+
+//function TRSGFMouldSetup.GetButtons(): TRSButtonArray:
+//begin
+  //Result := FindButtons([[]]);
+//end;
+
+function TRSGFMouldSetup._GetOffset(): Int32;
+begin
+  Result := -Round(Self.GetScrollPosition() * 2.7);
+end;
+
+function TRSGFMouldSetup.GetSlots(): TBoxArray;
+var
+  i: Int32;
+begin
+  Result := Self.Moulds.Offset([0, Self._GetOffset()]);
+  //Writeln(Result.Len);
+  //Writeln(Result);
+
+  for i := High(Result) downto 0 do
+  begin
+    // Check if box intersects with scroll area
+    // A box intersects if it's NOT completely outside
+    if (Result[i].X2 >= Self.ScrollArea.X1) and
+       (Result[i].X1 <= Self.ScrollArea.X2) and
+       (Result[i].Y2 >= Self.ScrollArea.Y1) and
+       (Result[i].Y1 <= Self.ScrollArea.Y2) then
+    begin
+      Result[i].LimitTo(Self.ScrollArea);
+      Continue;
+    end;
+
+    // Box is completely outside scroll area, remove it
+    //Delete(Result, i, 1);
+  end;
+end;
+
+function TRSGFMouldSetup.GetActiveMouldType(): EMouldType;
+var
+  i: Int32;
+begin
+  Result := EMouldType.MOULDNONE;
+  if SRL.CountColor(CTS0(3358536, 2), Self.MouldTypeBoxes[0]) > 0 then
+    Result := EMouldType.FORTE;
+
+  if SRL.CountColor(CTS0(3358536, 2), Self.MouldTypeBoxes[1]) > 0 then
+    Result := EMouldType.BLADES;
+
+  if SRL.CountColor(CTS0(3358536, 2), Self.MouldTypeBoxes[2]) > 0 then
+    Result := EMouldType.TIPS;
+end;
+
+function TRSGFMouldSetup.IsOpen(): Boolean;
+begin
+  Result := Self.GetActiveMouldType <> EMouldType.MOULDNONE;
+end;
+
+function TRSGFMouldSetup.IsMouldReady(): Boolean;
+begin
+  Result := False;
+  if SRL.CountColor(CTS0(3358536, 2), Self.SetResetButtons[1]) > 0 then
+    Result := True;
+end;
+
+function TRSGFMouldSetup.SetMould(): Boolean;
+begin
+  Result := False;
+  Mouse.Move(Self.SetResetButtons[1]);
+  if MainScreen.IsUpText('ould') then
+  begin
+    Mouse.Click(MOUSE_LEFT);
+    Result := True;
+  end;
+end;
+
+function TRSGFMouldSetup.SelectMouldTypeButton(mouldbutton: EMouldType): Boolean;
+begin
+  if not Self.IsOpen() then
+    Result := False;
+  if mouldbutton = EMouldType.FORTE then
+  begin
+    if Self.GetActiveMouldType = EMouldType.FORTE then
+      Exit(True);
+    Mouse.Move(Self.MouldTypeBoxes[0]);
+    if MainScreen.IsUpText('Forte') then
+    begin
+      Mouse.Click(MOUSE_LEFT);
+      Result := True;
+    end;
+  end;
+  if mouldbutton = EMouldType.BLADES then
+  begin
+    if Self.GetActiveMouldType = EMouldType.BLADES then
+      Exit(True);
+    Mouse.Move(Self.MouldTypeBoxes[1]);
+    if MainScreen.IsUpText('Blades') then
+    begin
+      Mouse.Click(MOUSE_LEFT);
+      Result := True;
+    end;
+  end;
+
+  if mouldbutton = EMouldType.TIPS then
+  begin
+    if Self.GetActiveMouldType = EMouldType.TIPS then
+      Exit(True);
+    Mouse.Move(Self.MouldTypeBoxes[2]);
+    if MainScreen.IsUpText('Tips') then
+    begin
+      Mouse.Click(MOUSE_LEFT);
+      Result := True;
+    end;
+  end;
+
+end;
+
+function TRSGFMouldSetup.ContainsMould(mouldbox: TBox): Boolean;
+begin
+  Result := Self.ScrollArea.Contains(mouldbox);
+end;
+
+function TRSGFMouldSetup.FindMouldScroll(mouldbox: TBox; mouldtype: EMouldType): Boolean;
+var
+  scroll, nextScroll: Int32;
+  down: Boolean;
+begin
+  if not Self.SelectMouldTypeButton(mouldtype) then
+    Exit(False);
+
+  if Self.ContainsMould(mouldbox) then
+  begin
+    Writeln('Found Mould Scrolling Not Needed!');
+
+    Exit(True);
+  end;
+
+  if not Self.CanScroll() then
+    Exit(False);
+
+  scroll := Self.GetScrollPosition();
+
+  down := (scroll > 0) or SRL.Dice(50);
+
+  repeat
+    if down then
+      nextScroll := scroll - 1
+    else
+      nextScroll := scroll + 1;
+
+    Self.SetScrollPosition(nextScroll);
+    scroll := Self.GetScrollPosition();
+
+    mouldbox := mouldbox.Offset([0, Self._GetOffset()]);
+    if Self.ContainsMould(mouldbox) then
+      Exit(True);
+
+    if not Self.IsOpen() then
+      Exit(False);
+  until (scroll = 0) or (scroll = 100);
+
+  down := not down;
+
+  repeat
+    if down then
+      nextScroll := scroll - 1
+    else
+      nextScroll := scroll + 1;
+
+    Self.SetScrollPosition(nextScroll);
+    scroll := Self.GetScrollPosition();
+
+    mouldbox := mouldbox.Offset([0, Self._GetOffset()]);
+    Writeln(mouldbox);
+    if Self.ContainsMould(mouldbox) then
+      Exit(True);
+
+    if not Self.IsOpen() then
+      Exit(False);
+  until (scroll = 0) or (scroll = 100);
+
+  Exit(False);
+end;
+
+function TRSGFMouldSetup.SelectMould(mouldbox: TBox; mouldtype: EMouldType; mould: TRSGFMould): Boolean;
+begin
+  Result := False;
+  if Self.FindMouldScroll(mouldbox, mouldtype) then
+  begin
+    mouldbox := mouldbox.Offset([0, Self._GetOffset()]);
+    Mouse.Move(mouldbox);
+    if MainScreen.IsUpText(mould.MouldName) then
+      Mouse.Click(MOUSE_LEFT);
+  end;
+end;
+
+
+
+procedure TGiantsFoundry.SetupMoulds();
+var
+  tmp: TRSGFMould;
+begin
+
+  ////////// TIP MOULDS //////////
+
+  tmp.MouldName := 'People Poker Point';
+  tmp.Properties.BladeSize.SizeType := EBladeSize.NARROW;
+  tmp.Properties.BladeSize.Value := 4;
+  tmp.Properties.BladeWeight.WeightType := EBladeWeight.HEAVY;
+  tmp.Properties.BladeWeight.Value := 4;
+  tmp.Properties.BladeType.BladeType := EBladeType.FLAT;
+  tmp.Properties.BladeType.Value := 4;
+  Self.TipMoulds += tmp;
+
+  tmp.MouldName := 'Chopper Tip';
+  tmp.Properties.BladeSize.SizeType := EBladeSize.BROAD;
+  tmp.Properties.BladeSize.Value := 4;
+  tmp.Properties.BladeWeight.WeightType := EBladeWeight.LIGHT;
+  tmp.Properties.BladeWeight.Value := 4;
+  tmp.Properties.BladeType.BladeType := EBladeType.SPIKED;
+  tmp.Properties.BladeType.Value := 4;
+  Self.TipMoulds += tmp;
+
+  tmp.MouldName := 'Medusa''s Head';
+  tmp.Properties.BladeSize.SizeType := EBladeSize.BROAD;
+  tmp.Properties.BladeSize.Value := 4;
+  tmp.Properties.BladeWeight.WeightType := EBladeWeight.HEAVY;
+  tmp.Properties.BladeWeight.Value := 4;
+  tmp.Properties.BladeType.BladeType := EBladeType.SPIKED;
+  tmp.Properties.BladeType.Value := 4;
+  Self.TipMoulds += tmp;
+
+  tmp.MouldName := 'Serpent''s Fang';
+  tmp.Properties.BladeSize.SizeType := EBladeSize.NARROW;
+  tmp.Properties.BladeSize.Value := 8;
+  tmp.Properties.BladeWeight.WeightType := EBladeWeight.LIGHT;
+  tmp.Properties.BladeWeight.Value := 6;
+  tmp.Properties.BladeType.BladeType := EBladeType.SPIKED;
+  tmp.Properties.BladeType.Value := 8;
+  Self.TipMoulds += tmp;
+
+  tmp.MouldName := 'Serpent''s Fang';
+  tmp.Properties.BladeSize.SizeType := EBladeSize.NARROW;
+  tmp.Properties.BladeSize.Value := 8;
+  tmp.Properties.BladeWeight.WeightType := EBladeWeight.LIGHT;
+  tmp.Properties.BladeWeight.Value := 6;
+  tmp.Properties.BladeType.BladeType := EBladeType.SPIKED;
+  tmp.Properties.BladeType.Value := 8;
+  Self.TipMoulds += tmp;
+
+  tmp.MouldName := 'Gladius Point';
+  tmp.Properties.BladeSize.SizeType := EBladeSize.NARROW;
+  tmp.Properties.BladeSize.Value := 8;
+  tmp.Properties.BladeWeight.WeightType := EBladeWeight.HEAVY;
+  tmp.Properties.BladeWeight.Value := 8;
+  tmp.Properties.BladeType.BladeType := EBladeType.FLAT;
+  tmp.Properties.BladeType.Value := 6;
+  Self.TipMoulds += tmp;
+
+  tmp.MouldName := 'Saw Tip';
+  tmp.Properties.BladeSize.SizeType := EBladeSize.BROAD;
+  tmp.Properties.BladeSize.Value := 6;
+  tmp.Properties.BladeWeight.WeightType := EBladeWeight.HEAVY;
+  tmp.Properties.BladeWeight.Value := 8;
+  tmp.Properties.BladeType.BladeType := EBladeType.SPIKED;
+  tmp.Properties.BladeType.Value := 8;
+  Self.TipMoulds += tmp;
+
+  tmp.MouldName := 'Defenders Tip';
+  tmp.Properties.BladeSize.SizeType := EBladeSize.BROAD;
+  tmp.Properties.BladeSize.Value := 10;
+  tmp.Properties.BladeWeight.WeightType := EBladeWeight.HEAVY;
+  tmp.Properties.BladeWeight.Value := 8;
+  tmp.Properties.BladeType.BladeType := EBladeType.SPIKED;
+  tmp.Properties.BladeType.Value := 8;
+  Self.TipMoulds += tmp;
+
+  tmp.MouldName := 'Serrated Tip';
+  tmp.Properties.BladeSize.SizeType := EBladeSize.NARROW;
+  tmp.Properties.BladeSize.Value := 4;
+  tmp.Properties.BladeWeight.WeightType := EBladeWeight.LIGHT;
+  tmp.Properties.BladeWeight.Value := 16;
+  tmp.Properties.BladeType.BladeType := EBladeType.SPIKED;
+  tmp.Properties.BladeType.Value := 4;
+  Self.TipMoulds += tmp;
+
+  tmp.MouldName := 'Needle Point';
+  tmp.Properties.BladeSize.SizeType := EBladeSize.NARROW;
+  tmp.Properties.BladeSize.Value := 18;
+  tmp.Properties.BladeWeight.WeightType := EBladeWeight.LIGHT;
+  tmp.Properties.BladeWeight.Value := 3;
+  tmp.Properties.BladeType.BladeType := EBladeType.FLAT;
+  tmp.Properties.BladeType.Value := 4;
+  Self.TipMoulds += tmp;
+
+  tmp.MouldName := 'The Point!';
+  tmp.Properties.BladeSize.SizeType := EBladeSize.BROAD;
+  tmp.Properties.BladeSize.Value := 2;
+  tmp.Properties.BladeWeight.WeightType := EBladeWeight.LIGHT;
+  tmp.Properties.BladeWeight.Value := 1;
+  tmp.Properties.BladeType.BladeType := EBladeType.FLAT;
+  tmp.Properties.BladeType.Value := 22;
+  Self.TipMoulds += tmp;
+
+  ////////// BLADE MOULDS //////////
+
+  tmp.MouldName := 'Saw Blade';
+  tmp.Properties.BladeSize.SizeType := EBladeSize.BROAD;
+  tmp.Properties.BladeSize.Value := 4;
+  tmp.Properties.BladeWeight.WeightType := EBladeWeight.LIGHT;
+  tmp.Properties.BladeWeight.Value := 4;
+  tmp.Properties.BladeType.BladeType := EBladeType.SPIKED;
+  tmp.Properties.BladeType.Value := 4;
+  Self.BladeMoulds += tmp;
+
+  tmp.MouldName := 'Defenders Edge';
+  tmp.Properties.BladeSize.SizeType := EBladeSize.BROAD;
+  tmp.Properties.BladeSize.Value := 4;
+  tmp.Properties.BladeWeight.WeightType := EBladeWeight.HEAVY;
+  tmp.Properties.BladeWeight.Value := 4;
+  tmp.Properties.BladeType.BladeType := EBladeType.SPIKED;
+  tmp.Properties.BladeType.Value := 4;
+  Self.BladeMoulds += tmp;
+
+  tmp.MouldName := 'Fish Blade';
+  tmp.Properties.BladeSize.SizeType := EBladeSize.NARROW;
+  tmp.Properties.BladeSize.Value := 4;
+  tmp.Properties.BladeWeight.WeightType := EBladeWeight.LIGHT;
+  tmp.Properties.BladeWeight.Value := 4;
+  tmp.Properties.BladeType.BladeType := EBladeType.FLAT;
+  tmp.Properties.BladeType.Value := 4;
+  Self.BladeMoulds += tmp;
+
+  tmp.MouldName := 'Medusa Blade';
+  tmp.Properties.BladeSize.SizeType := EBladeSize.BROAD;
+  tmp.Properties.BladeSize.Value := 8;
+  tmp.Properties.BladeWeight.WeightType := EBladeWeight.HEAVY;
+  tmp.Properties.BladeWeight.Value := 8;
+  tmp.Properties.BladeType.BladeType := EBladeType.FLAT;
+  tmp.Properties.BladeType.Value := 6;
+  Self.BladeMoulds += tmp;
+
+  tmp.MouldName := 'Stiletto Blade';
+  tmp.Properties.BladeSize.SizeType := EBladeSize.NARROW;
+  tmp.Properties.BladeSize.Value := 8;
+  tmp.Properties.BladeWeight.WeightType := EBladeWeight.LIGHT;
+  tmp.Properties.BladeWeight.Value := 6;
+  tmp.Properties.BladeType.BladeType := EBladeType.FLAT;
+  tmp.Properties.BladeType.Value := 8;
+  Self.BladeMoulds += tmp;
+
+  tmp.MouldName := 'Gladius Edge';
+  tmp.Properties.BladeSize.SizeType := EBladeSize.NARROW;
+  tmp.Properties.BladeSize.Value := 6;
+  tmp.Properties.BladeWeight.WeightType := EBladeWeight.HEAVY;
+  tmp.Properties.BladeWeight.Value := 8;
+  tmp.Properties.BladeType.BladeType := EBladeType.FLAT;
+  tmp.Properties.BladeType.Value := 8;
+  Self.BladeMoulds += tmp;
+
+  tmp.MouldName := 'Flamberge Blade';
+  tmp.Properties.BladeSize.SizeType := EBladeSize.NARROW;
+  tmp.Properties.BladeSize.Value := 8;
+  tmp.Properties.BladeWeight.WeightType := EBladeWeight.LIGHT;
+  tmp.Properties.BladeWeight.Value := 8;
+  tmp.Properties.BladeType.BladeType := EBladeType.SPIKED;
+  tmp.Properties.BladeType.Value := 10;
+  Self.BladeMoulds += tmp;
+
+  tmp.MouldName := 'Serpent Blade';
+  tmp.Properties.BladeSize.SizeType := EBladeSize.NARROW;
+  tmp.Properties.BladeSize.Value := 10;
+  tmp.Properties.BladeWeight.WeightType := EBladeWeight.LIGHT;
+  tmp.Properties.BladeWeight.Value := 8;
+  tmp.Properties.BladeType.BladeType := EBladeType.FLAT;
+  tmp.Properties.BladeType.Value := 8;
+  Self.BladeMoulds += tmp;
+
+  tmp.MouldName := 'Claymore Blade';
+  tmp.Properties.BladeSize.SizeType := EBladeSize.BROAD;
+  tmp.Properties.BladeSize.Value := 16;
+  tmp.Properties.BladeWeight.WeightType := EBladeWeight.HEAVY;
+  tmp.Properties.BladeWeight.Value := 4;
+  tmp.Properties.BladeType.BladeType := EBladeType.FLAT;
+  tmp.Properties.BladeType.Value := 4;
+  Self.BladeMoulds += tmp;
+
+  tmp.MouldName := 'Fleur de Blade';
+  tmp.Properties.BladeSize.SizeType := EBladeSize.BROAD;
+  tmp.Properties.BladeSize.Value := 4;
+  tmp.Properties.BladeWeight.WeightType := EBladeWeight.HEAVY;
+  tmp.Properties.BladeWeight.Value := 18;
+  tmp.Properties.BladeType.BladeType := EBladeType.SPIKED;
+  tmp.Properties.BladeType.Value := 1;
+  Self.BladeMoulds += tmp;
+
+  tmp.MouldName := 'Choppa!';
+  tmp.Properties.BladeSize.SizeType := EBladeSize.BROAD;
+  tmp.Properties.BladeSize.Value := 1;
+  tmp.Properties.BladeWeight.WeightType := EBladeWeight.LIGHT;
+  tmp.Properties.BladeWeight.Value := 22;
+  tmp.Properties.BladeType.BladeType := EBladeType.FLAT;
+  tmp.Properties.BladeType.Value := 2;
+  Self.BladeMoulds += tmp;
+
+  ////////// BLADE MOULDS //////////
+
+  tmp.MouldName := 'Chopper Forte';
+  tmp.Properties.BladeSize.SizeType := EBladeSize.BROAD;
+  tmp.Properties.BladeSize.Value := 4;
+  tmp.Properties.BladeWeight.WeightType := EBladeWeight.LIGHT;
+  tmp.Properties.BladeWeight.Value := 4;
+  tmp.Properties.BladeType.BladeType := EBladeType.FLAT;
+  tmp.Properties.BladeType.Value := 4;
+  Self.ForteMoulds += tmp;
+
+  tmp.MouldName := 'Gladius Ricasso';
+  tmp.Properties.BladeSize.SizeType := EBladeSize.BROAD;
+  tmp.Properties.BladeSize.Value := 4;
+  tmp.Properties.BladeWeight.WeightType := EBladeWeight.HEAVY;
+  tmp.Properties.BladeWeight.Value := 4;
+  tmp.Properties.BladeType.BladeType := EBladeType.FLAT;
+  tmp.Properties.BladeType.Value := 4;
+  Self.ForteMoulds += tmp;
+
+  tmp.MouldName := 'Disarming Forte';
+  tmp.Properties.BladeSize.SizeType := EBladeSize.NARROW;
+  tmp.Properties.BladeSize.Value := 4;
+  tmp.Properties.BladeWeight.WeightType := EBladeWeight.LIGHT;
+  tmp.Properties.BladeWeight.Value := 4;
+  tmp.Properties.BladeType.BladeType := EBladeType.SPIKED;
+  tmp.Properties.BladeType.Value := 4;
+  Self.ForteMoulds += tmp;
+
+  tmp.MouldName := 'Medusa Ricasso';
+  tmp.Properties.BladeSize.SizeType := EBladeSize.BROAD;
+  tmp.Properties.BladeSize.Value := 8;
+  tmp.Properties.BladeWeight.WeightType := EBladeWeight.HEAVY;
+  tmp.Properties.BladeWeight.Value := 6;
+  tmp.Properties.BladeType.BladeType := EBladeType.FLAT;
+  tmp.Properties.BladeType.Value := 8;
+  Self.ForteMoulds += tmp;
+
+  tmp.MouldName := 'Serpent Ricasso';
+  tmp.Properties.BladeSize.SizeType := EBladeSize.NARROW;
+  tmp.Properties.BladeSize.Value := 6;
+  tmp.Properties.BladeWeight.WeightType := EBladeWeight.LIGHT;
+  tmp.Properties.BladeWeight.Value := 8;
+  tmp.Properties.BladeType.BladeType := EBladeType.FLAT;
+  tmp.Properties.BladeType.Value := 8;
+  Self.ForteMoulds += tmp;
+
+  tmp.MouldName := 'Serrated Forte';
+  tmp.Properties.BladeSize.SizeType := EBladeSize.NARROW;
+  tmp.Properties.BladeSize.Value := 8;
+  tmp.Properties.BladeWeight.WeightType := EBladeWeight.HEAVY;
+  tmp.Properties.BladeWeight.Value := 8;
+  tmp.Properties.BladeType.BladeType := EBladeType.SPIKED;
+  tmp.Properties.BladeType.Value := 6;
+  Self.ForteMoulds += tmp;
+
+  tmp.MouldName := 'Stiletto Forte';
+  tmp.Properties.BladeSize.SizeType := EBladeSize.NARROW;
+  tmp.Properties.BladeSize.Value := 8;
+  tmp.Properties.BladeWeight.WeightType := EBladeWeight.LIGHT;
+  tmp.Properties.BladeWeight.Value := 10;
+  tmp.Properties.BladeType.BladeType := EBladeType.FLAT;
+  tmp.Properties.BladeType.Value := 8;
+  Self.ForteMoulds += tmp;
+
+  tmp.MouldName := 'Defender Base';
+  tmp.Properties.BladeSize.SizeType := EBladeSize.BROAD;
+  tmp.Properties.BladeSize.Value := 8;
+  tmp.Properties.BladeWeight.WeightType := EBladeWeight.HEAVY;
+  tmp.Properties.BladeWeight.Value := 10;
+  tmp.Properties.BladeType.BladeType := EBladeType.FLAT;
+  tmp.Properties.BladeType.Value := 8;
+  Self.ForteMoulds += tmp;
+
+  tmp.MouldName := 'Juggernaut Forte';
+  tmp.Properties.BladeSize.SizeType := EBladeSize.BROAD;
+  tmp.Properties.BladeSize.Value := 4;
+  tmp.Properties.BladeWeight.WeightType := EBladeWeight.HEAVY;
+  tmp.Properties.BladeWeight.Value := 4;
+  tmp.Properties.BladeType.BladeType := EBladeType.SPIKED;
+  tmp.Properties.BladeType.Value := 16;
+  Self.ForteMoulds += tmp;
+
+  tmp.MouldName := 'Chopper Forte';
+  tmp.Properties.BladeSize.SizeType := EBladeSize.BROAD;
+  tmp.Properties.BladeSize.Value := 3;
+  tmp.Properties.BladeWeight.WeightType := EBladeWeight.LIGHT;
+  tmp.Properties.BladeWeight.Value := 4;
+  tmp.Properties.BladeType.BladeType := EBladeType.FLAT;
+  tmp.Properties.BladeType.Value := 18;
+  Self.ForteMoulds += tmp;
+
+  tmp.MouldName := 'Spiker!';
+  tmp.Properties.BladeSize.SizeType := EBladeSize.NARROW;
+  tmp.Properties.BladeSize.Value := 1;
+  tmp.Properties.BladeWeight.WeightType := EBladeWeight.HEAVY;
+  tmp.Properties.BladeWeight.Value := 2;
+  tmp.Properties.BladeType.BladeType := EBladeType.SPIKED;
+  tmp.Properties.BladeType.Value := 22;
+  Self.ForteMoulds += tmp;
+
+end;
+
 procedure TGiantsFoundry.SetupInterface();
 var
   tmp: TBox;
@@ -201,6 +826,8 @@ begin
 
   //Self.RefineInterface.AllBars += Self.RefineInterface.ProgressState.TaskBoxArray;
 
+  Self.SetupSweetSpots();
+
   Debug(Self.RefineInterface.AllBars);
 end;
 
@@ -227,13 +854,21 @@ begin
   Self.LavaPool := Objects.Get('Lava pool');
   Self.Waterfall := Objects.Get('Waterfall');
 
-  Self.PolishingWheel := Objects.Get("Polishing wheel");
+  Self.PolishingWheel := Objects.Get('Polishing wheel');
   Self.PolishingWheel.Finder.Colors += CTS2(8549247, 17, 1.33, 0.30);
 
-  Self.Grindstone := Objects.Get("Grindstone");
-  Self.TripHammer := Objects.Get("Trip Hammer");
+  Self.Grindstone := Objects.Get('Grindstone');
+  Self.TripHammer := Objects.Get('Trip Hammer');
 
-  Self.SetupInterface;
+  Self.KovacNPC := TRSNPCV2.Setup(20, 6, [[9380,4482], [9384,4482], [9380,4486], [9384,4486]]);
+  Self.KovacNPC.SetupUpText('Kovac');
+  Self.KovacNPC.Finder.Colors += CTS2(4812425, 21, 0.03, 0.38);
+  Self.KovacNPC.Finder.Colors += CTS2(2830439, 18, 0.09, 0.61);
+  //Self.KovacNPC.Finder.Colors += CTS2(5261638, 13, 0.40, 0.39);
+  Self.KovacNPC.Walker := @Map.Walker;
+
+  Self.SetupInterface();
+  Self.SetupMoulds();
 end;
 
 
@@ -335,6 +970,17 @@ begin
   Result := SRL.CountColor(CTS0(1119339, 0), Self.RefineInterface.ProgressState.Total) > 0;
 end;
 
+
+function TGiantsFoundry.AtLavaPool(): Boolean;
+begin
+  Result := Self.LavaPool.Coordinates.AnyInRange(Map.Position(), 8);
+end;
+
+function TGiantsFoundry.AtWaterfall(): Boolean;
+begin
+  Result := Self.Waterfall.Coordinates.AnyInRange(Map.Position(), 8);
+end;
+
 function TGiantsFoundry.IsCoolingSword(): Boolean;
 var
   temprange: Double;
@@ -382,199 +1028,563 @@ end;
 
 procedure TGiantsFoundry.UseLavaPool();
 begin
-  if Self.LavaPool.WalkClick() then
+  if Self.LavaPool.WalkClick(True, 2) then
   begin
     Minimap.WaitMoving();
   end;
+  //Wait(583, 792);
+  //
 end;
 
 procedure TGiantsFoundry.UseWaterFall();
 begin
-  if Self.Waterfall.WalkClick() then
+  if Self.Waterfall.WalkClick(True, 2) then
   begin
     Minimap.WaitMoving();
   end;
 end;
 
-procedure TGiantsFoundry.UseGrindstonePool();
+procedure TGiantsFoundry.UseGrindstone();
 begin
-  if Self.Grindstone.WalkClick() then
+  if Self.Grindstone.WalkClick(True, 2) then
   begin
     Minimap.WaitMoving();
   end;
 end;
 
-procedure TGiantsFoundry.UsePolishingWheelPool();
+procedure TGiantsFoundry.UsePolishingWheel();
 begin
-  if Self.PolishingWheel.WalkClick() then
+  if Self.PolishingWheel.WalkClick(True, 2) then
   begin
     Minimap.WaitMoving();
   end;
 end;
 
-procedure TGiantsFoundry.UseTripHammerPool();
+procedure TGiantsFoundry.UseTripHammer();
 begin
-  if Self.TripHammer.WalkClick() then
+  if Self.TripHammer.WalkClick(True, 2) then
   begin
     Minimap.WaitMoving();
   end;
 end;
 
-procedure TGiantsFoundry.HandleWheel();
+procedure TGiantsFoundry.ResetToMiddleTile(attempt: Int32); // Checks to see if we are stuck
 begin
-  XPBar.EarnedXP();
-
-  //Writeln("Refining Wheel");
-  Self.RefineInterface.Temperature.TempBarArray[1].SweetSpotBounds :=
-  Box(Self.RefineInterface.Temperature.Cold.X1 + 55, Self.RefineInterface.Temperature.Cold.Y1,
-  Self.RefineInterface.Temperature.Cold.X2, Self.RefineInterface.Temperature.Cold.Y2);
-
-  if Self.IsCursorInFrontBox(Self.RefineInterface.Temperature.Total, Self.RefineInterface.Temperature.Cold) and not Self.IsCoolingSword and not Self.IsCursorInBox(Self.RefineInterface.Temperature.TempBarArray[1].SweetSpotBounds) then
+  if Self.RefineInterface.Temperature.CursorAttempt >= attempt then
   begin
-    Writeln("Need to cool down");
-    Self.UseWaterFall();
-  end;
 
-  if Self.IsCursorBehindBox(Self.RefineInterface.Temperature.Total, Self.RefineInterface.Temperature.Cold) and not Self.IsHeatingSword and not Self.IsCursorInBox(Self.RefineInterface.Temperature.TempBarArray[1].SweetSpotBounds) then
-  begin
-    Writeln("Need to Warm up");
-    Self.UseLavaPool();
-  end;
+    Writeln(Self.RefineInterface.Temperature.CursorPosArray.First);
+    Writeln(Self.RefineInterface.Temperature.CursorPos);
 
-  if not Self.PolishingWheel.Coordinates.AnyInRange(Map.Position(), 8) and Self.IsCursorInBox(Self.RefineInterface.Temperature.TempBarArray[1].SweetSpotBounds) then
-  begin
-    Writeln("Time To Use Wheel!");
-    Self.UsePolishingWheelPool();
+    if Self.RefineInterface.Temperature.CursorPosArray.First.InRange(Self.RefineInterface.Temperature.CursorPos, 10) then
+    begin
+      Writeln("Sitting Idle! Resetting to middle");
+      //Writeln(Self.RefineInterface.Temperature.CursorPosArray.First.InRange(Self.RefineInterface.Temperature.CursorPos, 15));
+    end;
+
+    Writeln("Resetting Attempts");
+    Self.RefineInterface.Temperature.CursorAttempt := 0;
+    Self.RefineInterface.Temperature.CursorPosArray := []
   end;
+  Self.RefineInterface.Temperature.CursorPos := Self.FindCursor(Self.RefineInterface.Temperature.Total);
+  Self.RefineInterface.Temperature.CursorPosArray.Append(Self.FindCursor(Self.RefineInterface.Temperature.Total));
+  Self.RefineInterface.Temperature.CursorAttempt += 1;
+
+
 end;
 
-procedure TGiantsFoundry.HandleStone();
+
+
+procedure TGiantsFoundry.SetupSweetSpots();
 begin
-  XPBar.EarnedXP();
-
-  //Writeln("Refining Grindstone");
-  Self.RefineInterface.Temperature.TempBarArray[3].SweetSpotBounds :=
-  Box(Self.RefineInterface.Temperature.Medium.X1 + 5, Self.RefineInterface.Temperature.Medium.Y1,
-  Self.RefineInterface.Temperature.Medium.X2 - 55, Self.RefineInterface.Temperature.Medium.Y2);
-
-  if Self.IsCursorInFrontBox(Self.RefineInterface.Temperature.Total, Self.RefineInterface.Temperature.Medium) and not Self.IsCoolingSword and not Self.IsCursorInBox(Self.RefineInterface.Temperature.TempBarArray[3].SweetSpotBounds) then
-  begin
-    Writeln("Need to cool down");
-    Self.UseWaterFall();
-  end;
-
-  if Self.IsCursorBehindBox(Self.RefineInterface.Temperature.Total, Self.RefineInterface.Temperature.Medium) and not Self.IsHeatingSword and not Self.IsCursorInBox(Self.RefineInterface.Temperature.TempBarArray[3].SweetSpotBounds) then
-  begin
-    Writeln("Need to Warm up");
-    Self.UseLavaPool();
-  end;
-
-  if not Self.Grindstone.Coordinates.AnyInRange(Map.Position(), 8) and Self.IsCursorInBox(Self.RefineInterface.Temperature.TempBarArray[3].SweetSpotBounds) then
-  begin
-    Writeln("Time To Use Grindstone!");
-    Self.UseGrindstonePool();
-  end;
-end;
-
-procedure TGiantsFoundry.HandleHammer();
-begin
-  XPBar.EarnedXP();
-
-  //Writeln("Refining Hammer");
   Self.RefineInterface.Temperature.TempBarArray[5].SweetSpotBounds :=
-  Box(Self.RefineInterface.Temperature.Hot.X1 + 55, Self.RefineInterface.Temperature.Hot.Y1,
-  Self.RefineInterface.Temperature.Hot.X2, Self.RefineInterface.Temperature.Hot.Y2);
+    Box(Self.RefineInterface.Temperature.Hot.X1 + 55, Self.RefineInterface.Temperature.Hot.Y1,
+    Self.RefineInterface.Temperature.Hot.X2, Self.RefineInterface.Temperature.Hot.Y2);
 
-  if Self.IsCursorInFrontBox(Self.RefineInterface.Temperature.Total, Self.RefineInterface.Temperature.Hot) and not Self.IsCoolingSword and not Self.IsCursorInBox(Self.RefineInterface.Temperature.TempBarArray[5].SweetSpotBounds) then
+  Self.RefineInterface.Temperature.TempBarArray[3].SweetSpotBounds :=
+    Box(Self.RefineInterface.Temperature.Medium.X1 + 5, Self.RefineInterface.Temperature.Medium.Y1,
+    Self.RefineInterface.Temperature.Medium.X2 - 55, Self.RefineInterface.Temperature.Medium.Y2);
+
+  Self.RefineInterface.Temperature.TempBarArray[1].SweetSpotBounds :=
+    Box(Self.RefineInterface.Temperature.Cold.X1 + 55, Self.RefineInterface.Temperature.Cold.Y1,
+    Self.RefineInterface.Temperature.Cold.X2, Self.RefineInterface.Temperature.Cold.Y2);
+
+end;
+
+procedure TGiantsFoundry.TurnInSword();
+begin
+  Writeln("Sword Complete, Hand-In To Kovac!");
+  if Self.KovacNPC.WalkSelectOption(['Hand']) then
   begin
-      Writeln("Need to cool down");
-      Self.UseWaterFall();
+    Minimap.WaitMoving();
   end;
 
-  if Self.IsCursorBehindBox(Self.RefineInterface.Temperature.Total, Self.RefineInterface.Temperature.Hot) and not Self.IsHeatingSword and not Self.IsCursorInBox(Self.RefineInterface.Temperature.TempBarArray[5].SweetSpotBounds) then
-  begin
-    Writeln("Need to Warm up");
-    Self.UseLavaPool();
-  end;
+  WaitUntil(Chat.GetChatTitle = 'Kovac', 250, 5000);
+  Chat.ClickContinue();
+end;
 
-  if not Self.TripHammer.Coordinates.AnyInRange(Map.Position(), 16) and Self.IsCursorInBox(Self.RefineInterface.Temperature.TempBarArray[5].SweetSpotBounds) then
+function TGiantsFoundry.GetCommision(): TStringArray;
+var
+  request: TRSChatboxOption;
+  tmp: TStringArray;
+begin
+  for request in Chat.GetOptions([CHAT_COLOR_RED]) do
+    tmp += request.Text;
+  Result := tmp;
+end;
+
+procedure TGiantsFoundry.GetCommisionFromKovac();
+begin
+  //Writeln("Sword Complete, Hand-In To Kovac!");
+  if Self.KovacNPC.WalkSelectOption(['Com']) then
   begin
-    Writeln("Time To Use Hammer!");
-    Self.UseTripHammerPool();
+    Minimap.WaitMoving();
   end;
 end;
 
-
-procedure TGiantsFoundry.RunTest();
+function TGiantsFoundry.StringArrayToBladeSize(commision: TStringArray): EBladeSize;
 var
   i: Int32;
-  activetask: TRefineTask;
+  upper: String;
 begin
-  Self.RefineInterface.IsSetup := Self.SetupProgressStates();
-  //Self.SetActiveRefineTask(); // Get Current Active TRefineTask
-  activetask := Self.GetActiveRefineTask(); // Get Current Active TRefineTask
-  (*
-  for i := 0 to High(Self.RefineInterface.ProgressState.RefineTaskArray) do
+  Result := EBladeSize.SizeNone;
+
+  for i := 0 to High(commision) do
   begin
-    if Self.IsCursorInBox(Self.RefineInterface.ProgressState.RefineTaskArray[i].TaskBounds) then
-      Writeln(Self.RefineInterface.ProgressState.RefineTaskArray[i]);
+    upper := UpperCase(commision[i]);
+    if upper = 'BROAD' then
+    begin
+      Result := EBladeSize.BROAD;
+    end;
+    if upper = 'NARROW' then
+    begin
+      Result := EBladeSize.NARROW;
+    end;
   end;
 
-  for i := 0 to High(Self.RefineInterface.Temperature.TempBarArray) do
+end;
+
+function TGiantsFoundry.StringArrayToBladeType(commision: TStringArray): EBladeType;
+var
+  i: Int32;
+  upper: String;
+begin
+  Result := EBladeType.TypeNone;
+
+  for i := 0 to High(commision) do
   begin
-    if Self.IsCursorInBox(Self.RefineInterface.Temperature.TempBarArray[i].TemperatureBounds) then
-      Writeln(Self.RefineInterface.Temperature.TempBarArray[i]);
+    upper := UpperCase(commision[i]);
+    if upper = 'FLAT' then
+    begin
+      Result := EBladeType.FLAT;
+    end;
+    if upper = 'SPIKED' then
+    begin
+      Result := EBladeType.SPIKED;
+    end;
   end;
+
+end;
+
+function TGiantsFoundry.StringArrayToBladeWeight(commision: TStringArray): EBladeWeight;
+var
+  i: Int32;
+  upper: String;
+begin
+  Result := EBladeWeight.WeightNone;
+
+  for i := 0 to High(commision) do
+  begin
+    upper := UpperCase(commision[i]);
+    if upper = 'LIGHT' then
+    begin
+      Result := EBladeWeight.LIGHT;
+    end;
+    if upper = 'HEAVY' then
+    begin
+      Result := EBladeWeight.HEAVY;
+    end;
+  end;
+
+end;
+
+function TGiantsFoundry.GetOptimalMould(moulds: TRSGFMouldArray; commision: TStringArray): TRSGFMould;
+var
+  i, currenttotal, maxtotal: Int32;
+  size: EBladeSize;
+  weight: EBladeWeight;
+  blade: EBladeType;
+  optimalmould: TRSGFMould;
+begin
+  size := Self.StringArrayToBladeSize(commision);
+  weight := Self.StringArrayToBladeWeight(commision);
+  blade := Self.StringArrayToBladeType(commision);
+
+  for i := 0 to High(moulds) do
+  begin
+    currenttotal := 0; // Reset currenttoal before adding everything up
+    if moulds[i].Properties.BladeSize.SizeType = size then
+      currenttotal += moulds[i].Properties.BladeSize.Value;
+
+    if moulds[i].Properties.BladeWeight.WeightType = weight then
+      currenttotal += moulds[i].Properties.BladeWeight.Value;
+
+    if moulds[i].Properties.BladeType.BladeType = blade then
+      currenttotal += moulds[i].Properties.BladeType.Value;
+    // Check if this is the highest so far
+    if currenttotal > maxtotal then
+    begin
+      maxtotal := currenttotal;
+      optimalmould := moulds[i];
+    end;
+
+  end;
+  Result := optimalmould;
+end;
+
+function TGiantsFoundry.FindMouldIndex(moulds: TRSGFMouldArray; mould: TRSGFMould): Int32;
+var
+  i: Int32;
+begin
+  Result := -1;
+  for i := 0 to high(moulds) do
+  begin
+    if moulds[i] = mould then
+      Result := i;
+  end;
+end;
+
+procedure TGiantsFoundry.SelectBestForteMould();
+var
+  bestfortemould: TRSGFMould;
+  test: Boolean;
+begin
+  bestfortemould := Self.GetOptimalMould(Self.ForteMoulds, Self.Commision);
+
+  Writeln(Length(Self.ForteMoulds) - Self.FindMouldIndex(Self.ForteMoulds, bestfortemould)- 1);
+  Writeln(Self.MouldSetup.GetSlots[Length(Self.ForteMoulds) - Self.FindMouldIndex(Self.ForteMoulds, bestfortemould)]);
+  Self.MouldSetup.SelectMould(Self.MouldSetup.GetSlots[Length(Self.ForteMoulds) - Self.FindMouldIndex(Self.ForteMoulds, bestfortemould)- 1], EMouldType.FORTE, bestfortemould);
+
+  //Mouse.Move(Self.MouldSetup.GetSlots[Length(Self.ForteMoulds) - Self.FindMouldIndex(Self.ForteMoulds, bestfortemould)- 1]);
+  //Writeln(Self.MouldSetup.ScrollSelectMould(Self.MouldSetup.GetSlots[Length(Self.ForteMoulds) - Self.FindMouldIndex(Self.ForteMoulds, bestfortemould)- 1], EMouldType.FORTE));
+  //Writeln(Self.MouldSetup.GetSlots[Length(Self.ForteMoulds) - Self.FindMouldIndex(Self.ForteMoulds, bestfortemould)- 1])
+  (*
+  if MainScreen.IsUpText(bestfortemould.MouldName) then
+    Mouse.Click(MOUSE_LEFT);
+
+  Debug(Self.MouldSetup.GetSlots[Length(Self.ForteMoulds) - Self.FindMouldIndex(Self.ForteMoulds, bestfortemould)- 1]);
+  *)
+end;
+
+procedure TGiantsFoundry.SelectBestBladesMould();
+var
+  bestbladesmould: TRSGFMould;
+begin
+  bestbladesmould := Self.GetOptimalMould(Self.BladeMoulds, Self.Commision);
+
+  Self.MouldSetup.SelectMould(Self.MouldSetup.GetSlots[Length(Self.BladeMoulds) - Self.FindMouldIndex(Self.BladeMoulds, bestbladesmould)- 1], EMouldType.BLADES, bestbladesmould);
+
+  Debug(Self.MouldSetup.GetSlots[Length(Self.BladeMoulds) - Self.FindMouldIndex(Self.BladeMoulds, bestbladesmould)- 1]);
+end;
+
+procedure TGiantsFoundry.SelectBestTipsMould();
+var
+  besttipmould: TRSGFMould;
+begin
+  besttipmould := Self.GetOptimalMould(Self.TipMoulds, Self.Commision);
+
+  Self.MouldSetup.SelectMould(Self.MouldSetup.GetSlots[Length(Self.TipMoulds) - Self.FindMouldIndex(Self.TipMoulds, besttipmould)- 1], EMouldType.TIPS, besttipmould);
+
+  Debug(Self.MouldSetup.GetSlots[Length(Self.TipMoulds) - Self.FindMouldIndex(Self.TipMoulds, besttipmould)- 1]);
+end;
+
+procedure TGiantsFoundry.GetNewSword();
+begin
+  Self.TurnInSword();
+  Chat.ClickOption('Yes.');
+
+  Self.GetCommisionFromKovac();
+  WaitUntil(Chat.GetChatTitle = 'Kovac', 250, 5000);
+  Self.Commision := Self.GetCommision();
+
+  Writeln(Self.Commision);
+
+  if Self.MouldJig.WalkClick() then
+    Writeln('Setting Mould!');
+
+  WaitUntil(Self.MouldSetup.IsOpen(), 250, 5000);
+
+  if Self.MouldSetup.SelectMouldTypeButton(EMouldType.FORTE) then
+    SelectBestForteMould();
+
+  Wait(338, 690);
+
+  if Self.MouldSetup.SelectMouldTypeButton(EMouldType.BLADES) then
+    SelectBestBladesMould();
+
+  Wait(338, 690);
+
+  if Self.MouldSetup.SelectMouldTypeButton(EMouldType.TIPS) then
+    SelectBestTipsMould();
+
+  if WaitUntil(Self.MouldSetup.IsMouldReady(), 250, 5000) then
+    Self.MouldSetup.SetMould();
+
+  WaitUntil(not Self.MouldSetup.IsOpen(), 250, 5000);
+
+  Self.BankChest.WalkClick();
+
+  WaitUntil(Bank.IsOpen(), 250, 5000);
+
+  Bank.WithdrawItem(['Adamantite bar', 10, False], True);
+
+  Bank.WithdrawItem(['Mithril bar', 10, False], True);
+  WaitUntil(Inventory.CountItem('Mithril bar') = 10, 300, 5000);
+  Bank.WithdrawItem(['Mithril bar', 10, False], True);
+
+  if WaitUntil(Inventory.IsFull(), 300, 5000) then
+    Bank.Close();
+
+  if not Make.IsOpen() then
+    Self.Crucible.WalkClick();
+
+  if WaitUntil(Make.IsOpen(), 300, 5000) then
+  begin
+    if Inventory.ContainsItem('Mithril bar') then
+      Make.Select(3, Make.QUANTITY_ALL, True);
+
+    WaitUntil(not Inventory.ContainsItem('Mithril bar'), 300, 5000);
+    WaitUntil(Chat.HasContinue, 300, 5000);
+    WaitUntil(Chat.ClickContinue, 300, 5000);
+
+    Self.Crucible.WalkClick();
+
+
+
+  end;
+
+  if not Make.IsOpen() then
+    Self.Crucible.WalkClick();
+
+  if WaitUntil(Make.IsOpen(), 300, 5000) then
+  begin
+    if Inventory.ContainsItem('Adamantite bar') then
+      Make.Select(4, Make.QUANTITY_ALL, True);
+
+    WaitUntil(not Inventory.ContainsItem('Adamantite bar'), 300, 5000);
+    WaitUntil(Chat.HasContinue, 300, 5000);
+    WaitUntil(Chat.ClickContinue, 300, 5000);
+
+  end;
+
+  if Self.Crucible.Hover() then
+  begin
+    if WaitUntil(MainScreen.IsUpText('full'), 300, 5000) then
+      Mouse.Click(MOUSE_LEFT);
+  end;
+
+  if Self.MouldJig.Hover() then
+  begin
+    if WaitUntil(MainScreen.IsUpText('metal'), 300, 5000) then
+      Mouse.Click(MOUSE_LEFT);
+  end;
+
+  WaitUntil(Self.InterfaceIsOpen(), 300, 5000);
+
+end;
+
+procedure TGiantsFoundry.RunTest();
+begin
+  //Writeln(Map.Position());
+
+  //Self.MouldSetup.SetupAlignment();
+  (*
+  if not Make.IsOpen() then
+    Self.Crucible.WalkClick();
+
+  if WaitUntil(Make.IsOpen(), 300, 5000) then
+  begin
+    if Inventory.ContainsItem('Mithril bar') then
+      Make.Select(3, Make.QUANTITY_ALL, True);
+    if Inventory.ContainsItem('Adamantite bar') then
+      Make.Select(4, Make.QUANTITY_ALL, True);
+  end;
+
+
+
+  if Self.Crucible.Hover() then
+  begin
+    if WaitUntil(MainScreen.IsUpText('full'), 300, 5000) then
+      Mouse.Click(MOUSE_LEFT);
+  end;
+
+  if Self.MouldJig.Hover() then
+  begin
+    if WaitUntil(MainScreen.IsUpText('metal'), 300, 5000) then
+      Mouse.Click(MOUSE_LEFT);
+  end;
+
   *)
 
-  Self.RefineInterface.Temperature.TempBarArray[1].SweetSpotBounds :=
-  Box(Self.RefineInterface.Temperature.Cold.X1 + 55, Self.RefineInterface.Temperature.Cold.Y1,
-  Self.RefineInterface.Temperature.Cold.X2, Self.RefineInterface.Temperature.Cold.Y2);
-
-  //Writeln(WaitUntil(not XPBar.EarnedXP() and Self.IsCursorInBox(Self.RefineInterface.Temperature.TempBarArray[1].SweetSpotBounds), 300, 1500))
-  //writeln(Self.IsHeatingSword);
-  //writeln(Self.IsCoolingSword);
-  //Writeln(Self.LavaPool.Coordinates.AnyInRange(Map.Position(), 8) and Self.IsCursorInBox(Self.RefineInterface.Temperature.TempBarArray[1].SweetSpotBounds) or Self.Waterfall.Coordinates.AnyInRange(Map.Position(), 8) and Self.IsCursorInBox(Self.RefineInterface.Temperature.TempBarArray[1].SweetSpotBounds));
-  //Writeln(not Self.PolishingWheel.Coordinates.AnyInRange(Map.Position(), 8) and Self.IsCursorInBox(Self.RefineInterface.Temperature.TempBarArray[1].SweetSpotBounds));
-  Writeln(Map.Position());
-
   (*
+  Self.BankChest.WalkClick();
 
-  if (activetask.Refining = EProgressState.WHEEL) and not Self.IsSwordComplete then
-  begin
-    Self.HandleWheel();
-  end;
-  if (activetask.Refining = EProgressState.STONE) and not Self.IsSwordComplete then
-  begin
-    Self.HandleStone();
-  end;
+  WaitUntil(Bank.IsOpen(), 250, 5000);
 
-  if (activetask.Refining = EProgressState.HAMMER) and not Self.IsSwordComplete then
-  begin
-    Self.HandleHammer();
-  end;
+  Bank.WithdrawItem(['Adamantite bar', 10, False], True);
+
+  Bank.WithdrawItem(['Mithril bar', 10, False], True);
+  WaitUntil(Inventory.CountItem('Mithril bar') = 10, 300, 5000);
+  Bank.WithdrawItem(['Mithril bar', 10, False], True);
+
+  if WaitUntil(Inventory.IsFull(), 300, 5000) then
+    Bank.Close();
+
+
+
   *)
 
+  (*
+  Self.GetCommisionFromKovac();
+  WaitUntil(Chat.GetChatTitle = 'Kovac', 250, 5000);
+  Self.Commision := Self.GetCommision();
 
-  if Self.IsSwordComplete then
-  begin
-    Writeln("Sword Complete, Hand-In To Kovac!");
-  end;
+  Writeln(Self.Commision);
 
+  if Self.MouldJig.WalkClick() then
+    Writeln('Setting Mould!');
+
+  WaitUntil(Self.MouldSetup.IsOpen(), 250, 5000);
+
+  if Self.MouldSetup.SelectMouldTypeButton(EMouldType.FORTE) then
+    SelectBestForteMould();
+
+  Wait(338, 690);
+
+  if Self.MouldSetup.SelectMouldTypeButton(EMouldType.BLADES) then
+    SelectBestBladesMould();
+
+  Wait(338, 690);
+
+  if Self.MouldSetup.SelectMouldTypeButton(EMouldType.TIPS) then
+    SelectBestTipsMould();
+
+  if WaitUntil(Self.MouldSetup.IsMouldReady(), 250, 5000) then
+    Self.MouldSetup.SetMould();
+
+  *)
+  //if Self.MouldSetup.IsOpen then
+  //begin
+
+
+  //end;
+
+  //Writeln(Self.MouldSetup.GetActiveMouldType);
+
+  //Writeln(Length(Self.TipMoulds) - Self.FindMouldIndex(Self.TipMoulds, besttipmould));
+
+  //Writeln(Self.FindMouldIndex(Self.TipMoulds, besttipmould));
+  //WriteLn(Self.MouldSetup.GetSlots());
+  //Writeln(Self.MouldSetup.Moulds);
+
+  //Debug(Self.MouldSetup.GetSlots());
+  //Writeln(Self.GetCommision());
   Wait(25, 50);
 
 end;
 
 function TGiantsFoundry.GetState(): EGFState;
+var
+  timeOut: UInt64;
 begin
   if Self.ShouldStop() then
     Exit(EGFState.END_SCRIPT);
 
-  if Self.InterfaceIsOpen() then
-    Exit(EGFState.RUN_TEST);
+  timeOut := GetSystemTime() + 15000;
+  //Self.RunTest();
+  //Exit(EGFState.END_SCRIPT);
 
+  if Self.InterfaceIsOpen() then
+  begin
+    XPBar.EarnedXP();
+    Self.RefineInterface.IsSetup := Self.SetupProgressStates();
+    Self.RefineInterface.ProgressState.CurrentRefineTask := Self.GetActiveRefineTask(); // Get Current Active TRefineTask
+    Self.RefineInterface.Temperature.CursorPos := Self.FindCursor(Self.RefineInterface.Temperature.Total);
+
+    if Self.IsSwordComplete then
+      Exit(EGFState.SWORD_COMPLETE);
+    if (Self.RefineInterface.ProgressState.CurrentRefineTask.Refining = EProgressState.WHEEL) and not Self.IsSwordComplete then
+    begin
+      if Self.IsCursorInFrontBox(Self.RefineInterface.Temperature.Total, Self.RefineInterface.Temperature.Cold) and not Self.AtWaterfall and not Self.IsCursorInBox(Self.RefineInterface.Temperature.TempBarArray[1].SweetSpotBounds) then
+      begin
+        Writeln("Need to cool down");
+        Exit(EGFState.COOL_SWORD);
+      end;
+
+      if Self.IsCursorBehindBox(Self.RefineInterface.Temperature.Total, Self.RefineInterface.Temperature.Cold) and not Self.AtLavaPool and not Self.IsCursorInBox(Self.RefineInterface.Temperature.TempBarArray[1].SweetSpotBounds) then
+      begin
+        Writeln("Need to Warm up");
+        Exit(EGFState.HEAT_SWORD);
+      end;
+
+      if not Self.PolishingWheel.Coordinates.AnyInRange(Map.Position(), 8) and Self.IsCursorInBox(Self.RefineInterface.Temperature.TempBarArray[1].SweetSpotBounds) then
+      begin
+        Writeln("Time To Use Wheel!");
+        Exit(EGFState.USE_POLISHING_WHEEL);
+      end;
+    end;
+
+    if (Self.RefineInterface.ProgressState.CurrentRefineTask.Refining = EProgressState.STONE) and not Self.IsSwordComplete then
+    begin
+      if Self.IsCursorInFrontBox(Self.RefineInterface.Temperature.Total, Self.RefineInterface.Temperature.Medium) and not Self.AtWaterfall and not Self.IsCursorInBox(Self.RefineInterface.Temperature.TempBarArray[3].SweetSpotBounds) then
+      begin
+        Writeln("Need to cool down for grindstone");
+        Exit(EGFState.COOL_SWORD);
+      end;
+
+      if Self.IsCursorBehindBox(Self.RefineInterface.Temperature.Total, Self.RefineInterface.Temperature.Medium) and not Self.AtLavaPool and not Self.IsCursorInBox(Self.RefineInterface.Temperature.TempBarArray[3].SweetSpotBounds) then
+      begin
+        Writeln("Need to Warm up for grindstone");
+        Exit(EGFState.HEAT_SWORD);
+      end;
+
+      if not Self.Grindstone.Coordinates.AnyInRange(Map.Position(), 8) and Self.IsCursorInBox(Self.RefineInterface.Temperature.TempBarArray[3].SweetSpotBounds) then
+      begin
+        Writeln("Time To Use Grindstone!");
+        Exit(EGFState.USE_GRINDSTONE);
+      end;
+    end;
+
+    if (Self.RefineInterface.ProgressState.CurrentRefineTask.Refining = EProgressState.HAMMER) and not Self.IsSwordComplete then
+    begin
+      if Self.IsCursorInFrontBox(Self.RefineInterface.Temperature.Total, Self.RefineInterface.Temperature.Hot) and not Self.AtWaterfall and not Self.IsCursorInBox(Self.RefineInterface.Temperature.TempBarArray[5].SweetSpotBounds) then
+      begin
+        Writeln("Need to cool down for hammer");
+        Exit(EGFState.COOL_SWORD);
+      end;
+
+      if Self.IsCursorBehindBox(Self.RefineInterface.Temperature.Total, Self.RefineInterface.Temperature.Hot) and not Self.AtLavaPool and not Self.IsCursorInBox(Self.RefineInterface.Temperature.TempBarArray[5].SweetSpotBounds) then
+      begin
+        Writeln("Need to Warm up for hammer");
+        Exit(EGFState.HEAT_SWORD);
+      end;
+
+      if not Self.TripHammer.Coordinates.AnyInRange(Map.Position(), 16) and Self.IsCursorInBox(Self.RefineInterface.Temperature.TempBarArray[5].SweetSpotBounds) then
+      begin
+        Writeln("Time To Use Hammer!");
+        Exit(EGFState.USE_TRIP_HAMMER);
+      end;
+    end;
+  end;
+    //Exit(EGFState.RUN_TEST);
+
+  if not Self.InterfaceIsOpen() then
+    Self.GetNewSword();
   if WL.Activity.IsFinished() then
     Exit(EGFState.NO_ACTIVITY);
+
+  if GetSystemTime() > timeOut then
+    Writeln('We are stuck! Resetting to middle');
 
   Exit(EGFState.WAIT_STATE);
 end;
@@ -582,13 +1592,20 @@ end;
 procedure TGiantsFoundry.Run(maxActions: UInt32; maxTime: UInt64);
 begin
   Self.Init(maxActions, maxTime);
-
+  Self.MouldSetup.SetupAlignment(); // Setup Mould Interface
   repeat
     Self.State := Self.GetState();
     Self.SetAction(ToStr(Self.State));
 
     case Self.State of
       EGFState.RUN_TEST: Self.RunTest();
+      EGFState.COOL_SWORD: Self.UseWaterFall();
+      EGFState.HEAT_SWORD: Self.UseLavaPool();
+      EGFState.USE_GRINDSTONE: Self.UseGrindstone();
+      EGFState.USE_POLISHING_WHEEL: Self.UsePolishingWheel();
+      EGFState.USE_TRIP_HAMMER: Self.UseTripHammer();
+      EGFState.SWORD_COMPLETE: Self.GetNewSword();
+
       EGFState.WAIT_STATE: Wait(500, 800);//Self.GetActiveProgressState();//
       EGFState.NO_ACTIVITY, EGFState.END_SCRIPT: Break;
     end;
