@@ -14,12 +14,24 @@ var
 type
   EGFState = (
     RUN_TEST,
+
+    GRAB_COMMISION,
+    SETUP_MOULD,
+    WITHDRAW_BARS,
+    FILL_CRUCIBLE,
+    POUR_CRUCIBLE,
+    GRAB_SWORD,
+
+
     HEAT_SWORD,
     COOL_SWORD,
     USE_POLISHING_WHEEL,
     USE_GRINDSTONE,
     USE_TRIP_HAMMER,
     SWORD_COMPLETE,
+
+    HANDLE_LEVEL,
+    CLOSE_BANK,
     WAIT_STATE,
     NO_ACTIVITY,
     END_SCRIPT
@@ -123,7 +135,7 @@ type
     BankChest, LavaPool, Waterfall, PolishingWheel,
     Grindstone, TripHammer, Crucible, MouldJig: TRSObjectV2;
     KovacNPC: TRSNPCV2;
-
+    MouldSet, CrucibleFull, CruciblePoured: Boolean;
   end;
 
 
@@ -386,7 +398,7 @@ end;
 
 
 
-procedure TGiantsFoundry.SetupMoulds();
+procedure TGiantsFoundry.SetupMouldsData();
 var
   tmp: TRSGFMould;
 begin
@@ -429,15 +441,6 @@ begin
   tmp.Properties.BladeType.Value := 8;
   Self.TipMoulds += tmp;
 
-  tmp.MouldName := 'Serpent''s Fang';
-  tmp.Properties.BladeSize.SizeType := EBladeSize.NARROW;
-  tmp.Properties.BladeSize.Value := 8;
-  tmp.Properties.BladeWeight.WeightType := EBladeWeight.LIGHT;
-  tmp.Properties.BladeWeight.Value := 6;
-  tmp.Properties.BladeType.BladeType := EBladeType.SPIKED;
-  tmp.Properties.BladeType.Value := 8;
-  Self.TipMoulds += tmp;
-
   tmp.MouldName := 'Gladius Point';
   tmp.Properties.BladeSize.SizeType := EBladeSize.NARROW;
   tmp.Properties.BladeSize.Value := 8;
@@ -452,6 +455,16 @@ begin
   tmp.Properties.BladeSize.Value := 6;
   tmp.Properties.BladeWeight.WeightType := EBladeWeight.HEAVY;
   tmp.Properties.BladeWeight.Value := 8;
+  tmp.Properties.BladeType.BladeType := EBladeType.SPIKED;
+  tmp.Properties.BladeType.Value := 8;
+  Self.TipMoulds += tmp;
+
+
+  tmp.MouldName := 'Corrupted Point';
+  tmp.Properties.BladeSize.SizeType := EBladeSize.NARROW;
+  tmp.Properties.BladeSize.Value := 8;
+  tmp.Properties.BladeWeight.WeightType := EBladeWeight.LIGHT;
+  tmp.Properties.BladeWeight.Value := 10;
   tmp.Properties.BladeType.BladeType := EBladeType.SPIKED;
   tmp.Properties.BladeType.Value := 8;
   Self.TipMoulds += tmp;
@@ -676,7 +689,7 @@ begin
   tmp.Properties.BladeType.Value := 16;
   Self.ForteMoulds += tmp;
 
-  tmp.MouldName := 'Chopper Forte';
+  tmp.MouldName := 'Chopper Forte +1';
   tmp.Properties.BladeSize.SizeType := EBladeSize.BROAD;
   tmp.Properties.BladeSize.Value := 3;
   tmp.Properties.BladeWeight.WeightType := EBladeWeight.LIGHT;
@@ -868,7 +881,11 @@ begin
   Self.KovacNPC.Walker := @Map.Walker;
 
   Self.SetupInterface();
-  Self.SetupMoulds();
+  Self.SetupMouldsData();
+
+  Self.MouldSet := False;
+  Self.CrucibleFull := False;
+  Self.CruciblePoured := False;
 end;
 
 
@@ -1152,11 +1169,11 @@ begin
   for i := 0 to High(commision) do
   begin
     upper := UpperCase(commision[i]);
-    if upper = 'BROAD' then
+    if upper.Contains('BROAD') then
     begin
       Result := EBladeSize.BROAD;
     end;
-    if upper = 'NARROW' then
+    if upper.Contains('NARROW') then
     begin
       Result := EBladeSize.NARROW;
     end;
@@ -1173,12 +1190,13 @@ begin
 
   for i := 0 to High(commision) do
   begin
+
     upper := UpperCase(commision[i]);
-    if upper = 'FLAT' then
+    if upper.Contains('FLAT') then
     begin
       Result := EBladeType.FLAT;
     end;
-    if upper = 'SPIKED' then
+    if upper.Contains('SPIKED') then
     begin
       Result := EBladeType.SPIKED;
     end;
@@ -1196,11 +1214,11 @@ begin
   for i := 0 to High(commision) do
   begin
     upper := UpperCase(commision[i]);
-    if upper = 'LIGHT' then
+    if upper.Contains('LIGHT') then
     begin
       Result := EBladeWeight.LIGHT;
     end;
-    if upper = 'HEAVY' then
+    if upper.Contains('HEAVY') then
     begin
       Result := EBladeWeight.HEAVY;
     end;
@@ -1220,6 +1238,9 @@ begin
   weight := Self.StringArrayToBladeWeight(commision);
   blade := Self.StringArrayToBladeType(commision);
 
+  Writeln(size);
+  Writeln(weight);
+  Writeln(blade);
   for i := 0 to High(moulds) do
   begin
     currenttotal := 0; // Reset currenttoal before adding everything up
@@ -1239,6 +1260,7 @@ begin
     end;
 
   end;
+  Writeln(optimalmould);
   Result := optimalmould;
 end;
 
@@ -1249,66 +1271,111 @@ begin
   Result := -1;
   for i := 0 to high(moulds) do
   begin
-    if moulds[i] = mould then
-      Result := i;
+    //Writeln(moulds[i]);
+    //Writeln(mould);
+    if moulds[i].MouldName = mould.MouldName then
+      Exit(i);
   end;
 end;
 
 procedure TGiantsFoundry.SelectBestForteMould();
 var
   bestfortemould: TRSGFMould;
-  test: Boolean;
+  mouldIdx, slotIdx: Int32;
 begin
+  bestfortemould := Self.GetOptimalMould(Self.ForteMoulds, Self.Commision);
+  mouldIdx := Self.FindMouldIndex(Self.ForteMoulds, bestfortemould);
+
+  if mouldIdx = -1 then
+  begin
+    Writeln('ERROR: Best mould not found in ForteMoulds array!');
+    Exit;
+  end;
+
+  slotIdx := Length(Self.ForteMoulds) - mouldIdx - 1;
+
+  if (slotIdx < 0) or (slotIdx >= Length(Self.MouldSetup.GetSlots)) then
+  begin
+    Writeln('ERROR: Calculated slot index out of bounds: ', slotIdx);
+    Exit;
+  end;
+
+  Self.MouldSetup.SelectMould(Self.MouldSetup.GetSlots[slotIdx], EMouldType.FORTE, bestfortemould);
+
+  //Writeln(slotIdx);
+  //Writeln(Self.MouldSetup.GetSlots[slotIdx]);
+
+
+  (*
   bestfortemould := Self.GetOptimalMould(Self.ForteMoulds, Self.Commision);
 
   Writeln(Length(Self.ForteMoulds) - Self.FindMouldIndex(Self.ForteMoulds, bestfortemould)- 1);
   Writeln(Self.MouldSetup.GetSlots[Length(Self.ForteMoulds) - Self.FindMouldIndex(Self.ForteMoulds, bestfortemould)]);
   Self.MouldSetup.SelectMould(Self.MouldSetup.GetSlots[Length(Self.ForteMoulds) - Self.FindMouldIndex(Self.ForteMoulds, bestfortemould)- 1], EMouldType.FORTE, bestfortemould);
-
-  //Mouse.Move(Self.MouldSetup.GetSlots[Length(Self.ForteMoulds) - Self.FindMouldIndex(Self.ForteMoulds, bestfortemould)- 1]);
-  //Writeln(Self.MouldSetup.ScrollSelectMould(Self.MouldSetup.GetSlots[Length(Self.ForteMoulds) - Self.FindMouldIndex(Self.ForteMoulds, bestfortemould)- 1], EMouldType.FORTE));
-  //Writeln(Self.MouldSetup.GetSlots[Length(Self.ForteMoulds) - Self.FindMouldIndex(Self.ForteMoulds, bestfortemould)- 1])
-  (*
-  if MainScreen.IsUpText(bestfortemould.MouldName) then
-    Mouse.Click(MOUSE_LEFT);
-
-  Debug(Self.MouldSetup.GetSlots[Length(Self.ForteMoulds) - Self.FindMouldIndex(Self.ForteMoulds, bestfortemould)- 1]);
   *)
 end;
 
 procedure TGiantsFoundry.SelectBestBladesMould();
 var
   bestbladesmould: TRSGFMould;
+  mouldIdx, slotIdx: Int32;
 begin
   bestbladesmould := Self.GetOptimalMould(Self.BladeMoulds, Self.Commision);
+  mouldIdx := Self.FindMouldIndex(Self.BladeMoulds, bestbladesmould);
 
-  Self.MouldSetup.SelectMould(Self.MouldSetup.GetSlots[Length(Self.BladeMoulds) - Self.FindMouldIndex(Self.BladeMoulds, bestbladesmould)- 1], EMouldType.BLADES, bestbladesmould);
+  if mouldIdx = -1 then
+  begin
+    Writeln('ERROR: Best mould not found in BladeMoulds array!');
+    Exit;
+  end;
 
-  Debug(Self.MouldSetup.GetSlots[Length(Self.BladeMoulds) - Self.FindMouldIndex(Self.BladeMoulds, bestbladesmould)- 1]);
+  slotIdx := Length(Self.BladeMoulds) - mouldIdx - 1;
+
+  if (slotIdx < 0) or (slotIdx >= Length(Self.MouldSetup.GetSlots)) then
+  begin
+    Writeln('ERROR: Calculated slot index out of bounds: ', slotIdx);
+    Exit;
+  end;
+
+  Self.MouldSetup.SelectMould(Self.MouldSetup.GetSlots[slotIdx], EMouldType.BLADES, bestbladesmould);
 end;
 
 procedure TGiantsFoundry.SelectBestTipsMould();
 var
-  besttipmould: TRSGFMould;
+  besttipsmould: TRSGFMould;
+  mouldIdx, slotIdx: Int32;
 begin
-  besttipmould := Self.GetOptimalMould(Self.TipMoulds, Self.Commision);
+  besttipsmould := Self.GetOptimalMould(Self.TipMoulds, Self.Commision);
+  mouldIdx := Self.FindMouldIndex(Self.TipMoulds, besttipsmould);
 
-  Self.MouldSetup.SelectMould(Self.MouldSetup.GetSlots[Length(Self.TipMoulds) - Self.FindMouldIndex(Self.TipMoulds, besttipmould)- 1], EMouldType.TIPS, besttipmould);
+  if mouldIdx = -1 then
+  begin
+    Writeln('ERROR: Best mould not found in TipMoulds array!');
+    Exit;
+  end;
 
-  Debug(Self.MouldSetup.GetSlots[Length(Self.TipMoulds) - Self.FindMouldIndex(Self.TipMoulds, besttipmould)- 1]);
+  slotIdx := Length(Self.TipMoulds) - mouldIdx - 1;
+
+  if (slotIdx < 0) or (slotIdx >= Length(Self.MouldSetup.GetSlots)) then
+  begin
+    Writeln('ERROR: Calculated slot index out of bounds: ', slotIdx);
+    Exit;
+  end;
+
+  Self.MouldSetup.SelectMould(Self.MouldSetup.GetSlots[slotIdx], EMouldType.TIPS, besttipsmould);
 end;
 
-procedure TGiantsFoundry.GetNewSword();
+procedure TGiantsFoundry.GrabCommision();
 begin
-  Self.TurnInSword();
-  Chat.ClickOption('Yes.');
-
   Self.GetCommisionFromKovac();
   WaitUntil(Chat.GetChatTitle = 'Kovac', 250, 5000);
   Self.Commision := Self.GetCommision();
-
+  //Self.Commision := Self.Commision.;
   Writeln(Self.Commision);
+end;
 
+procedure TGiantsFOundry.SetupMould();
+begin
   if Self.MouldJig.WalkClick() then
     Writeln('Setting Mould!');
 
@@ -1330,10 +1397,13 @@ begin
   if WaitUntil(Self.MouldSetup.IsMouldReady(), 250, 5000) then
     Self.MouldSetup.SetMould();
 
-  WaitUntil(not Self.MouldSetup.IsOpen(), 250, 5000);
+  if WaitUntil(not Self.MouldSetup.IsOpen(), 250, 5000) then
+    Self.MouldSet := True;
+end;
 
+procedure TGiantsFoundry.WithdrawBars();
+begin
   Self.BankChest.WalkClick();
-
   WaitUntil(Bank.IsOpen(), 250, 5000);
 
   Bank.WithdrawItem(['Adamantite bar', 10, False], True);
@@ -1342,9 +1412,12 @@ begin
   WaitUntil(Inventory.CountItem('Mithril bar') = 10, 300, 5000);
   Bank.WithdrawItem(['Mithril bar', 10, False], True);
 
-  if WaitUntil(Inventory.IsFull(), 300, 5000) then
-    Bank.Close();
+  //if WaitUntil(Inventory.IsFull(), 300, 5000) then
+  //  Bank.Close();
+end;
 
+procedure TGiantsFoundry.FillCrucible();
+begin
   if not Make.IsOpen() then
     Self.Crucible.WalkClick();
 
@@ -1356,11 +1429,6 @@ begin
     WaitUntil(not Inventory.ContainsItem('Mithril bar'), 300, 5000);
     WaitUntil(Chat.HasContinue, 300, 5000);
     WaitUntil(Chat.ClickContinue, 300, 5000);
-
-    Self.Crucible.WalkClick();
-
-
-
   end;
 
   if not Make.IsOpen() then
@@ -1374,15 +1442,25 @@ begin
     WaitUntil(not Inventory.ContainsItem('Adamantite bar'), 300, 5000);
     WaitUntil(Chat.HasContinue, 300, 5000);
     WaitUntil(Chat.ClickContinue, 300, 5000);
-
   end;
 
+  Self.CrucibleFull := True;
+end;
+
+procedure TGiantsFoundry.PourCrucible();
+begin
   if Self.Crucible.Hover() then
   begin
     if WaitUntil(MainScreen.IsUpText('full'), 300, 5000) then
       Mouse.Click(MOUSE_LEFT);
   end;
 
+  if WaitUntil(MainScreen.IsUpText('empty'), 300, 5000) then
+    Self.CruciblePoured := True
+end;
+
+procedure TGiantsFoundry.GrabSword();
+begin
   if Self.MouldJig.Hover() then
   begin
     if WaitUntil(MainScreen.IsUpText('metal'), 300, 5000) then
@@ -1390,196 +1468,134 @@ begin
   end;
 
   WaitUntil(Self.InterfaceIsOpen(), 300, 5000);
-
 end;
 
-procedure TGiantsFoundry.RunTest();
+procedure TGiantsFoundry.GetNewSword();
 begin
-  //Writeln(Map.Position());
+  Self.TurnInSword();
+  Chat.ClickOption('Yes.');
 
-  //Self.MouldSetup.SetupAlignment();
-  (*
-  if not Make.IsOpen() then
-    Self.Crucible.WalkClick();
 
-  if WaitUntil(Make.IsOpen(), 300, 5000) then
+  Self.MouldSet := False;
+  Self.CrucibleFull := False;
+  Self.CruciblePoured := False;
+  Self.Commision := [];
+end;
+function TGiantsFoundry.GetInterfaceOpenState(): EGFState;
+begin
+  XPBar.EarnedXP();
+  Self.RefineInterface.IsSetup := Self.SetupProgressStates();
+  Self.RefineInterface.ProgressState.CurrentRefineTask := Self.GetActiveRefineTask(); // Get Current Active TRefineTask
+  Self.RefineInterface.Temperature.CursorPos := Self.FindCursor(Self.RefineInterface.Temperature.Total);
+
+  if Self.IsSwordComplete then
+    Exit(EGFState.SWORD_COMPLETE);
+  if (Self.RefineInterface.ProgressState.CurrentRefineTask.Refining = EProgressState.WHEEL) and not Self.IsSwordComplete then
   begin
-    if Inventory.ContainsItem('Mithril bar') then
-      Make.Select(3, Make.QUANTITY_ALL, True);
-    if Inventory.ContainsItem('Adamantite bar') then
-      Make.Select(4, Make.QUANTITY_ALL, True);
+    if Self.IsCursorInFrontBox(Self.RefineInterface.Temperature.Total, Self.RefineInterface.Temperature.Cold) and not Self.AtWaterfall and not Self.IsCursorInBox(Self.RefineInterface.Temperature.TempBarArray[1].SweetSpotBounds) then
+    begin
+      Writeln("Need to cool down");
+      Exit(EGFState.COOL_SWORD);
+    end;
+
+    if Self.IsCursorBehindBox(Self.RefineInterface.Temperature.Total, Self.RefineInterface.Temperature.Cold) and not Self.AtLavaPool and not Self.IsCursorInBox(Self.RefineInterface.Temperature.TempBarArray[1].SweetSpotBounds) then
+    begin
+      Writeln("Need to Warm up");
+      Exit(EGFState.HEAT_SWORD);
+    end;
+
+    if not Self.PolishingWheel.Coordinates.AnyInRange(Map.Position(), 8) and Self.IsCursorInBox(Self.RefineInterface.Temperature.TempBarArray[1].SweetSpotBounds) then
+    begin
+      Writeln("Time To Use Wheel!");
+      Exit(EGFState.USE_POLISHING_WHEEL);
+    end;
   end;
 
-
-
-  if Self.Crucible.Hover() then
+  if (Self.RefineInterface.ProgressState.CurrentRefineTask.Refining = EProgressState.STONE) and not Self.IsSwordComplete then
   begin
-    if WaitUntil(MainScreen.IsUpText('full'), 300, 5000) then
-      Mouse.Click(MOUSE_LEFT);
+    if Self.IsCursorInFrontBox(Self.RefineInterface.Temperature.Total, Self.RefineInterface.Temperature.Medium) and not Self.AtWaterfall and not Self.IsCursorInBox(Self.RefineInterface.Temperature.TempBarArray[3].SweetSpotBounds) then
+    begin
+      Writeln("Need to cool down for grindstone");
+      Exit(EGFState.COOL_SWORD);
+    end;
+
+    if Self.IsCursorBehindBox(Self.RefineInterface.Temperature.Total, Self.RefineInterface.Temperature.Medium) and not Self.AtLavaPool and not Self.IsCursorInBox(Self.RefineInterface.Temperature.TempBarArray[3].SweetSpotBounds) then
+    begin
+      Writeln("Need to Warm up for grindstone");
+      Exit(EGFState.HEAT_SWORD);
+    end;
+
+    if not Self.Grindstone.Coordinates.AnyInRange(Map.Position(), 8) and Self.IsCursorInBox(Self.RefineInterface.Temperature.TempBarArray[3].SweetSpotBounds) then
+    begin
+      Writeln("Time To Use Grindstone!");
+      Exit(EGFState.USE_GRINDSTONE);
+    end;
   end;
 
-  if Self.MouldJig.Hover() then
+  if (Self.RefineInterface.ProgressState.CurrentRefineTask.Refining = EProgressState.HAMMER) and not Self.IsSwordComplete then
   begin
-    if WaitUntil(MainScreen.IsUpText('metal'), 300, 5000) then
-      Mouse.Click(MOUSE_LEFT);
+    if Self.IsCursorInFrontBox(Self.RefineInterface.Temperature.Total, Self.RefineInterface.Temperature.Hot) and not Self.AtWaterfall and not Self.IsCursorInBox(Self.RefineInterface.Temperature.TempBarArray[5].SweetSpotBounds) then
+    begin
+      Writeln("Need to cool down for hammer");
+      Exit(EGFState.COOL_SWORD);
+    end;
+
+    if Self.IsCursorBehindBox(Self.RefineInterface.Temperature.Total, Self.RefineInterface.Temperature.Hot) and not Self.AtLavaPool and not Self.IsCursorInBox(Self.RefineInterface.Temperature.TempBarArray[5].SweetSpotBounds) then
+    begin
+      Writeln("Need to Warm up for hammer");
+      Exit(EGFState.HEAT_SWORD);
+    end;
+
+    if not Self.TripHammer.Coordinates.AnyInRange(Map.Position(), 16) and Self.IsCursorInBox(Self.RefineInterface.Temperature.TempBarArray[5].SweetSpotBounds) then
+    begin
+      Writeln("Time To Use Hammer!");
+      Exit(EGFState.USE_TRIP_HAMMER);
+    end;
   end;
-
-  *)
-
-  (*
-  Self.BankChest.WalkClick();
-
-  WaitUntil(Bank.IsOpen(), 250, 5000);
-
-  Bank.WithdrawItem(['Adamantite bar', 10, False], True);
-
-  Bank.WithdrawItem(['Mithril bar', 10, False], True);
-  WaitUntil(Inventory.CountItem('Mithril bar') = 10, 300, 5000);
-  Bank.WithdrawItem(['Mithril bar', 10, False], True);
-
-  if WaitUntil(Inventory.IsFull(), 300, 5000) then
-    Bank.Close();
-
-
-
-  *)
-
-  (*
-  Self.GetCommisionFromKovac();
-  WaitUntil(Chat.GetChatTitle = 'Kovac', 250, 5000);
-  Self.Commision := Self.GetCommision();
-
-  Writeln(Self.Commision);
-
-  if Self.MouldJig.WalkClick() then
-    Writeln('Setting Mould!');
-
-  WaitUntil(Self.MouldSetup.IsOpen(), 250, 5000);
-
-  if Self.MouldSetup.SelectMouldTypeButton(EMouldType.FORTE) then
-    SelectBestForteMould();
-
-  Wait(338, 690);
-
-  if Self.MouldSetup.SelectMouldTypeButton(EMouldType.BLADES) then
-    SelectBestBladesMould();
-
-  Wait(338, 690);
-
-  if Self.MouldSetup.SelectMouldTypeButton(EMouldType.TIPS) then
-    SelectBestTipsMould();
-
-  if WaitUntil(Self.MouldSetup.IsMouldReady(), 250, 5000) then
-    Self.MouldSetup.SetMould();
-
-  *)
-  //if Self.MouldSetup.IsOpen then
-  //begin
-
-
-  //end;
-
-  //Writeln(Self.MouldSetup.GetActiveMouldType);
-
-  //Writeln(Length(Self.TipMoulds) - Self.FindMouldIndex(Self.TipMoulds, besttipmould));
-
-  //Writeln(Self.FindMouldIndex(Self.TipMoulds, besttipmould));
-  //WriteLn(Self.MouldSetup.GetSlots());
-  //Writeln(Self.MouldSetup.Moulds);
-
-  //Debug(Self.MouldSetup.GetSlots());
-  //Writeln(Self.GetCommision());
-  Wait(25, 50);
-
 end;
 
 function TGiantsFoundry.GetState(): EGFState;
 var
   timeOut: UInt64;
+  makesword: EGFState;
 begin
   if Self.ShouldStop() then
     Exit(EGFState.END_SCRIPT);
 
+  if Chat.LeveledUp() then Exit(EGFState.HANDLE_LEVEL);
+
   timeOut := GetSystemTime() + 15000;
   //Self.RunTest();
   //Exit(EGFState.END_SCRIPT);
-
+  //WaitUntil(IsAnimating or Self.IsCursorInBox(Self.RefineInterface.Temperature.TempBarArray[5].SweetSpotBounds, 25, 5000);
   if Self.InterfaceIsOpen() then
   begin
-    XPBar.EarnedXP();
-    Self.RefineInterface.IsSetup := Self.SetupProgressStates();
-    Self.RefineInterface.ProgressState.CurrentRefineTask := Self.GetActiveRefineTask(); // Get Current Active TRefineTask
-    Self.RefineInterface.Temperature.CursorPos := Self.FindCursor(Self.RefineInterface.Temperature.Total);
-
-    if Self.IsSwordComplete then
-      Exit(EGFState.SWORD_COMPLETE);
-    if (Self.RefineInterface.ProgressState.CurrentRefineTask.Refining = EProgressState.WHEEL) and not Self.IsSwordComplete then
-    begin
-      if Self.IsCursorInFrontBox(Self.RefineInterface.Temperature.Total, Self.RefineInterface.Temperature.Cold) and not Self.AtWaterfall and not Self.IsCursorInBox(Self.RefineInterface.Temperature.TempBarArray[1].SweetSpotBounds) then
-      begin
-        Writeln("Need to cool down");
-        Exit(EGFState.COOL_SWORD);
-      end;
-
-      if Self.IsCursorBehindBox(Self.RefineInterface.Temperature.Total, Self.RefineInterface.Temperature.Cold) and not Self.AtLavaPool and not Self.IsCursorInBox(Self.RefineInterface.Temperature.TempBarArray[1].SweetSpotBounds) then
-      begin
-        Writeln("Need to Warm up");
-        Exit(EGFState.HEAT_SWORD);
-      end;
-
-      if not Self.PolishingWheel.Coordinates.AnyInRange(Map.Position(), 8) and Self.IsCursorInBox(Self.RefineInterface.Temperature.TempBarArray[1].SweetSpotBounds) then
-      begin
-        Writeln("Time To Use Wheel!");
-        Exit(EGFState.USE_POLISHING_WHEEL);
-      end;
-    end;
-
-    if (Self.RefineInterface.ProgressState.CurrentRefineTask.Refining = EProgressState.STONE) and not Self.IsSwordComplete then
-    begin
-      if Self.IsCursorInFrontBox(Self.RefineInterface.Temperature.Total, Self.RefineInterface.Temperature.Medium) and not Self.AtWaterfall and not Self.IsCursorInBox(Self.RefineInterface.Temperature.TempBarArray[3].SweetSpotBounds) then
-      begin
-        Writeln("Need to cool down for grindstone");
-        Exit(EGFState.COOL_SWORD);
-      end;
-
-      if Self.IsCursorBehindBox(Self.RefineInterface.Temperature.Total, Self.RefineInterface.Temperature.Medium) and not Self.AtLavaPool and not Self.IsCursorInBox(Self.RefineInterface.Temperature.TempBarArray[3].SweetSpotBounds) then
-      begin
-        Writeln("Need to Warm up for grindstone");
-        Exit(EGFState.HEAT_SWORD);
-      end;
-
-      if not Self.Grindstone.Coordinates.AnyInRange(Map.Position(), 8) and Self.IsCursorInBox(Self.RefineInterface.Temperature.TempBarArray[3].SweetSpotBounds) then
-      begin
-        Writeln("Time To Use Grindstone!");
-        Exit(EGFState.USE_GRINDSTONE);
-      end;
-    end;
-
-    if (Self.RefineInterface.ProgressState.CurrentRefineTask.Refining = EProgressState.HAMMER) and not Self.IsSwordComplete then
-    begin
-      if Self.IsCursorInFrontBox(Self.RefineInterface.Temperature.Total, Self.RefineInterface.Temperature.Hot) and not Self.AtWaterfall and not Self.IsCursorInBox(Self.RefineInterface.Temperature.TempBarArray[5].SweetSpotBounds) then
-      begin
-        Writeln("Need to cool down for hammer");
-        Exit(EGFState.COOL_SWORD);
-      end;
-
-      if Self.IsCursorBehindBox(Self.RefineInterface.Temperature.Total, Self.RefineInterface.Temperature.Hot) and not Self.AtLavaPool and not Self.IsCursorInBox(Self.RefineInterface.Temperature.TempBarArray[5].SweetSpotBounds) then
-      begin
-        Writeln("Need to Warm up for hammer");
-        Exit(EGFState.HEAT_SWORD);
-      end;
-
-      if not Self.TripHammer.Coordinates.AnyInRange(Map.Position(), 16) and Self.IsCursorInBox(Self.RefineInterface.Temperature.TempBarArray[5].SweetSpotBounds) then
-      begin
-        Writeln("Time To Use Hammer!");
-        Exit(EGFState.USE_TRIP_HAMMER);
-      end;
-    end;
+    makesword := Self.GetInterfaceOpenState;
+    Exit(makesword);
   end;
-    //Exit(EGFState.RUN_TEST);
 
   if not Self.InterfaceIsOpen() then
-    Self.GetNewSword();
+    if Self.Commision = [] then
+      Exit(EGFState.GRAB_COMMISION);
+
+    if (Self.Commision <> []) and not Self.MouldSet then
+      Exit(EGFState.SETUP_MOULD);
+
+    if (Self.Commision <> []) and Self.MouldSet and not Self.CrucibleFull and not Inventory.ContainsAny(['Adamantite bar', 'Mithril bar']) and not Bank.IsOpen() then
+     Exit(EGFState.WITHDRAW_BARS);
+
+    if (Self.Commision <> []) and Self.MouldSet and Inventory.IsFull and Bank.IsOpen() then
+      Exit(EGFState.CLOSE_BANK);
+
+    if (Self.Commision <> []) and Self.MouldSet and Inventory.ContainsAny(['Adamantite bar', 'Mithril bar']) and not Bank.IsOpen() then
+      Exit(EGFState.FILL_CRUCIBLE);
+
+    if (Self.Commision <> []) and Self.MouldSet and Self.CrucibleFull and not Self.CruciblePoured and not Inventory.ContainsAny(['Adamantite bar', 'Mithril bar']) and not Bank.IsOpen() then
+      Exit(EGFState.POUR_CRUCIBLE);
+
+    if (Self.Commision <> []) and Self.MouldSet and Self.CrucibleFull and Self.CruciblePoured and not Inventory.ContainsAny(['Adamantite bar', 'Mithril bar']) and not Bank.IsOpen() then
+      Exit(EGFState.GRAB_SWORD);
+
   if WL.Activity.IsFinished() then
     Exit(EGFState.NO_ACTIVITY);
 
@@ -1598,7 +1614,7 @@ begin
     Self.SetAction(ToStr(Self.State));
 
     case Self.State of
-      EGFState.RUN_TEST: Self.RunTest();
+      //EGFState.RUN_TEST: Self.RunTest();
       EGFState.COOL_SWORD: Self.UseWaterFall();
       EGFState.HEAT_SWORD: Self.UseLavaPool();
       EGFState.USE_GRINDSTONE: Self.UseGrindstone();
@@ -1606,6 +1622,16 @@ begin
       EGFState.USE_TRIP_HAMMER: Self.UseTripHammer();
       EGFState.SWORD_COMPLETE: Self.GetNewSword();
 
+      EGFState.GRAB_COMMISION: Self.GrabCommision();
+      EGFState.SETUP_MOULD: Self.SetupMould();
+      EGFState.WITHDRAW_BARS: Self.WithdrawBars();
+      EGFState.CLOSE_BANK: Bank.Close();
+      EGFState.FILL_CRUCIBLE: Self.FillCrucible();
+      EGFState.POUR_CRUCIBLE: Self.PourCrucible();
+      EGFState.GRAB_SWORD: Self.GrabSword();
+
+
+      EGFState.HANDLE_LEVEL: Chat.HandleLevelUp();
       EGFState.WAIT_STATE: Wait(500, 800);//Self.GetActiveProgressState();//
       EGFState.NO_ACTIVITY, EGFState.END_SCRIPT: Break;
     end;
