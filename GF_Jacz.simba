@@ -11,6 +11,14 @@ type
 var
   CurrentTask: ETask := ETask.TASK_TO_DO;
 
+const
+  WHEEL_SWEET_SPOT = 1;
+  STONE_SWEET_SPOT = 3;
+  HAMMER_SWEET_SPOT = 5;
+
+  DEFAULT_TOOL_DISTANCE = 8;
+  HAMMER_DISTANCE = 16;
+
 type
   EGFState = (
     RUN_TEST,
@@ -22,6 +30,7 @@ type
     POUR_CRUCIBLE,
     GRAB_SWORD,
 
+    MOVE_TO_RECOVERY_TILE,
 
     HEAT_SWORD,
     COOL_SWORD,
@@ -126,7 +135,10 @@ type
   TRSGFMouldArray = array of TRSGFMould;
 
   TGiantsFoundry = record(TBaseScript)
-    State: EGFState;
+    State, LastState: EGFState;
+    StateStartTime: UInt64;
+    StateTimeout: UInt64;  // Timeout in milliseconds
+
     Commision: TStringArray;
     StuckTimer: TCountDown;
     MouldSetup: TRSGFMouldSetup;
@@ -169,11 +181,6 @@ begin
   *)
 
   Self.SetupAlignment(alignment);
-  //Writeln(Self.Bounds);
-  //Writeln(Self.Height);
-  //Writeln(Self.Bounds);
-  //Writeln(MainScreen.Bounds);
-  //Writeln(InterfaceArea.Bounds);
 
   Self.ScrollArea.X1 := Self.Bounds.X1 + 139;
   Self.ScrollArea.Y1 := Self.Bounds.Y1 + 138;
@@ -187,25 +194,7 @@ begin
   Debug(Self.SetResetButtons);
   for i := 0 to High(Self.Moulds) do
     Self.Moulds[i] := Self.Moulds[i].Expand(-5); //shrink boxes because calculating scrolling is not linear.
-
-  //Writeln(Self.Moulds.Len);
-  //Self.ScrollArea.X1 := Self.Bounds.X1 + 140;
-  //Self.ScrollArea.Y1 := Self.Bounds.Y1 + 139;
-  //Self.ScrollArea.X2 := Self.ScrollArea.X1 + 322
-  //Writeln(Self.GetScrollPosition());
-  //Debug(Emotes.Area);
-  //Debug(Self.Moulds);
-  //Writeln(Self.GetScrollBar);
-  //Writeln(Self.Moulds);
-  //Debug(Self.ScrollArea);
-  //Debug(Self.MouldTypeBoxes);
-  //Debug(Self.Moulds);
 end;
-
-//function TRSGFMouldSetup.GetButtons(): TRSButtonArray:
-//begin
-  //Result := FindButtons([[]]);
-//end;
 
 function TRSGFMouldSetup._GetOffset(): Int32;
 begin
@@ -217,8 +206,6 @@ var
   i: Int32;
 begin
   Result := Self.Moulds.Offset([0, Self._GetOffset()]);
-  //Writeln(Result.Len);
-  //Writeln(Result);
 
   for i := High(Result) downto 0 do
   begin
@@ -886,9 +873,91 @@ begin
   Self.MouldSet := False;
   Self.CrucibleFull := False;
   Self.CruciblePoured := False;
+
 end;
 
 
+function TGiantsFoundry.AttemptRecovery(): Boolean;
+begin
+  Result := False;
+  Writeln('Attempting recovery from stuck state...');
+  Map.Walker.WalkBlind([9376,4466], 2);
+  case Self.State of
+    EGFState.COOL_SWORD, EGFState.HEAT_SWORD:
+      begin
+        // Maybe stuck at heat source, try clicking middle of screen
+        Map.Walker.WalkBlind([9376,4466], 2);
+        Wait(2000);
+        Result := True;
+      end;
+
+    EGFState.USE_POLISHING_WHEEL, EGFState.USE_GRINDSTONE, EGFState.USE_TRIP_HAMMER:
+      begin
+        // Try closing any interfaces
+        Map.Walker.WalkBlind([9376,4466], 2);
+        //Keyboard.PressKey(VK_ESCAPE);
+        Wait(1000);
+        Result := True;
+      end;
+
+    EGFState.WAIT_STATE:
+      begin
+        // Maybe stuck at heat source, try clicking middle of screen
+        Map.Walker.WalkBlind([9376,4466], 2);
+        Wait(2000);
+        Result := True;
+      end;
+  end;
+
+  if Result then
+    Writeln('Recovery attempt completed, resetting timer...');
+end;
+
+procedure TGiantsFoundry.UpdateStateTracking(newState: EGFState);
+begin
+  if newState <> Self.LastState then
+  begin
+    Self.LastState := newState;
+    Self.StateStartTime := GetTickCount;
+  end;
+end;
+
+// Add this method to check if current state has timed out
+function TGiantsFoundry.IsStateTimedOut(): Boolean;
+var
+  timeoutDuration: UInt64;
+begin
+  Result := False;
+
+  // Set timeout based on state (in milliseconds)
+  case Self.State of
+    EGFState.COOL_SWORD, EGFState.HEAT_SWORD:
+      timeoutDuration := 15000;  // 15 seconds
+
+    EGFState.USE_POLISHING_WHEEL, EGFState.USE_GRINDSTONE, EGFState.USE_TRIP_HAMMER:
+      timeoutDuration := 20000;  // 20 seconds
+
+    EGFState.GRAB_COMMISION, EGFState.SETUP_MOULD:
+      timeoutDuration := 30000;  // 30 seconds
+
+    EGFState.WITHDRAW_BARS, EGFState.FILL_CRUCIBLE, EGFState.POUR_CRUCIBLE:
+      timeoutDuration := 25000;  // 25 seconds
+
+    EGFState.WAIT_STATE:
+      timeoutDuration := 24000;  // 24 seconds
+
+    else
+      timeoutDuration := 20000;  // Default 20 seconds
+  end;
+
+  // Check if current state has exceeded timeout
+  if (GetTickCount - Self.StateStartTime) > timeoutDuration then
+  begin
+    Writeln('State timeout detected: ', ToStr(Self.State), ' has been running for ',
+            (GetTickCount - Self.StateStartTime), 'ms');
+    Result := True;
+  end;
+end;
 
 function TGiantsFoundry.InterfaceIsOpen(): Boolean;
 begin
@@ -1003,21 +1072,8 @@ var
   temprange: Double;
   test: Boolean;
 begin
-
   Result := Self.Waterfall.Coordinates.AnyInRange(Map.Position(), 8);
 
-  (*
-  temprange := Self.FindCursor(Self.RefineInterface.Temperature.Total).DistanceTo(Point(Self.RefineInterface.Temperature.Total.X1,
-  Self.RefineInterface.Temperature.Total.Y1));
-
-  test := WaitUntil(temprange > Self.FindCursor(Self.RefineInterface.Temperature.Total).DistanceTo(Point(Self.RefineInterface.Temperature.Total.X1,
-  Self.RefineInterface.Temperature.Total.Y1)), 100, 1200);
-
-  Writeln(temprange);
-  Writeln(test);
-
-  Result := test
-  *)
 end;
 
 function TGiantsFoundry.IsHeatingSword(): Boolean;
@@ -1027,20 +1083,6 @@ var
 begin
 
   Result := Self.LavaPool.Coordinates.AnyInRange(Map.Position(), 8);
-  (*
-
-  temprange := Self.FindCursor(Self.RefineInterface.Temperature.Total).DistanceTo(Point(Self.RefineInterface.Temperature.Total.X1,
-  Self.RefineInterface.Temperature.Total.Y1));
-
-
-
-  test := WaitUntil(temprange < Self.FindCursor(Self.RefineInterface.Temperature.Total).DistanceTo(Point(Self.RefineInterface.Temperature.Total.X1,
-  Self.RefineInterface.Temperature.Total.Y1)), 100, 1200);
-
-  Writeln(temprange);
-  Writeln(test);
-  Result := test
-  *)
 end;
 
 procedure TGiantsFoundry.UseLavaPool();
@@ -1049,8 +1091,6 @@ begin
   begin
     Minimap.WaitMoving();
   end;
-  //Wait(583, 792);
-  //
 end;
 
 procedure TGiantsFoundry.UseWaterFall();
@@ -1084,33 +1124,6 @@ begin
     Minimap.WaitMoving();
   end;
 end;
-
-procedure TGiantsFoundry.ResetToMiddleTile(attempt: Int32); // Checks to see if we are stuck
-begin
-  if Self.RefineInterface.Temperature.CursorAttempt >= attempt then
-  begin
-
-    Writeln(Self.RefineInterface.Temperature.CursorPosArray.First);
-    Writeln(Self.RefineInterface.Temperature.CursorPos);
-
-    if Self.RefineInterface.Temperature.CursorPosArray.First.InRange(Self.RefineInterface.Temperature.CursorPos, 10) then
-    begin
-      Writeln("Sitting Idle! Resetting to middle");
-      //Writeln(Self.RefineInterface.Temperature.CursorPosArray.First.InRange(Self.RefineInterface.Temperature.CursorPos, 15));
-    end;
-
-    Writeln("Resetting Attempts");
-    Self.RefineInterface.Temperature.CursorAttempt := 0;
-    Self.RefineInterface.Temperature.CursorPosArray := []
-  end;
-  Self.RefineInterface.Temperature.CursorPos := Self.FindCursor(Self.RefineInterface.Temperature.Total);
-  Self.RefineInterface.Temperature.CursorPosArray.Append(Self.FindCursor(Self.RefineInterface.Temperature.Total));
-  Self.RefineInterface.Temperature.CursorAttempt += 1;
-
-
-end;
-
-
 
 procedure TGiantsFoundry.SetupSweetSpots();
 begin
@@ -1238,9 +1251,6 @@ begin
   weight := Self.StringArrayToBladeWeight(commision);
   blade := Self.StringArrayToBladeType(commision);
 
-  Writeln(size);
-  Writeln(weight);
-  Writeln(blade);
   for i := 0 to High(moulds) do
   begin
     currenttotal := 0; // Reset currenttoal before adding everything up
@@ -1271,8 +1281,6 @@ begin
   Result := -1;
   for i := 0 to high(moulds) do
   begin
-    //Writeln(moulds[i]);
-    //Writeln(mould);
     if moulds[i].MouldName = mould.MouldName then
       Exit(i);
   end;
@@ -1301,18 +1309,6 @@ begin
   end;
 
   Self.MouldSetup.SelectMould(Self.MouldSetup.GetSlots[slotIdx], EMouldType.FORTE, bestfortemould);
-
-  //Writeln(slotIdx);
-  //Writeln(Self.MouldSetup.GetSlots[slotIdx]);
-
-
-  (*
-  bestfortemould := Self.GetOptimalMould(Self.ForteMoulds, Self.Commision);
-
-  Writeln(Length(Self.ForteMoulds) - Self.FindMouldIndex(Self.ForteMoulds, bestfortemould)- 1);
-  Writeln(Self.MouldSetup.GetSlots[Length(Self.ForteMoulds) - Self.FindMouldIndex(Self.ForteMoulds, bestfortemould)]);
-  Self.MouldSetup.SelectMould(Self.MouldSetup.GetSlots[Length(Self.ForteMoulds) - Self.FindMouldIndex(Self.ForteMoulds, bestfortemould)- 1], EMouldType.FORTE, bestfortemould);
-  *)
 end;
 
 procedure TGiantsFoundry.SelectBestBladesMould();
@@ -1370,7 +1366,6 @@ begin
   Self.GetCommisionFromKovac();
   WaitUntil(Chat.GetChatTitle = 'Kovac', 250, 5000);
   Self.Commision := Self.GetCommision();
-  //Self.Commision := Self.Commision.;
   Writeln(Self.Commision);
 end;
 
@@ -1482,81 +1477,76 @@ begin
   Self.Commision := [];
 end;
 function TGiantsFoundry.GetInterfaceOpenState(): EGFState;
+var
+  task: EProgressState;
+  sweetSpotIdx: Int32;
+  targetZone: TBox;
+  toolObj: TRSObjectV2;
+  maxDist: Int32;
 begin
+  // Setup
   XPBar.EarnedXP();
-  Self.RefineInterface.IsSetup := Self.SetupProgressStates();
-  Self.RefineInterface.ProgressState.CurrentRefineTask := Self.GetActiveRefineTask(); // Get Current Active TRefineTask
+  if not Self.SetupProgressStates() then
+    Exit(EGFState.WAIT_STATE);
+
+  Self.RefineInterface.ProgressState.CurrentRefineTask := Self.GetActiveRefineTask();
   Self.RefineInterface.Temperature.CursorPos := Self.FindCursor(Self.RefineInterface.Temperature.Total);
 
   if Self.IsSwordComplete then
     Exit(EGFState.SWORD_COMPLETE);
-  if (Self.RefineInterface.ProgressState.CurrentRefineTask.Refining = EProgressState.WHEEL) and not Self.IsSwordComplete then
-  begin
-    if Self.IsCursorInFrontBox(Self.RefineInterface.Temperature.Total, Self.RefineInterface.Temperature.Cold) and not Self.AtWaterfall and not Self.IsCursorInBox(Self.RefineInterface.Temperature.TempBarArray[1].SweetSpotBounds) then
-    begin
-      Writeln("Need to cool down");
-      Exit(EGFState.COOL_SWORD);
-    end;
 
-    if Self.IsCursorBehindBox(Self.RefineInterface.Temperature.Total, Self.RefineInterface.Temperature.Cold) and not Self.AtLavaPool and not Self.IsCursorInBox(Self.RefineInterface.Temperature.TempBarArray[1].SweetSpotBounds) then
-    begin
-      Writeln("Need to Warm up");
-      Exit(EGFState.HEAT_SWORD);
-    end;
+  task := Self.RefineInterface.ProgressState.CurrentRefineTask.Refining;
 
-    if not Self.PolishingWheel.Coordinates.AnyInRange(Map.Position(), 8) and Self.IsCursorInBox(Self.RefineInterface.Temperature.TempBarArray[1].SweetSpotBounds) then
-    begin
-      Writeln("Time To Use Wheel!");
-      Exit(EGFState.USE_POLISHING_WHEEL);
-    end;
+  // Map task to configuration
+  case task of
+    EProgressState.WHEEL:
+      begin
+        sweetSpotIdx := WHEEL_SWEET_SPOT;
+        targetZone := Self.RefineInterface.Temperature.Cold;
+        toolObj := Self.PolishingWheel;
+        maxDist := DEFAULT_TOOL_DISTANCE;
+        Result := EGFState.USE_POLISHING_WHEEL;
+      end;
+
+    EProgressState.STONE:
+      begin
+        sweetSpotIdx := STONE_SWEET_SPOT;
+        targetZone := Self.RefineInterface.Temperature.Medium;
+        toolObj := Self.Grindstone;
+        maxDist := DEFAULT_TOOL_DISTANCE;
+        Result := EGFState.USE_GRINDSTONE;
+      end;
+
+    EProgressState.HAMMER:
+      begin
+        sweetSpotIdx := HAMMER_SWEET_SPOT;
+        targetZone := Self.RefineInterface.Temperature.Hot;
+        toolObj := Self.TripHammer;
+        maxDist := HAMMER_DISTANCE;
+        Result := EGFState.USE_TRIP_HAMMER;
+      end;
+
+    else
+      Exit(EGFState.WAIT_STATE);
   end;
 
-  if (Self.RefineInterface.ProgressState.CurrentRefineTask.Refining = EProgressState.STONE) and not Self.IsSwordComplete then
+  // Common temperature management logic
+  if not Self.IsCursorInBox(Self.RefineInterface.Temperature.TempBarArray[sweetSpotIdx].SweetSpotBounds) then
   begin
-    if Self.IsCursorInFrontBox(Self.RefineInterface.Temperature.Total, Self.RefineInterface.Temperature.Medium) and not Self.AtWaterfall and not Self.IsCursorInBox(Self.RefineInterface.Temperature.TempBarArray[3].SweetSpotBounds) then
-    begin
-      Writeln("Need to cool down for grindstone");
+    if Self.IsCursorInFrontBox(Self.RefineInterface.Temperature.Total, targetZone) and not Self.AtWaterfall then
       Exit(EGFState.COOL_SWORD);
-    end;
 
-    if Self.IsCursorBehindBox(Self.RefineInterface.Temperature.Total, Self.RefineInterface.Temperature.Medium) and not Self.AtLavaPool and not Self.IsCursorInBox(Self.RefineInterface.Temperature.TempBarArray[3].SweetSpotBounds) then
-    begin
-      Writeln("Need to Warm up for grindstone");
+    if Self.IsCursorBehindBox(Self.RefineInterface.Temperature.Total, targetZone) and not Self.AtLavaPool then
       Exit(EGFState.HEAT_SWORD);
-    end;
-
-    if not Self.Grindstone.Coordinates.AnyInRange(Map.Position(), 8) and Self.IsCursorInBox(Self.RefineInterface.Temperature.TempBarArray[3].SweetSpotBounds) then
-    begin
-      Writeln("Time To Use Grindstone!");
-      Exit(EGFState.USE_GRINDSTONE);
-    end;
   end;
-
-  if (Self.RefineInterface.ProgressState.CurrentRefineTask.Refining = EProgressState.HAMMER) and not Self.IsSwordComplete then
-  begin
-    if Self.IsCursorInFrontBox(Self.RefineInterface.Temperature.Total, Self.RefineInterface.Temperature.Hot) and not Self.AtWaterfall and not Self.IsCursorInBox(Self.RefineInterface.Temperature.TempBarArray[5].SweetSpotBounds) then
-    begin
-      Writeln("Need to cool down for hammer");
-      Exit(EGFState.COOL_SWORD);
-    end;
-
-    if Self.IsCursorBehindBox(Self.RefineInterface.Temperature.Total, Self.RefineInterface.Temperature.Hot) and not Self.AtLavaPool and not Self.IsCursorInBox(Self.RefineInterface.Temperature.TempBarArray[5].SweetSpotBounds) then
-    begin
-      Writeln("Need to Warm up for hammer");
-      Exit(EGFState.HEAT_SWORD);
-    end;
-
-    if not Self.TripHammer.Coordinates.AnyInRange(Map.Position(), 16) and Self.IsCursorInBox(Self.RefineInterface.Temperature.TempBarArray[5].SweetSpotBounds) then
-    begin
-      Writeln("Time To Use Hammer!");
-      Exit(EGFState.USE_TRIP_HAMMER);
-    end;
-  end;
+  if not toolObj.Coordinates.AnyInRange(Map.Position(), maxDist) and Self.IsCursorInBox(Self.RefineInterface.Temperature.TempBarArray[sweetSpotIdx].SweetSpotBounds) then
+    Exit(Result)  // Use the action set in the case statement
+  else
+    Exit(EGFState.WAIT_STATE);
 end;
 
 function TGiantsFoundry.GetState(): EGFState;
 var
-  timeOut: UInt64;
   makesword: EGFState;
 begin
   if Self.ShouldStop() then
@@ -1564,10 +1554,12 @@ begin
 
   if Chat.LeveledUp() then Exit(EGFState.HANDLE_LEVEL);
 
-  timeOut := GetSystemTime() + 15000;
-  //Self.RunTest();
-  //Exit(EGFState.END_SCRIPT);
-  //WaitUntil(IsAnimating or Self.IsCursorInBox(Self.RefineInterface.Temperature.TempBarArray[5].SweetSpotBounds, 25, 5000);
+
+  if Self.IsStateTimedOut() then
+  begin
+    Exit(EGFState.MOVE_TO_RECOVERY_TILE);
+  end;
+
   if Self.InterfaceIsOpen() then
   begin
     makesword := Self.GetInterfaceOpenState;
@@ -1597,10 +1589,7 @@ begin
       Exit(EGFState.GRAB_SWORD);
 
   if WL.Activity.IsFinished() then
-    Exit(EGFState.NO_ACTIVITY);
-
-  if GetSystemTime() > timeOut then
-    Writeln('We are stuck! Resetting to middle');
+      Exit(EGFState.NO_ACTIVITY);
 
   Exit(EGFState.WAIT_STATE);
 end;
@@ -1609,12 +1598,17 @@ procedure TGiantsFoundry.Run(maxActions: UInt32; maxTime: UInt64);
 begin
   Self.Init(maxActions, maxTime);
   Self.MouldSetup.SetupAlignment(); // Setup Mould Interface
+  Self.StateStartTime := GetTickCount;  // Initialize timer
+
   repeat
     Self.State := Self.GetState();
+    Self.UpdateStateTracking(Self.State);  // Track state changes
     Self.SetAction(ToStr(Self.State));
 
     case Self.State of
       //EGFState.RUN_TEST: Self.RunTest();
+      EGFState.MOVE_TO_RECOVERY_TILE: Self.AttemptRecovery();
+
       EGFState.COOL_SWORD: Self.UseWaterFall();
       EGFState.HEAT_SWORD: Self.UseLavaPool();
       EGFState.USE_GRINDSTONE: Self.UseGrindstone();
