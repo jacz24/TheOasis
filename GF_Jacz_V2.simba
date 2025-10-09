@@ -19,6 +19,8 @@ const
   DEFAULT_TOOL_DISTANCE = 8;
   HAMMER_DISTANCE = 16;
 
+
+
 type
   EGFState = (
     RUN_TEST,
@@ -26,7 +28,8 @@ type
     GRAB_COMMISION,
     SETUP_MOULD,
     WITHDRAW_BARS,
-    FILL_CRUCIBLE,
+    FILL_CRUCIBLE_BAR_ONE,
+    FILL_CRUCIBLE_BAR_TWO,
     POUR_CRUCIBLE,
     GRAB_SWORD,
 
@@ -132,6 +135,7 @@ type
     StateStartTime: UInt64;
     StateTimeout: UInt64;  // Timeout in milliseconds
 
+    BarOne, BarTwo: TRSItem;
     Commision: TStringArray;
     StuckTimer: TCountDown;
     MouldSetup: TRSGFMouldSetup;
@@ -140,7 +144,7 @@ type
     BankChest, LavaPool, Waterfall, PolishingWheel,
     Grindstone, TripHammer, Crucible, MouldJig: TRSObjectV2;
     KovacNPC: TRSNPCV2;
-    MouldSet, CrucibleFull, CruciblePoured: Boolean;
+    MouldSet, CrucibleFullBarOne, CrucibleFullBarTwo, CruciblePoured: Boolean;
   end;
 
 
@@ -823,6 +827,41 @@ begin
   Self.SetupSweetSpots();
 end;
 
+procedure TGiantsFoundry.SetupBars();
+begin
+  case CurrentTask of
+    ETask.BRONZE_IRON:
+    begin
+      Self.BarOne := 'Bronze bar';
+      Self.BarTwo := 'Iron bar';
+    end;
+
+    ETask.IRON_STEEL:
+    begin
+      Self.BarOne := 'Iron bar';
+      Self.BarTwo := 'Steel bar';
+    end;
+
+    ETask.STEEL_MIHTRIL:
+    begin
+      Self.BarOne := 'Steel bar';
+      Self.BarTwo := 'Mithril bar';
+    end;
+
+    ETask.MITHRIL_ADAMANTITE:
+    begin
+      Self.BarOne := 'Mithril bar';
+      Self.BarTwo := 'Adamantite bar';
+    end;
+
+    ETask.ADAMANTITE_RUNITE:
+    begin
+      Self.BarOne := 'Adamantite bar';
+      Self.BarTwo := 'Runite bar';
+    end;
+  end;
+end;
+
 procedure TGiantsFoundry.Init(maxActions: UInt32; maxTime: UInt64); override;
 begin
 
@@ -838,6 +877,8 @@ begin
   Map.Walker.ScreenWalk := True;
 
   inherited;
+
+  Self.SetupBars();
 
   Map.SetupChunk(Chunk([51, 180, 53, 178], 0));
   Objects.Setup(Map.Objects(), @Map.Walker);
@@ -956,7 +997,7 @@ begin
     EGFState.GRAB_COMMISION, EGFState.SETUP_MOULD:
       timeoutDuration := 30000;  // 30 seconds
 
-    EGFState.WITHDRAW_BARS, EGFState.FILL_CRUCIBLE, EGFState.POUR_CRUCIBLE:
+    EGFState.WITHDRAW_BARS, EGFState.FILL_CRUCIBLE_BAR_ONE, EGFState.FILL_CRUCIBLE_BAR_TWO, EGFState.POUR_CRUCIBLE:
       timeoutDuration := 25000;  // 25 seconds
 
     EGFState.WAIT_STATE:
@@ -1364,58 +1405,52 @@ begin
   Self.BankChest.WalkClick();
   WaitUntil(Bank.IsOpen(), 250, 5000);
 
-  Bank.WithdrawItem(['Adamantite bar', 10, False], True);
+  Bank.WithdrawItem([BarTwo, 10, False], True);
 
-  Bank.WithdrawItem(['Mithril bar', 10, False], True);
-  WaitUntil(Inventory.CountItem('Mithril bar') = 10, 300, 5000);
-  Bank.WithdrawItem(['Mithril bar', 10, False], True);
+  Bank.WithdrawItem([BarOne, 10, False], True);
+  WaitUntil(Inventory.CountItem(BarOne) = 10, 300, 5000);
+  Bank.WithdrawItem([BarOne, 10, False], True);
 
   //if WaitUntil(Inventory.IsFull(), 300, 5000) then
   //  Bank.Close();
 end;
 
-procedure TGiantsFoundry.FillCrucible();
-var
-  firstbar, secondbar: Boolean;
+procedure TGiantsFoundry.FillBarOneInCrucible();
 begin
-  Self.CrucibleFull := False;
-  //firstbar := False;
-  //secondbar := False;
-
+  Self.CrucibleFullBarOne := False;
   if not Make.IsOpen() then
     Self.Crucible.WalkClick();
 
   if WaitUntil(Make.IsOpen(), 300, 5000) then
   begin
-    if Inventory.ContainsItem('Mithril bar') then
+    if Inventory.ContainsItem(BarOne) then
       Make.Select(3, Make.QUANTITY_ALL, True);
 
-    WaitUntil(not Inventory.ContainsItem('Mithril bar'), 300, 5000);
+    if WaitUntil(not Inventory.ContainsItem(BarOne), 300, 5000) then
+      Self.CrucibleFullBarOne := True;
+
     WaitUntil(Chat.HasContinue, 300, 5000);
-    if not WaitUntil(Chat.ClickContinue, 300, 5000) then
-      Self.CrucibleFull := False
-    else
-      Self.CrucibleFull := True;
-    //  firstbar := True;
+    WaitUntil(Chat.ClickContinue, 300, 5000);
+
   end;
+end;
+
+procedure TGiantsFoundry.FillBarTwoInCrucible();
+begin
+  Self.CrucibleFullBarTwo := False;
   if not Make.IsOpen() then
     Self.Crucible.WalkClick();
 
   if WaitUntil(Make.IsOpen(), 300, 5000) then
   begin
-    if Inventory.ContainsItem('Adamantite bar') then
+    if Inventory.ContainsItem(BarTwo) then
       Make.Select(4, Make.QUANTITY_ALL, True);
 
-    WaitUntil(not Inventory.ContainsItem('Adamantite bar'), 300, 5000);
+    if WaitUntil(not Inventory.ContainsItem(BarTwo), 300, 5000) then
+      Self.CrucibleFullBarTwo := True;
     WaitUntil(Chat.HasContinue, 300, 5000);
-    if not WaitUntil(Chat.ClickContinue, 300, 5000) then
-      Self.CrucibleFull := False
-    else
-      Self.CrucibleFull := True;
+    WaitUntil(Chat.ClickContinue, 300, 5000);
   end;
-
-  //if firstbar and secondbar then
-  //  Self.CrucibleFull := True;
 end;
 
 procedure TGiantsFoundry.PourCrucible();
@@ -1549,19 +1584,22 @@ begin
     if (Self.Commision <> []) and not Self.MouldSet then
       Exit(EGFState.SETUP_MOULD);
 
-    if (Self.Commision <> []) and Self.MouldSet and not Self.CrucibleFull and not Inventory.ContainsAny(['Adamantite bar', 'Mithril bar']) and not Bank.IsOpen() then
+    if (Self.Commision <> []) and Self.MouldSet and not Self.CrucibleFull and not Inventory.ContainsAny([BarTwo, BarOne]) and not Bank.IsOpen() then
      Exit(EGFState.WITHDRAW_BARS);
 
     if (Self.Commision <> []) and Self.MouldSet and Inventory.IsFull and Bank.IsOpen() then
       Exit(EGFState.CLOSE_BANK);
 
-    if (Self.Commision <> []) and Self.MouldSet and Inventory.ContainsAny(['Adamantite bar', 'Mithril bar']) and not Bank.IsOpen() then
-      Exit(EGFState.FILL_CRUCIBLE);
+    if (Self.Commision <> []) and Self.MouldSet and Inventory.ContainsAny([BarTwo, BarOne]) and not Bank.IsOpen() then
+      Exit(EGFState.FILL_CRUCIBLE_BAR_ONE);
 
-    if (Self.Commision <> []) and Self.MouldSet and Self.CrucibleFull and not Self.CruciblePoured and not Inventory.ContainsAny(['Adamantite bar', 'Mithril bar']) and not Bank.IsOpen() then
+    if (Self.Commision <> []) and Self.MouldSet and Inventory.ContainsAny([BarTwo, BarOne]) and not Bank.IsOpen() then
+      Exit(EGFState.FILL_CRUCIBLE_BAR_TWO);
+
+    if (Self.Commision <> []) and Self.MouldSet and Self.CrucibleFull and not Self.CruciblePoured and not Inventory.ContainsAny([BarTwo, BarOne]) and not Bank.IsOpen() then
       Exit(EGFState.POUR_CRUCIBLE);
 
-    if (Self.Commision <> []) and Self.MouldSet and Self.CrucibleFull and Self.CruciblePoured and not Inventory.ContainsAny(['Adamantite bar', 'Mithril bar']) and not Bank.IsOpen() then
+    if (Self.Commision <> []) and Self.MouldSet and Self.CrucibleFull and Self.CruciblePoured and not Inventory.ContainsAny([BarTwo, BarOne]) and not Bank.IsOpen() then
       Exit(EGFState.GRAB_SWORD);
 
   if WL.Activity.IsFinished() then
@@ -1596,7 +1634,8 @@ begin
       EGFState.SETUP_MOULD: Self.SetupMould();
       EGFState.WITHDRAW_BARS: Self.WithdrawBars();
       EGFState.CLOSE_BANK: Bank.Close();
-      EGFState.FILL_CRUCIBLE: Self.FillCrucible();
+      EGFState.FILL_CRUCIBLE_BAR_ONE: Self.CrucibleFullBarOne();
+      EGFState.FILL_CRUCIBLE_BAR_TWO: Self.CrucibleFullBarTwo();
       EGFState.POUR_CRUCIBLE: Self.PourCrucible();
       EGFState.GRAB_SWORD: Self.GrabSword();
 
@@ -1616,12 +1655,12 @@ var
 {$IFDEF SCRIPT_GUI}
 type
   TGiantsFoundryConfig = record(TScriptForm)
-    Selector: TLabeledCombobox;
+    AlloySelector: TLabeledCombobox;
   end;
 
 procedure TGiantsFoundryConfig.StartScript(sender: TObject); override;
 begin
-  CurrentTask := ETask(Self.Selector.Combobox.getItemIndex);
+  CurrentTask := ETask(Self.AlloySelector.Combobox.getItemIndex);
   inherited;
 end;
 
@@ -1637,7 +1676,7 @@ begin
 
   Self.CreateAccountManager(tab);
 
-  with Self.Selector do
+  with Self.AlloySelector do
   begin
     Create(tab);
     SetCaption('Item type:');
