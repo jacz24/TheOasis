@@ -4,9 +4,6 @@
 {$I SRL-T/osr.simba}
 {$I WaspLib/osr.simba}
 
-begin
-  Login.PlayerIndex     := 0;
-end;
 type
   ETask = (
     MINE_CIRCLET,  // Working
@@ -15,6 +12,7 @@ type
   );
 
 var
+  UseV2: Boolean := True; // Use the new rewrite (Recommended)
   CurrentTask: ETask := ETask.MINE_CIRCLET;
 
 type
@@ -38,23 +36,13 @@ type
     CircletCharge, PlayerHP, PrevHP,
     InvCount, PrevInvCount,
     SandstoneMinLimit, SandstoneMaxLimit,
-    CurrentSandstoneInGrinder :  Int32;
+    CurrentSandstoneGrinderCount :  Int32;
 
-    RSRock: TRSObject;
-    RSGrind: TRSObject;
+    RSRock, RSGrind: TRSObject; // V1 Objects
     SandstoneRock, Sandstorm: TRSObjectV2;
+    Drew: TRSNPC;
     DropList: TRSItemArray;
   end;
-
-procedure TAntiban.Setup; override;
-begin
-  inherited;
-
-  Antiban.Skills := [ERSSkill.MINING, ERSSkill.TOTAL];
-  Antiban.MinZoom := 39;
-  Antiban.MaxZoom := 69;
-
-end;
 
 function TQuarryMiner.IsMining: Boolean;
 begin
@@ -77,9 +65,12 @@ end;
 
 procedure TQuarryMiner.Init(maxActions: UInt32; maxTime: UInt64); override;
 begin
-  Name := 'QuarryMiner';
+  Antiban.Skills := [ERSSkill.MINING, ERSSkill.TOTAL];
+  Antiban.MinZoom := 5;
+  Antiban.MaxZoom := 35;
+
   inherited;
-  //RSW.Setup([RSRegions.BANDIT_CAMP_QUARRY]);
+
   Map.SetupChunk(Chunk([48,46,50,43], 0));
   Objects.Setup(Map.Objects(), @Map.Walker);
 
@@ -98,19 +89,14 @@ begin
   Self.Sandstorm.Finder.Colors += CTS2(8109251, 20, 0.09, 0.75);
   Self.Sandstorm.Walker := @Map.Walker;
 
-  //Debug(Self.Sandstorm);
+  if not UseV2 then
+  begin
+    RSW.Setup([RSRegions.BANDIT_CAMP_QUARRY]);
+    RSGrind := RSObjects.BanditCampQuarryGrinder;
+    RSRock  := RSObjects.SandStoneRock;
+    RSRock.Filter.UpText := False;
+  end;
 
-  if not RSClient.IsLoggedIn then
-    Login.LoginPlayer;
-
-  if Antiban.BioDice then
-    Options.SetNPCAttackOption(ERSAttackOption.HIDDEN)
-  else
-    Options.SetNPCAttackOption(ERSAttackOption.ALWAYS_RIGHT_CLICK);
-
-  RSGrind := RSObjects.BanditCampQuarryGrinder;
-  RSRock  := RSObjects.SandStoneRock;
-  RSRock.Filter.UpText := False;
 
   DropList := ['Granite (500g)', 'Granite (2kg)', 'Granite (5kg)']; // This just adds the bare minimum
   if CurrentTask = ETask.MINE_HUMIDIFY then // Sets the drop list if using the luna spellbook
@@ -121,63 +107,67 @@ begin
     DropList := ['Granite (500g)', 'Granite (2kg)', 'Granite (5kg)'];
   if WLSettings.RemoteInput.HUDDebug then
   begin
-    DebugObjectArray += RSRock;
-    DebugObjectArray += RSGrind;
+    if not UseV2 then
+    begin
+      DebugObjectArray += RSRock;
+      DebugObjectArray += RSGrind;
+    end;
+
   end;
 end;
 
 function TQuarryMiner.DropItems: Boolean;
-var
-  InvCount: Int32 := 28;
 begin
   Result := Inventory.ShiftDrop(DropList, Inventory.RandomPattern);
 end;
 
-function TQuarryMiner.TestDeposit: Boolean;
-begin
-  Result := Self.Sandstorm.Click or Self.Sandstorm.WalkClick;
-  if Result then
-    if WaitUntil(not Inventory.IsFull, 400, 4200) then
-    begin
-      Writeln(Chat.GetMessage(7, [Int32(CHAT_COLOR_BLACK)]));
-    end;
-    //Debug(Self.Sandstorm);
-    //Writeln(Chat.GetChat());
-
-
-
-  Self.DropItems;
-  TotalActions += 1;
-end;
-
-function TQuarryMiner.TestMine: Boolean;
-begin
-  //Debug(Self.SandstoneRock);
-  Result := Mining := Self.SandstoneRock.Click or Self.SandstoneRock.WalkClick;
-  if Result then
-  begin
-    Minimap.WaitPlayerMoving(300, 8000);
-    Wait(1000, 1500);
-  end;
-end;
-
 function TQuarryMiner.Deposit: Boolean;
 begin
-  Result := RSGrind.Click or RSGrind.WalkClick;
-  if Result then
-    WaitUntil(not Inventory.IsFull, 400, 4200);
+  if UseV2 then
+  begin
+    Result := Self.Sandstorm.Click or Self.Sandstorm.WalkClick;
+    if Result then
+      if WaitUntil(not Inventory.IsFull, 400, 4200) then
+      begin
+        Writeln(Chat.GetMessage(7, [Int32(CHAT_COLOR_BLACK)]));
+      end;
 
-  Self.DropItems;
-  TotalActions += 1;
+    Self.DropItems;
+    TotalActions += 1;
+  end;
+
+  if not UseV2 then
+  begin
+    Result := RSGrind.Click or RSGrind.WalkClick;
+    if Result then
+      WaitUntil(not Inventory.IsFull, 400, 4200);
+
+    Self.DropItems;
+    TotalActions += 1;
+  end;
+
 end;
 
 function TQuarryMiner.Mine: Boolean;
 begin
-  Result := Mining := RSRock.Click or RSRock.WalkClick;
-  if Result then
+  if UseV2 then
   begin
-    Minimap.WaitPlayerMoving(300, 8000);
-    Wait(1000, 1500);
+    Result := Mining := Self.SandstoneRock.Click or Self.SandstoneRock.WalkClick;
+    if Result then
+    begin
+      Minimap.WaitPlayerMoving(300, 8000);
+      Wait(1000, 1500);
+    end;
+  end;
+
+  if not UseV2 then
+  begin
+    Result := Mining := RSRock.Click or RSRock.WalkClick;
+    if Result then
+    begin
+      Minimap.WaitPlayerMoving(300, 8000);
+      Wait(1000, 1500);
+    end;
   end;
 end;
 
@@ -258,8 +248,8 @@ begin
       //EState.WALK_SPOT:
       //EState.MINE_ROCK
       //EState.DROP_ITEMS
-      EState.MINE_SANDSTONE: Self.TestMine();
-      EState.DEPOSIT_SANDSTONE: Self.TestDeposit();
+      EState.MINE_SANDSTONE: Self.Mine();
+      EState.DEPOSIT_SANDSTONE: Self.Deposit();
       EState.END_SCRIPT: Break;
     end;
 
