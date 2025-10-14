@@ -84,15 +84,22 @@ begin
   Map.SetupChunk(Chunk([48,46,50,43], 0));
   Objects.Setup(Map.Objects(), @Map.Walker);
 
-  //Self.SandstoneRock := Objects.Get('Sandstone rocks');
-  Self.SandstoneRock := TRSObjectV2.Setup(4,4, [[8560, 38770], [8560, 38774], [8568, 38778]]);
+  //Self.SandstoneRock := Objects.Get('Sandstone rocks'); //[8560, 38770],
+  Self.SandstoneRock := TRSObjectV2.Setup(0.8,0.3, [[8560, 38774], [8568, 38778], [8572, 38778]]);
   Self.SandstoneRock.SetupUpText('ine Sandst');
   Self.SandstoneRock.Finder.Colors += CTS2(2253179, 17, 0.04, 0.35);
   Self.SandstoneRock.Walker := @Map.Walker;
 
 
-  Self.Sandstorm := Objects.Get('Grinder');
+  //Self.Sandstorm := Objects.Get('Grinder');
+  Self.Sandstorm.SetupEx([1.8, 3, 3], [[8504, 38798]]);
+  Self.Sandstorm.SetupUpText(['Grin', 'der']);
+  Self.Sandstorm.Finder.Colors += CTS2(4346725, 19, 0.17, 0.32);
+  Self.Sandstorm.Finder.Colors += CTS2(8634567, 18, 0.11, 0.88);
+  Self.Sandstorm.Finder.Colors += CTS2(8109251, 20, 0.09, 0.75);
+  Self.Sandstorm.Walker := @Map.Walker;
 
+  //Debug(Self.Sandstorm);
 
   if not RSClient.IsLoggedIn then
     Login.LoginPlayer;
@@ -107,13 +114,12 @@ begin
   RSRock.Filter.UpText := False;
 
   DropList := ['Granite (500g)', 'Granite (2kg)', 'Granite (5kg)']; // This just adds the bare minimum
-  //TerminateScript(ETask.);
   if CurrentTask = ETask.MINE_HUMIDIFY then // Sets the drop list if using the luna spellbook
     DropList := ['Granite (500g)', 'Granite (2kg)', 'Granite (5kg)'];
   if CurrentTask = ETask.MINE_CIRCLET then // Sets the drop list if using the Circlet
     DropList := ['Waterskin(0)','Granite (500g)', 'Granite (2kg)', 'Granite (5kg)'];
   if CurrentTask = ETask.MINE_NO_HUMIDIFY then // Sets the drop list if buying waterskins
-    DropList := ['Waterskin(0)', 'Granite (500g)', 'Granite (2kg)', 'Granite (5kg)'];
+    DropList := ['Granite (500g)', 'Granite (2kg)', 'Granite (5kg)'];
   if WLSettings.RemoteInput.HUDDebug then
   begin
     DebugObjectArray += RSRock;
@@ -132,7 +138,14 @@ function TQuarryMiner.TestDeposit: Boolean;
 begin
   Result := Self.Sandstorm.Click or Self.Sandstorm.WalkClick;
   if Result then
-    WaitUntil(not Inventory.IsFull, 400, 4200);
+    if WaitUntil(not Inventory.IsFull, 400, 4200) then
+    begin
+      Writeln(Chat.GetMessage(7, [Int32(CHAT_COLOR_BLACK)]));
+    end;
+    //Debug(Self.Sandstorm);
+    //Writeln(Chat.GetChat());
+
+
 
   Self.DropItems;
   TotalActions += 1;
@@ -140,6 +153,7 @@ end;
 
 function TQuarryMiner.TestMine: Boolean;
 begin
+  //Debug(Self.SandstoneRock);
   Result := Mining := Self.SandstoneRock.Click or Self.SandstoneRock.WalkClick;
   if Result then
   begin
@@ -170,14 +184,14 @@ end;
 
 function TQuarryMiner.RefillWaterskins: Boolean;
 begin
-  if magic.IsSpellBook(ERSSpellBook.LUNAR) then
+  if Magic.IsSpellBook(ERSSpellBook.LUNAR) then
   begin
-  Writeln('Refilling');
-  if Magic.CastSpell(ERSSpell.HUMIDIFY) then
-  begin
-    Wait(1500, 2500);
-    Result := True;
-  end //else
+    Writeln('Refilling');
+    if Magic.CastSpell(ERSSpell.HUMIDIFY) then
+    begin
+      Wait(1500, 2500);
+      Result := True;
+    end; //else
 
                           /// Removed fail safe because it was causing problems
                           // TODO ADD LATER
