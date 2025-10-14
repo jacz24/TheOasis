@@ -35,11 +35,10 @@ type
     State: EState;
     Mining: Boolean;
 
-    CircletCharge :  Int32;
-    PlayerHP      :  Int32;
-    PrevHP        :  Int32;
-    InvCount      :  Int32;
-    PrevInvCount  :  Int32;
+    CircletCharge, PlayerHP, PrevHP,
+    InvCount, PrevInvCount,
+    SandstoneMinLimit, SandstoneMaxLimit,
+    CurrentSandstoneInGrinder :  Int32;
 
     RSRock: TRSObject;
     RSGrind: TRSObject;
