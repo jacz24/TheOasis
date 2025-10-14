@@ -1,0 +1,296 @@
+{$UNDEF SCRIPT_ID}{$DEFINE SCRIPT_ID := '1f4c0b6c-7679-41fe-bde7-3015f486d45d'}
+{$UNDEF SCRIPT_REVISION}{$DEFINE SCRIPT_REVISION := '6'}
+{$IFDEF WINDOWS}{$DEFINE FORMS_V2}{$DEFINE SCRIPT_GUI}{$ENDIF}
+{$I SRL-T/osr.simba}
+{$I WaspLib/osr.simba}
+
+begin
+  Login.PlayerIndex     := 0;
+end;
+type
+  ETask = (
+    MINE_CIRCLET,
+    MINE_HUMIDIFY, // Working Based On My Tests
+    MINE_NO_HUMIDIFY // Not Working
+  );
+
+var
+  CurrentTask: ETask := ETask.MINE_CIRCLET;
+
+type
+  EState = (
+    WAIT_STATE,
+
+    //Mining States
+    MINE_SANDSTONE,
+    USE_SPEC,
+    USE_HUMIDIFY,
+    DEPOSIT_SANDSTONE,
+
+    LEVEL_UP,
+    END_SCRIPT
+  );
+
+  TScript = record(TBaseWalkerScript)
+    State: EState;
+    Mining: Boolean;
+
+    CircletCharge :  Int32;
+    PlayerHP      :  Int32;
+    PrevHP        :  Int32;
+    InvCount      :  Int32;
+    PrevInvCount  :  Int32;
+
+    RSRock: TRSObject;
+    RSGrind: TRSObject;
+
+    DropList: TRSItemArray;
+  end;
+
+procedure TAntiban.Setup; override;
+begin
+  inherited;
+
+  Antiban.Skills := [ERSSkill.MINING, ERSSkill.TOTAL];
+  Antiban.MinZoom := 39;
+  Antiban.MaxZoom := 69;
+
+end;
+
+function TScript.IsMining: Boolean;
+begin
+  Result := SRL.IsAnimating(MainScreen.GetPlayerBox(), MainScreen.NormalizeDistance(450), 350, 3);
+end;
+function TScript.WaitMining(t: UInt32 = 3000): Boolean;
+var
+  GotXP: Boolean;
+begin
+  if Inventory.Count <> PrevInvCount then
+  begin
+    Mining := False;
+    Exit(False);
+  end;
+
+  Result := WaitUntil((Mining := Self.IsMining) or (GotXP := XPBar.EarnedXP), 100, t);
+  if GotXP then
+    Result := Mining := False;
+end;
+
+procedure TScript.Init(MaxActions: UInt32; MaxTime: UInt64); override;
+begin
+  Name := 'SandstoneMiner';
+  inherited;
+
+  RSW.Setup([RSRegions.BANDIT_CAMP_QUARRY]);
+
+  if not RSClient.IsLoggedIn then
+    Login.LoginPlayer;
+
+  if Antiban.BioDice then
+    Options.SetNPCAttackOption(ERSAttackOption.HIDDEN)
+  else
+    Options.SetNPCAttackOption(ERSAttackOption.ALWAYS_RIGHT_CLICK);
+
+  RSGrind := RSObjects.BanditCampQuarryGrinder;
+  RSRock  := RSObjects.SandStoneRock;
+  RSRock.Filter.UpText := False;
+
+  DropList := ['Granite (500g)', 'Granite (2kg)', 'Granite (5kg)']; // This just adds the bare minimum
+  //TerminateScript(ETask.);
+  if CurrentTask = ETask.MINE_HUMIDIFY then // Sets the drop list if using the luna spellbook
+    DropList := ['Granite (500g)', 'Granite (2kg)', 'Granite (5kg)'];
+  if CurrentTask = ETask.MINE_CIRCLET then // Sets the drop list if using the Circlet
+    DropList := ['Waterskin(0)','Granite (500g)', 'Granite (2kg)', 'Granite (5kg)'];
+  if CurrentTask = ETask.MINE_NO_HUMIDIFY then // Sets the drop list if buying waterskins
+    DropList := ['Waterskin(0)', 'Granite (500g)', 'Granite (2kg)', 'Granite (5kg)'];
+  if WLSettings.RemoteInput.HUDDebug then
+  begin
+    DebugObjectArray += RSRock;
+    DebugObjectArray += RSGrind;
+  end;
+end;
+
+function TScript.DropItems: Boolean;
+var
+  InvCount: Int32 := 28;
+begin
+  Result := Inventory.ShiftDrop(DropList, Inventory.RandomPattern);
+end;
+
+function TScript.Deposit: Boolean;
+begin
+  Result := RSGrind.Click or RSGrind.WalkClick;
+  if Result then
+    WaitUntil(not Inventory.IsFull, 400, 4200);
+
+  Self.DropItems;
+  TotalActions += 1;
+end;
+
+function TScript.Mine: Boolean;
+begin
+  Result := Mining := RSRock.Click or RSRock.WalkClick;
+  if Result then
+  begin
+    Minimap.WaitPlayerMoving(300, 8000);
+    Wait(1000, 1500);
+  end;
+end;
+
+function TScript.RefillWaterskins: Boolean;
+begin
+  if magic.IsSpellBook(ERSSpellBook.LUNAR) then
+  begin
+  Writeln('Refilling');
+  if Magic.CastSpell(ERSSpell.HUMIDIFY) then
+  begin
+    Wait(1500, 2500);
+    Result := True;
+  end //else
+
+                          /// Removed fail safe because it was causing problems
+                          // TODO ADD LATER
+  //Logout.ClickLogout(24);
+  //TerminateScript('No Lunar Spellbook, failsafe triggerd avoiding dying!');
+  //end else
+  //begin
+  //Logout.ClickLogout(24);
+  //TerminateScript('No Lunar Spellbook, failsafe triggerd avoiding dying!');
+  end;
+end;
+
+function TScript.EndScript: Boolean;
+begin
+  if Logout.ClickLogout() then
+    TerminateScript('Ending Script! Shutdown');
+end;
+
+function TScript.GetState: EState;
+begin
+  if WL.Activity.IsFinished then
+    Exit(EState.END_SCRIPT);
+
+  if Mining then
+    Exit(EState.WAIT_STATE);
+
+  if Chat.LeveledUp then
+  begin
+    Mining := False;
+    Exit(EState.LEVEL_UP);
+  end;
+
+  if Inventory.IsFull then
+  begin
+    Mining := False;
+    Exit(EState.DEPOSIT_SANDSTONE);
+  end;
+
+
+  Exit(EState.MINE_SANDSTONE);
+
+end;
+
+procedure TScript.Run(MaxActions: Int32; MaxTime: Int64);
+begin
+  ClearDebug;
+  Self.Init(MaxActions, MaxTime);
+
+  while not Self.ShouldStop do
+  begin
+    State := Self.GetState;
+    Action := ToStr(State);
+
+    InvCount := Inventory.Count;
+    PlayerHP := Minimap.GetHPLevel;
+
+
+    if InvCount <> PrevInvCount then
+      WL.Activity.Restart;
+
+
+    case State of
+      EState.WAIT_STATE: Self.WaitMining;
+      EState.LEVEL_UP: Chat.HandleLevelUp;
+
+      EState.MINE_SANDSTONE: Self.Mine;
+      Estate.DEPOSIT_SANDSTONE: Self.Deposit;
+      EState.END_SCRIPT: Self.EndScript;
+    end;
+
+    //Writeln(IntToStr(PlayerHP) + '  : ' + IntToStr(PrevHP));
+
+    if PlayerHP < PrevHP then
+      Self.RefillWaterskins;
+
+    PrevHP := PlayerHP;
+    PrevInvCount := InvCount;
+    Self.DoAntiban;
+  end;
+end;
+
+var
+  Script: TScript;
+
+type
+  TConfig = record(TScriptForm)
+    Selector: TLabeledCombobox;
+  end;
+
+procedure TConfig.StartScript(Sender: TObject); override;
+begin
+
+  CurrentTask := ETask(Selector.Combobox.getItemIndex);
+  inherited;
+
+end;
+
+procedure TConfig.Run(); override;
+var
+  tab: TTabSheet;
+begin
+  Self.Setup('Jacz Quarry Miner');
+  Self.Start.setOnClick(@Self.StartScript);
+
+  Self.AddTab('Script Settings');
+  tab := Self.Tabs[High(Self.Tabs)];
+
+  Self.CreateAccountManager(tab);
+
+  with Selector do
+  begin
+    Create(tab);
+    SetCaption('Jacz Quarry Miner');
+    SetLeft(TControl.AdjustToDPI(40));
+    SetTop(TControl.AdjustToDPI(170));
+    SetStyle(csDropDownList);
+
+    //Init(Self.SSPanel.Panel);
+    //SetCaption('Mining Style:');
+    //SetLeft(15);
+    //SetTop(35);
+    //SetWidth(200);
+    //Combobox.setStyle(csDropDownList);
+    AddItemArray(['Mine (Circlet Of Water)', 'Mine (Humidify)', 'Mine (Buy Waterskins)']);
+    //AddItem('Mine (Humidify)');
+    //AddItem('Mine (Buy Waterskins)');
+    SetItemIndex(Ord(CurrentTask));
+  end;
+
+  Self.CreateVersionPanel(tab);
+
+  Self.CreateAntibanManager();
+  Self.CreateWaspLibSettings();
+  Self.CreateAPISettings();
+
+  inherited
+end;
+
+var
+  Config: TConfig;
+
+begin
+  {$IFDEF SCRIPT_GUI}
+  Sync(@Config.Run);
+  {$ENDIF}
+  Script.Run(WLSettings.MaxActions, WLSettings.MaxTime);
+end.
