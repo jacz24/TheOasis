@@ -130,7 +130,7 @@ type
 
   TRSGFMouldArray = array of TRSGFMould;
 
-  TGiantsFoundry = record(TBaseScript)
+  TGiantsFoundry = record(TBaseBankScript)
     State, LastState: EGFState;
     StateStartTime: UInt64;
     StateTimeout: UInt64;  // Timeout in milliseconds
