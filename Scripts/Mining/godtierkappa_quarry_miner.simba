@@ -8,16 +8,20 @@ type
   ETask = (
     MINE_CIRCLET,  // Working
     MINE_HUMIDIFY, // Working Based On My Tests
-    MINE_NO_HUMIDIFY // Not Working
+    MINE_NO_HUMIDIFY, // Not Working
+
+    MINE_GRANITE, // NOT WORKING
+    MINE_GRANITE_3T // Not working
   );
 
 var
   UseV2: Boolean := True; // Use the new rewrite (Recommended)
   CurrentTask: ETask := ETask.MINE_CIRCLET;
-
+  UseSandBucketLimit: Boolean := True;
+  SandBucketLimit: Int32 := 25000; // 25000 or -1 = Till Grinder Is Full
 type
   EState = (
-    WAIT_STATE,
+    WAIT_MINING,
 
     //Mining States
     MINE_SANDSTONE,
@@ -25,22 +29,23 @@ type
     USE_HUMIDIFY,
     DEPOSIT_SANDSTONE,
 
+    GET_SAND_COUNT,
     LEVEL_UP,
     END_SCRIPT
   );
 
   TQuarryMiner = record(TBaseBankScript)
     State: EState;
-    Mining: Boolean;
+    Mining, UseLimit, GotSandGrinderCount: Boolean;
 
     CircletCharge, PlayerHP, PrevHP,
     InvCount, PrevInvCount,
-    SandstoneMinLimit, SandstoneMaxLimit,
-    CurrentSandstoneGrinderCount :  Int32;
+    SandstoneMaxLimit,
+    CurrentSandGrinderCount:  Int32;
 
     RSRock, RSGrind: TRSObject; // V1 Objects
     SandstoneRock, Sandstorm: TRSObjectV2;
-    Drew: TRSNPC;
+    Drew: TRSNPCV2;
     DropList: TRSItemArray;
   end;
 
@@ -74,8 +79,12 @@ begin
   Map.SetupChunk(Chunk([48,46,50,43], 0));
   Objects.Setup(Map.Objects(), @Map.Walker);
 
+  Self.GotSandGrinderCount := False; // Flag to check how many buckets we have in grinder
+  UseLimit := UseSandBucketLimit;
+  Self.SandstoneMaxLimit := SandBucketLimit;
+
   //Self.SandstoneRock := Objects.Get('Sandstone rocks'); //[8560, 38770],
-  Self.SandstoneRock := TRSObjectV2.Setup(0.8,0.3, [[8560, 38774], [8568, 38778], [8572, 38778]]);
+  Self.SandstoneRock := TRSObjectV2.Setup(0.6,0.2, [[8560, 38774], [8568, 38778], [8572, 38778]]);
   Self.SandstoneRock.SetupUpText('ine Sandst');
   Self.SandstoneRock.Finder.Colors += CTS2(2253179, 17, 0.04, 0.35);
   Self.SandstoneRock.Walker := @Map.Walker;
@@ -89,6 +98,18 @@ begin
   Self.Sandstorm.Finder.Colors += CTS2(8109251, 20, 0.09, 0.75);
   Self.Sandstorm.Walker := @Map.Walker;
 
+
+  //Self.Drew := NPCs.Get('Drew');
+  Self.Drew := TRSNPCV2.Setup(20, 6, [[8516, 38786]]);
+  Self.Drew.SetupUpText(['Drew']);
+  Self.Drew.Finder.Colors += CTS2(6328987, 9, 0.09, 0.96);
+  Self.Drew.Finder.Colors += CTS2(7763838, 5, 0.51, 0.10);
+  Self.Drew.Finder.Colors += CTS2(4677219, 7, 0.13, 0.20);
+  Self.Drew.Finder.Colors += CTS2(10407117, 10, 0.04, 0.57);
+  Self.Drew.Finder.Colors += CTS2(5727889, 14, 0.30, 0.61);
+  Self.Drew.Finder.Colors += CTS2(13487572, 14, 1.24, 0.13);
+  Self.Drew.Walker := @Map.Walker;
+
   if not UseV2 then
   begin
     RSW.Setup([RSRegions.BANDIT_CAMP_QUARRY]);
@@ -99,8 +120,16 @@ begin
 
 
   DropList := ['Granite (500g)', 'Granite (2kg)', 'Granite (5kg)']; // This just adds the bare minimum
+
   if CurrentTask = ETask.MINE_HUMIDIFY then // Sets the drop list if using the luna spellbook
+  begin
+    if Magic.GetSpellBook() <> ERSSpellBook.LUNAR then
+      Self.Fatal('You need to be on lunar spellbook.');
+
     DropList := ['Granite (500g)', 'Granite (2kg)', 'Granite (5kg)'];
+  end;
+
+
   if CurrentTask = ETask.MINE_CIRCLET then // Sets the drop list if using the Circlet
     DropList := ['Waterskin(0)','Granite (500g)', 'Granite (2kg)', 'Granite (5kg)'];
   if CurrentTask = ETask.MINE_NO_HUMIDIFY then // Sets the drop list if buying waterskins
@@ -114,6 +143,10 @@ begin
     end;
 
   end;
+
+  Mouse.Speed += 10;
+  Mouse.Gravity += 3;
+  Mouse.Wind += 2;
 end;
 
 function TQuarryMiner.DropItems: Boolean;
@@ -121,15 +154,30 @@ begin
   Result := Inventory.ShiftDrop(DropList, Inventory.RandomPattern);
 end;
 
+function TQuarryMiner.InvToBuckets: Int32;
+var
+  sandstone_one_count, sandstone_two_count,
+  sandstone_five_count, sandstone_ten_count, total_sand: Int32;
+begin
+  sandstone_one_count := Inventory.CountItem('Sandstone (1kg)');
+  sandstone_two_count := Inventory.CountItem('Sandstone (2kg)');
+  sandstone_five_count := Inventory.CountItem('Sandstone (5kg)');
+  sandstone_ten_count := Inventory.CountItem('Sandstone (10kg)');
+
+  Result := sandstone_one_count * 1 + sandstone_two_count * 2 + sandstone_five_count * 4 + sandstone_ten_count * 8;
+end;
+
 function TQuarryMiner.Deposit: Boolean;
 begin
+  Self.CurrentSandGrinderCount += Self.InvToBuckets();
   if UseV2 then
   begin
     Result := Self.Sandstorm.Click or Self.Sandstorm.WalkClick;
     if Result then
       if WaitUntil(not Inventory.IsFull, 400, 4200) then
       begin
-        Writeln(Chat.GetMessage(7, [Int32(CHAT_COLOR_BLACK)]));
+
+        //Writeln(Chat.GetMessage(7, [Int32(CHAT_COLOR_BLACK)]));
       end;
 
     Self.DropItems;
@@ -193,6 +241,23 @@ begin
   end;
 end;
 
+procedure TQuarryMiner.GetSandstormCount();
+begin
+  Writeln('Getting Sandstorm Amount!');
+
+  if Self.Drew.WalkSelectOption(['heck']) then
+  begin
+    Minimap.WaitMoving();
+  end;
+
+  if WaitUntil(Chat.GetChatTitle = 'Drew', 250, 5000) then
+  begin
+    Self.GotSandGrinderCount := True;
+    Self.CurrentSandGrinderCount := StrToInt(Chat.GetChat().Between('for ', ' buckets').Replace(',', ''));
+    //Writeln(Chat.GetChat().Between('for ', ' buckets').Replace(',', ''));
+  end;
+end;
+
 function TQuarryMiner.EndScript: Boolean;
 begin
   if Logout.ClickLogout() then
@@ -205,12 +270,20 @@ begin
     Exit(EState.END_SCRIPT);
 
   if Mining then
-    Exit(EState.WAIT_STATE);
+    Exit(EState.WAIT_MINING);
 
   if Chat.LeveledUp then
   begin
     Mining := False;
     Exit(EState.LEVEL_UP);
+  end;
+
+  if Self.UseLimit then
+  begin
+    if not Self.GotSandGrinderCount then
+      Exit(EState.GET_SAND_COUNT);
+    Writeln(Self.CurrentSandGrinderCount);
+    Writeln(Self.InvToBuckets);
   end;
 
   if Inventory.IsFull then
@@ -219,6 +292,8 @@ begin
     Exit(EState.DEPOSIT_SANDSTONE);
   end;
 
+  if Minimap.IsSpecWeapon and (Minimap.GetSpecLevel = 100) then
+    Exit(EState.USE_SPEC);
 
   Exit(EState.MINE_SANDSTONE);
 
@@ -230,6 +305,8 @@ begin
   Self.Init(MaxActions, MaxTime);
 
   repeat
+
+    //Self.GetSandstormCount();
     Self.State := Self.GetState();
     Self.SetAction(ToStr(Self.State));
 
@@ -242,9 +319,10 @@ begin
 
 
     case Self.State of
-      EState.WAIT_STATE: Self.WaitMining();
+      EState.WAIT_MINING: Self.WaitMining();
       EState.LEVEL_UP: Chat.HandleLevelUp();
-
+      EState.GET_SAND_COUNT: Self.GetSandstormCount();
+      EState.USE_SPEC: Minimap.EnableSpec(100);
       //EState.WALK_SPOT:
       //EState.MINE_ROCK
       //EState.DROP_ITEMS
@@ -271,20 +349,35 @@ var
 type
   TQuarryMinerConfig = record(TScriptForm)
     Selector: TLabeledCombobox;
+    SandLimitBox: TCheckBox;
+    SandLimitEdit: TLabeledEdit;
+
+    Config: TConfigJSON;
   end;
+
+procedure TQuarryMinerConfig.SandLimitBoxChanged(Sender: TObject);
+begin
+  Self.SandLimitEdit.SetVisible(Self.SandLimitBox.IsChecked());
+end;
 
 procedure TQuarryMinerConfig.StartScript(Sender: TObject); override;
 begin
   CurrentTask := ETask(Selector.Combobox.getItemIndex);
-  inherited;
+  UseSandBucketLimit := SandLimitBox.IsChecked();
+  SandBucketLimit := StrToInt(SandLimitEdit.getText());
 
+  Self.Config.Put('task', Ord(CurrentTask));
+  Self.Config.Put('use_limit', UseSandBucketLimit);
+  Self.Config.Put('limit', SandBucketLimit);
+  inherited;
 end;
 
 procedure TQuarryMinerConfig.Run(); override;
 var
   tab: TTabSheet;
 begin
-  Self.Setup('Jacz Quarry Miner');
+  Self.Config.Setup('god-quarry-miner');
+  Self.Setup('God Quarry Miner');
   Self.Start.setOnClick(@Self.StartScript);
 
   Self.AddTab('Script Settings');
@@ -300,8 +393,39 @@ begin
     SetTop(TControl.AdjustToDPI(170));
     SetStyle(csDropDownList);
 
-    AddItemArray(['Mine (Circlet Of Water)', 'Mine (Humidify)', 'Mine (Buy Waterskins)']);
+    AddItemArray(['Mine (Circlet Of Water)', 'Mine (Humidify)', 'Mine (Buy Waterskins)', 'Granite Power Mine', '3-Tick Granite Power Mine']);
     SetItemIndex(Ord(CurrentTask));
+  end;
+
+  with SandLimitBox do
+  begin
+    Create(tab);
+    setCaption('Enable Sand Collecting Limit');
+    SetLeft(TControl.AdjustToDPI(40));
+    SetTop(Self.Selector.GetBottom() + TControl.AdjustToDPI(10));
+
+    if Self.Config.Has('use_limit') then
+      SetChecked(Self.Config.GetBoolean('use_limit'))
+    else
+      SetChecked(UseSandBucketLimit);
+    setOnChange(@Self.SandLimitBoxChanged);
+  end;
+
+  with SandLimitEdit do
+  begin
+    Create(tab);
+    SetCaption('Buckets Of Sand Limit:');
+    SetLeft(TControl.AdjustToDPI(40));
+    SetTop(Self.SandLimitBox.GetBottom() + TControl.AdjustToDPI(10));
+
+    SetToolTip('Shutdown After Collecting This Much Sand');
+
+    if Self.Config.Has('limit') then
+      SetText(ToStr(Self.Config.GetInt('limit')))
+    else
+      SetText(ToStr(SandBucketLimit));
+
+    SetVisible(Self.SandLimitBox.IsChecked());
   end;
 
   Self.CreateVersionPanel(tab);
