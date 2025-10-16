@@ -41,12 +41,12 @@ type
     CircletCharge, PlayerHP, PrevHP,
     InvCount, PrevInvCount,
     SandstoneMaxLimit,
-    CurrentSandGrinderCount:  Int32;
+    CurrentSandGrinderCount, InventoryFullThreshold:  Int32;
 
     RSRock, RSGrind: TRSObject; // V1 Objects
-    SandstoneRock, Sandstorm: TRSObjectV2;
+    SandstoneRock, Sandstorm, GraniteRock: TRSObjectV2;
     Drew: TRSNPCV2;
-    DropList: TRSItemArray;
+    DropList, SandstoneList, GraniteList: TRSItemArray;
   end;
 
 function TQuarryMiner.IsMining: Boolean;
@@ -89,6 +89,10 @@ begin
   Self.SandstoneRock.Finder.Colors += CTS2(2253179, 17, 0.04, 0.35);
   Self.SandstoneRock.Walker := @Map.Walker;
 
+  Self.GraniteRock := TRSObjectV2.Setup(0.6,0.2, [[8564, 38798], [8564, 38794], [8564, 38790], [8572, 38786]]);
+  Self.GraniteRock.SetupUpText('ine Gran');
+  Self.GraniteRock.Finder.Colors += CTS2(3630463, 26, 0.05, 0.36);
+  Self.GraniteRock.Walker := @Map.Walker;
 
   //Self.Sandstorm := Objects.Get('Grinder');
   Self.Sandstorm.SetupEx([1.8, 3, 3], [[8504, 38798]]);
@@ -118,8 +122,9 @@ begin
     RSRock.Filter.UpText := False;
   end;
 
-
-  DropList := ['Granite (500g)', 'Granite (2kg)', 'Granite (5kg)']; // This just adds the bare minimum
+  Self.SandstoneList := ['Sandstone (1kg)', 'Sandstone (2kg)', 'Sandstone (5kg)', 'Sandstone (10kg)'];
+  Self.GraniteList := ['Granite (500g)', 'Granite (2kg)', 'Granite (5kg)'];
+  Self.DropList := ['Granite (500g)', 'Granite (2kg)', 'Granite (5kg)']; // This just adds the bare minimum
 
   if CurrentTask = ETask.MINE_HUMIDIFY then // Sets the drop list if using the luna spellbook
   begin
@@ -157,26 +162,36 @@ end;
 function TQuarryMiner.InvToBuckets: Int32;
 var
   sandstone_one_count, sandstone_two_count,
-  sandstone_five_count, sandstone_ten_count, total_sand: Int32;
+  sandstone_five_count, sandstone_ten_count: Int32;
 begin
   sandstone_one_count := Inventory.CountItem('Sandstone (1kg)');
   sandstone_two_count := Inventory.CountItem('Sandstone (2kg)');
   sandstone_five_count := Inventory.CountItem('Sandstone (5kg)');
   sandstone_ten_count := Inventory.CountItem('Sandstone (10kg)');
 
-  Result := sandstone_one_count * 1 + sandstone_two_count * 2 + sandstone_five_count * 4 + sandstone_ten_count * 8;
+  Result := (sandstone_one_count * 1) + (sandstone_two_count * 2) + (sandstone_five_count * 4) + (sandstone_ten_count * 8);
 end;
-
-function TQuarryMiner.Deposit: Boolean;
+function TQuarryMiner.ShouldDeposit(): Boolean;
 begin
-  Self.CurrentSandGrinderCount += Self.InvToBuckets();
+  if Self.InventoryFullThreshold < 1 then
+    Self.InventoryFullThreshold := SRL.TruncatedGauss(28, 1); // Mean: 28, StdDev: 1
+
+  Result := Inventory.Count >= Self.InventoryFullThreshold;
+end;
+function TQuarryMiner.Deposit: Boolean;
+var
+  current_inv_buckets: Int32;
+begin
+  current_inv_buckets := Self.InvToBuckets(); // Converts sandstone inventory to buckets
   if UseV2 then
   begin
+
     Result := Self.Sandstorm.Click or Self.Sandstorm.WalkClick;
     if Result then
-      if WaitUntil(not Inventory.IsFull, 400, 4200) then
+      if WaitUntil(not Inventory.ContainsAny(Self.SandstoneList), 400, 4200) then
       begin
-
+        Self.CurrentSandGrinderCount += current_inv_buckets;
+        Self.InventoryFullThreshold := SRL.TruncatedGauss(28, 1);
         //Writeln(Chat.GetMessage(7, [Int32(CHAT_COLOR_BLACK)]));
       end;
 
@@ -188,7 +203,12 @@ begin
   begin
     Result := RSGrind.Click or RSGrind.WalkClick;
     if Result then
-      WaitUntil(not Inventory.IsFull, 400, 4200);
+      if WaitUntil(not Inventory.ContainsAny(Self.SandstoneList), 400, 4200) then
+      begin
+        Self.CurrentSandGrinderCount += current_inv_buckets;
+        Self.InventoryFullThreshold := SRL.TruncatedGauss(28, 1);
+        //Writeln(Chat.GetMessage(7, [Int32(CHAT_COLOR_BLACK)]));
+      end;
 
     Self.DropItems;
     TotalActions += 1;
@@ -282,11 +302,12 @@ begin
   begin
     if not Self.GotSandGrinderCount then
       Exit(EState.GET_SAND_COUNT);
-    Writeln(Self.CurrentSandGrinderCount);
-    Writeln(Self.InvToBuckets);
+
+    if CurrentSandGrinderCount >= Self.SandstoneMaxLimit then
+      Exit(EState.END_SCRIPT);
   end;
 
-  if Inventory.IsFull then
+  if Inventory.IsFull() or Self.ShouldDeposit() then
   begin
     Mining := False;
     Exit(EState.DEPOSIT_SANDSTONE);
