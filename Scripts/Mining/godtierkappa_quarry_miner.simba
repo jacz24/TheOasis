@@ -56,6 +56,7 @@ type
 
     RSRock, RSGrind: TRSObject; // V1 Objects
     RSRockV2, SandstoneRock, Sandstorm, GraniteRock: TRSObjectV2;
+    RSRockArray: array of TRSObjectV2;
     Drew: TRSNPCV2;
     DropList, SandstoneList, GraniteList: TRSItemArray;
   end;
@@ -157,43 +158,77 @@ begin
   Self.SandstoneMaxLimit := SandBucketLimit;
 
   //Self.SandstoneRock := Objects.Get('Sandstone rocks'); //[8560, 38770],
-
-  if CurrentLocation = ELocation.NORTH_QUARRY then
+  if CurrentRock = ERock.MINE_BOTH then
   begin
-    Self.SandstoneRock := TRSObjectV2.Setup(0.6,0.2, [[8560, 38774], [8568, 38778], [8572, 38778]]);
+    Self.SandstoneRock := TRSObjectV2.Setup(0.6,0.2, [[8568, 38778], [8572, 38778]]);
     Self.SandstoneRock.SetupUpText('ine Sandst');
     Self.SandstoneRock.Finder.Colors += CTS2(2253179, 17, 0.04, 0.35);
     Self.SandstoneRock.Walker := @Map.Walker;
 
-    Self.GraniteRock := TRSObjectV2.Setup(0.6,0.2, [[8564, 38798], [8564, 38794], [8564, 38790], [8572, 38786]]);
+    Self.GraniteRock := TRSObjectV2.Setup(0.6,0.2, [[8568, 38770], [8572, 38770]]);
     Self.GraniteRock.SetupUpText('ine Gran');
     Self.GraniteRock.Finder.Colors += CTS2(3630463, 26, 0.05, 0.36);
     Self.GraniteRock.Walker := @Map.Walker;
 
-    if CurrentRock = ERock.SANDSTONE then
-      RSRockV2 := Self.SandstoneRock;
+  end;
 
+  if CurrentLocation = ELocation.NORTH_QUARRY then
+  begin
+    if CurrentRock = ERock.SANDSTONE then
+    begin
+      Self.SandstoneRock := TRSObjectV2.Setup(0.6,0.2, [[8560, 38774], [8568, 38778], [8572, 38778]]);
+      Self.SandstoneRock.SetupUpText('ine Sandst');
+      Self.SandstoneRock.Finder.Colors += CTS2(2253179, 17, 0.04, 0.35);
+      Self.SandstoneRock.Walker := @Map.Walker;
+      RSRockV2 := Self.SandstoneRock;
+    end;
     if CurrentRock = ERock.GRANITE then
+      Self.GraniteRock := TRSObjectV2.Setup(0.6,0.2, [[8592, 38750], [8596, 38750], [8600, 38790]]);
+      Self.GraniteRock.SetupUpText('ine Gran');
+      Self.GraniteRock.Finder.Colors += CTS2(3630463, 26, 0.05, 0.36);
+      Self.GraniteRock.Walker := @Map.Walker;
       RSRockV2 := Self.GraniteRock;
   end;
 
   if CurrentLocation = ELocation.SOUTH_QUARRY then
   begin
-    Self.SandstoneRock := TRSObjectV2.Setup(0.6,0.2, [[8560, 38806], [8568, 38806], [8560, 38810], [8568, 38810]]);
-    Self.SandstoneRock.SetupUpText('ine Sandst');
-    Self.SandstoneRock.Finder.Colors += CTS2(2253179, 17, 0.04, 0.35);
-    Self.SandstoneRock.Walker := @Map.Walker;
-
-    Self.GraniteRock := TRSObjectV2.Setup(0.6,0.2, [[8564, 38798], [8564, 38794], [8564, 38790], [8572, 38786]]);
-    Self.GraniteRock.SetupUpText('ine Gran');
-    Self.GraniteRock.Finder.Colors += CTS2(3630463, 26, 0.05, 0.36);
-    Self.GraniteRock.Walker := @Map.Walker;
-
     if CurrentRock = ERock.SANDSTONE then
+    begin
+      Self.SandstoneRock := TRSObjectV2.Setup(0.6,0.2, [[8560, 38806], [8568, 38806], [8560, 38810], [8568, 38810]]);
+      Self.SandstoneRock.SetupUpText('ine Sandst');
+      Self.SandstoneRock.Finder.Colors += CTS2(2253179, 17, 0.04, 0.35);
+      Self.SandstoneRock.Walker := @Map.Walker;
       RSRockV2 := Self.SandstoneRock;
-
+    end;
     if CurrentRock = ERock.GRANITE then
+    begin
+      Self.GraniteRock := TRSObjectV2.Setup(0.6,0.2, [[8564, 38790], [8564, 38794], [8564, 38798]]);
+      Self.GraniteRock.SetupUpText('ine Gran');
+      Self.GraniteRock.Finder.Colors += CTS2(3630463, 26, 0.05, 0.36);
+      Self.GraniteRock.Walker := @Map.Walker;
       RSRockV2 := Self.GraniteRock;
+    end;
+  end;
+
+  case CurrentRock of
+    ERock.SANDSTONE:
+    begin
+      SetLength(Self.RSRockArray, 1);
+      Self.RSRockArray[0] := Self.SandstoneRock;
+    end;
+
+    ERock.GRANITE:
+    begin
+      SetLength(Self.RSRockArray, 1);
+      Self.RSRockArray[0] := Self.GraniteRock;
+    end;
+
+    ERock.MINE_BOTH:
+    begin
+      SetLength(Self.RSRockArray, 2);
+      Self.RSRockArray[0] := Self.SandstoneRock;
+      Self.RSRockArray[1] := Self.GraniteRock;
+    end;
   end;
 
   //Self.Sandstorm := Objects.Get('Grinder');
@@ -229,10 +264,10 @@ begin
   Self.DropList := ['Granite (500g)', 'Granite (2kg)', 'Granite (5kg)']; // This just adds the bare minimum
 
   if CurrentStyle = EStyle.MINE_CIRCLET then // Sets the drop list if using the Circlet
-    if ERock.SANDSTONE then
+    if CurrentRock = ERock.SANDSTONE then
       DropList := ['Waterskin(0)','Granite (500g)', 'Granite (2kg)', 'Granite (5kg)'];
 
-    if ERock.GRANITE or ERock.MINE_BOTH then
+    if (CurrentRock = ERock.GRANITE) or (CurrentRock = ERock.MINE_BOTH) then
       DropList := ['Sandstone (1kg)', 'Sandstone (2kg)', 'Sandstone (5kg)', 'Sandstone (10kg)',
     'Granite (500g)', 'Granite (2kg)', 'Granite (5kg)', 'Clue geode (beginner)', 'Clue geode (easy)', 'Clue geode (medium)',
     'Clue geode (hard)', 'Clue geode (elite)', 'Scroll box (beginner)', 'Scroll box (easy)', 'Scroll box (medium)',
@@ -243,10 +278,10 @@ begin
     if Magic.GetSpellBook() <> ERSSpellBook.LUNAR then
       Self.Fatal('You need to be on lunar spellbook.');
 
-    if ERock.SANDSTONE then
+    if CurrentRock = ERock.SANDSTONE then
       DropList := ['Granite (500g)', 'Granite (2kg)', 'Granite (5kg)'];
 
-    if ERock.GRANITE or ERock.MINE_BOTH then
+    if (CurrentRock = ERock.GRANITE) or (CurrentRock = ERock.MINE_BOTH) then
       DropList := ['Sandstone (1kg)', 'Sandstone (2kg)', 'Sandstone (5kg)', 'Sandstone (10kg)',
     'Granite (500g)', 'Granite (2kg)', 'Granite (5kg)', 'Clue geode (beginner)', 'Clue geode (easy)', 'Clue geode (medium)',
     'Clue geode (hard)', 'Clue geode (elite)', 'Scroll box (beginner)', 'Scroll box (easy)', 'Scroll box (medium)',
@@ -338,15 +373,44 @@ begin
 end;
 
 function TQuarryMiner.Mine: Boolean;
+var
+  RockIndices: TIntegerArray;
+  i, RandomIndex: Int32;
+  RockClicked: Boolean;
 begin
   if UseV2 then
   begin
-    Result := Mining := Self.RSRockV2.Click or Self.RSRockV2.WalkClick;
-    if Result then
+    // Create shuffled array of indices
+    SetLength(RockIndices, Length(Self.RSRockArray));
+
+    for i := 0 to High(RockIndices) do
+      RockIndices[i] := i;
+
+    // Shuffle the indices
+    for i := High(RockIndices) downto 1 do
     begin
-      Minimap.WaitPlayerMoving(300, 8000);
-      Wait(1000, 1500);
+      RandomIndex := Random(i + 1);
+      Swap(RockIndices[i], RockIndices[RandomIndex]);
     end;
+
+    // Try rocks in random order
+    for i := 0 to High(RockIndices) do
+    begin
+      RockClicked := Self.RSRockArray[RockIndices[i]].Click();
+
+      if not RockClicked then
+        RockClicked := Self.RSRockArray[RockIndices[i]].WalkClick();
+
+      if RockClicked then
+      begin
+        Result := Mining := True;
+        Minimap.WaitPlayerMoving(300, 8000);
+        Wait(1000, 1500);
+        Exit;
+      end;
+    end;
+
+    Result := False;
   end;
 
   if not UseV2 then
@@ -377,6 +441,51 @@ begin
   end;
 end;
 
+function TQuarryMiner.CheckHealthAndLogout(healthPercent: Int32 = 50): Boolean;
+var
+  maxHP: Int32;
+  percentageHP: Double;
+begin
+  Result := False;
+
+  maxHP := Minimap.GetHPPercent();
+
+  percentageHP := maxHP;
+
+  if percentageHP <= healthPercent then
+  begin
+    WriteLn('Health dropped to ', Round(percentageHP), '% - Logging out for safety');
+
+    if Logout.ClickLogout() then
+    begin
+      Result := True;
+      TerminateScript('Logged out due to low health: ' + ToString(Round(percentageHP)) + '%');
+    end
+    else
+      WriteLn('Failed to logout, retrying...');
+  end;
+end;
+
+function TQuarryMiner.CheckHasItems(): Boolean;
+begin
+  if CurrentStyle = EStyle.MINE_CIRCLET then
+    if not Equipment.ContainsAny(['Desert amulet 4', 'Circlet of water']) then
+      if Logout.ClickLogout() then
+      begin
+        Result := False;
+        TerminateScript('Not wearing either Circlet of Water or Desert amulet 4');
+      end;
+  if CurrentStyle = EStyle.MINE_HUMIDIFY then
+    if not Inventory.ContainsAny(['Waterskin(0)', 'Waterskin(1)', 'Waterskin(2)', 'Waterskin(3)', 'Waterskin(4)']) then
+      if Logout.ClickLogout() then
+      begin
+        Result := False;
+        TerminateScript('No Waterskins Found!');
+      end;
+  Result := True;
+end;
+
+
 function TQuarryMiner.EndScript: Boolean;
 begin
   if Logout.ClickLogout() then
@@ -397,7 +506,7 @@ begin
     Exit(EState.LEVEL_UP);
   end;
 
-  if Self.UseLimit then
+  if Self.UseLimit and (CurrentRock = ERock.SANDSTONE) then
   begin
     if not Self.GotSandGrinderCount then
       Exit(EState.GET_SAND_COUNT);
@@ -417,12 +526,11 @@ begin
       Mining := False;
       Exit(EState.DEPOSIT_SANDSTONE);
     end;
-    if CurrentRock - ERock.GRANITE or CurrentRock - ERock.MINE_BOTH then
+    if (CurrentRock = ERock.GRANITE) or (CurrentRock = ERock.MINE_BOTH) then
     begin
       Mining := False;
       Exit(EState.DROP_ITEMS);
     end;
-
   end;
 
   if Minimap.IsSpecWeapon and (Minimap.GetSpecLevel = 100) then
@@ -437,10 +545,12 @@ begin
   ClearDebug;
   Self.Init(MaxActions, MaxTime);
 
+  Self.CheckHasItems();
+
   repeat
 
     //Self.GetSandstormCount();
-    Self.State := Self.GeState();
+    Self.State := Self.GetState();
     Self.SetAction(ToStr(Self.State));
     Self.InvCount := Inventory.Count();
     Self.PlayerHP := Minimap.GetHPLevel();
@@ -464,6 +574,9 @@ begin
     end;
 
     //Writeln(IntToStr(PlayerHP) + '  : ' + IntToStr(PrevHP));
+
+    if Self.CheckHealthAndLogout(50) then // Logout if below 30% HP
+      Self.EndScript();
 
     if Self.PlayerHP < Self.PrevHP then
       if not Self.RefillWaterskins() then
@@ -509,7 +622,32 @@ begin
   Self.Config.Put('limit', SandBucketLimit);
   inherited;
 end;
+procedure TQuarryMinerConfig.RockSelectorOnChange({$H-}sender: TObject);{$H+}
+begin
 
+  case ERock(Self.RockSelector.Combobox.getItemIndex()) of
+    ERock.SANDSTONE:
+    begin
+      Self.SandLimitBox.setVisible(True);
+      Self.SandLimitEdit.SetVisible(Self.SandLimitBox.IsChecked());
+      Self.LocationSelector.SetVisible(True);
+    end;
+
+    ERock.GRANITE:
+    begin
+      Self.SandLimitBox.SetVisible(False);
+      Self.SandLimitEdit.SetVisible(Self.SandLimitBox.IsChecked());
+      Self.LocationSelector.SetVisible(True);
+    end;
+
+    ERock.MINE_BOTH:
+    begin
+      Self.SandLimitBox.SetVisible(False);
+      Self.SandLimitEdit.SetVisible(False);
+      Self.LocationSelector.SetVisible(False);
+    end;
+  end;
+end;
 procedure TQuarryMinerConfig.Run(); override;
 var
   tab: TTabSheet;
@@ -550,9 +688,12 @@ begin
 
     AddItemArray(['Sandstone (Grinder)', 'Granite (Powermine)', 'Both (Powermine)']);
     if Self.Config.Has('rock') then
-      SetItemIndex(Self.Config.GetInt('rock'))
-    else
+    begin
+      SetItemIndex(Self.Config.GetInt('rock'));
+    end else
       SetItemIndex(Ord(CurrentRock));
+
+    ComboBox.setOnChange(@Self.RockSelectorOnChange);
   end;
 
   with LocationSelector do
@@ -602,6 +743,7 @@ begin
     SetVisible(Self.SandLimitBox.IsChecked());
   end;
 
+  Self.RockSelectorOnChange(nil);
   Self.CreateVersionPanel(tab);
 
   Self.CreateAntibanManager();
