@@ -120,7 +120,7 @@ end;
 procedure TQuarryMiner.SafeBreak(task: PBreakTask);
 begin
 
-  if (task^.Length >= 3 * ONE_MINUTE) and Antiban.BioDice() then
+  if (task^.Length >= 2 * ONE_MINUTE) and Antiban.BioDice() then
   begin
     Logout.ClickLogout;
     Exit;
@@ -130,7 +130,7 @@ end;
 
 procedure TQuarryMiner.SafeSleep(task: PSleepTask);
 begin
-  if (task^.Length >= 3 * ONE_MINUTE) and Antiban.BioDice() then
+  if (task^.Length >= 2 * ONE_MINUTE) and Antiban.BioDice() then
   begin
     Logout.ClickLogout;
     Exit;
@@ -374,34 +374,34 @@ end;
 
 function TQuarryMiner.Mine: Boolean;
 var
-  RockIndices: TIntegerArray;
-  i, RandomIndex: Int32;
-  RockClicked: Boolean;
+  rockIndices: TIntegerArray;
+  i, randomIndex: Int32;
+  rockClicked: Boolean;
 begin
   if UseV2 then
   begin
     // Create shuffled array of indices
-    SetLength(RockIndices, Length(Self.RSRockArray));
+    SetLength(rockIndices, Length(Self.RSRockArray));
 
-    for i := 0 to High(RockIndices) do
-      RockIndices[i] := i;
+    for i := 0 to High(rockIndices) do
+      rockIndices[i] := i;
 
     // Shuffle the indices
-    for i := High(RockIndices) downto 1 do
+    for i := High(rockIndices) downto 1 do
     begin
-      RandomIndex := Random(i + 1);
-      Swap(RockIndices[i], RockIndices[RandomIndex]);
+      randomIndex := Random(i + 1);
+      Swap(rockIndices[i], rockIndices[randomIndex]);
     end;
 
     // Try rocks in random order
-    for i := 0 to High(RockIndices) do
+    for i := 0 to High(rockIndices) do
     begin
-      RockClicked := Self.RSRockArray[RockIndices[i]].Click();
+      rockClicked := Self.RSRockArray[rockIndices[i]].Click();
 
-      if not RockClicked then
-        RockClicked := Self.RSRockArray[RockIndices[i]].WalkClick();
+      if not rockClicked then
+        rockClicked := Self.RSRockArray[rockIndices[i]].WalkClick();
 
-      if RockClicked then
+      if rockClicked then
       begin
         Result := Mining := True;
         Minimap.WaitPlayerMoving(300, 8000);
@@ -566,7 +566,6 @@ begin
       EState.GET_SAND_COUNT: Self.GetSandstormCount();
       EState.USE_SPEC: Minimap.EnableSpec(100);
       EState.USE_HUMIDIFY: Self.RefillWaterskins;
-      //EState.WALK_SPOT:
       EState.DROP_ITEMS: Self.DropItems();
       EState.MINE_ROCK: Self.Mine();
       EState.DEPOSIT_SANDSTONE: Self.Deposit();
@@ -575,7 +574,7 @@ begin
 
     //Writeln(IntToStr(PlayerHP) + '  : ' + IntToStr(PrevHP));
 
-    if Self.CheckHealthAndLogout(50) then // Logout if below 30% HP
+    if Self.CheckHealthAndLogout(50) then // Logout if below 50% HP
       Self.EndScript();
 
     if Self.PlayerHP < Self.PrevHP then
