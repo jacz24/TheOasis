@@ -1,0 +1,237 @@
+{$I WaspLib/osrs.simba}
+
+type
+  EOreBuyerState = enum(
+    LOGIN,
+
+    OPEN_BANK,
+    DEPOSIT_ORES,
+    CLOSE_BANK,
+
+    OPEN_SHOP,
+    BUY_ORES,
+    CLOSE_SHOP,
+
+    DO_ANTIBAN,
+
+
+    WAIT_STATE,
+
+    NO_ACTIVITY, MAX_ACTIONS, MAX_TIME, END_SCRIPT
+  );
+
+  TOreBuyer = record
+    Actions, MaxTime, MaxActions: UInt64;
+    FormSetting: Boolean;
+
+    Ordan: TRSEntity;
+  end;
+
+const
+  ALL_ORES: TStringArray = ['Gold ore', 'Silver ore', 'Tin ore', 'Copper ore',
+                           'Mithril ore', 'Iron ore', 'Coal'];
+
+function TOreBuyer.GetReportValues(): TStringArray;
+var
+  actionsStr, sleepInfo: String;
+begin
+  actionsStr := ToStr(Self.Actions);
+  if Self.MaxActions <> 0 then
+    actionsStr += '/' + ToStr(Self.MaxActions);
+
+  if Antiban.Sleeps = [] then
+    sleepInfo := 'No sleep'
+  else
+    sleepInfo := Antiban.TimeUntilSleep(Antiban.Sleeps.First, TIME_SHORT);
+
+  Result := [
+    GetTimeStamp(TIME_SHORT),
+    Logger.TimeRunning.ElapsedFmt(TIME_SHORT),
+    Antiban.TimeRunning.ElapsedFmt(TIME_SHORT),
+    sleepInfo,
+    actionsStr
+  ];
+end;
+
+procedure TOreBuyer.Init();
+var
+  commission: TRSGiantsFoundryCommission;
+  optimal: TRSGiantsFoundryMouldSelection;
+begin
+  Logger.Setup('GodTier Ore Buyer');
+  ProgressReport.Setup(
+    'GodTier Ore Buyer',
+    [
+      'Script runtime:', 'Botting runtime:', 'Antiban runtime:', 'Next sleep:',
+      'Actions:'
+    ],
+    @Self.GetReportValues
+  );
+
+  Map.Setup([ERSChunk.BLAST_FURNACE]);
+  Antiban.Zoom.Max := 0;
+  Antiban.Zoom.Max := 50;
+  Antiban.Skills := [ERSSkill.TOTAL];
+
+
+  Self.Ordan := TRSEntity.Create(NPCsJSON.GetByID(1560).Item[0]);
+
+  TerminateScript('Test');
+end;
+
+procedure TOreBuyer.OpenBank();
+begin
+  Writeln('Openning Bank!');
+end;
+
+procedure TOreBuyer.DepositOres();
+begin
+  Writeln('Depositing Ores!');
+end;
+
+procedure TOreBuyer.OpenShop();
+begin
+  Writeln('Openning Shop!');
+  //Shop.Open(Self.Ordan, True);
+end;
+
+procedure TOreBuyer.BuyOres();
+begin
+  Writeln('Buying Ores!');
+end;
+
+
+
+function TOreBuyer.GetState(): EOreBuyerState;
+begin
+
+  // Misc States
+  if not RSClient.IsLoggedIn() then
+    Exit(EOreBuyerState.LOGIN);
+
+  if InRange(Inventory.Items.ReadStack('Coins'), 1, 8000) then
+  begin
+    Logger.Info('Coin Stack Low: ' + ToStr(Inventory.Items.ReadStack('Coins')));
+    Exit(EOreBuyerState.END_SCRIPT);
+  end;
+
+  // Bank States
+  if Inventory.IsFull() and not Shop.IsOpen() then
+    Exit(EOreBuyerState.OPEN_BANK);
+
+  if Bank.IsOpen() and Inventory.IsFull() then
+    Exit(EOreBuyerState.DEPOSIT_ORES);
+
+  if Bank.IsOpen() and not Inventory.IsFull() then
+    Exit(EOreBuyerState.CLOSE_BANK);
+
+
+  // Shop States
+  if not Inventory.IsFull() and not Shop.IsOpen() and not Bank.IsOpen() then
+    Exit(EOreBuyerState.OPEN_SHOP);
+
+  if Shop.IsOpen() and not Inventory.IsFull() then
+    Exit(EOreBuyerState.BUY_ORES);
+
+  if Shop.IsOpen() and Inventory.IsFull() then
+    Exit(EOreBuyerState.CLOSE_SHOP);
+
+
+  // Wasp States
+  if Activity.IsFinished then
+    Exit(EOreBuyerState.NO_ACTIVITY);
+
+  if (Self.MaxActions > 0) and (Self.Actions >= Self.MaxActions) then
+    Exit(EOreBuyerState.MAX_ACTIONS);
+
+  if (Self.MaxTime > 0) and (Logger.TimeRunning.Elapsed >= Self.MaxTime) then
+    Exit(EOreBuyerState.MAX_TIME);
+
+  Result := EOreBuyerState.WAIT_STATE;
+end;
+
+procedure TOreBuyer.Run();
+var
+  state: EOreBuyerState;
+begin
+  Self.Init();
+
+  repeat
+    state := Self.GetState();
+    Logger.Info(ToStr(state));
+    ProgressReport.Print();
+    WaspClient.SubmitStats();
+
+    case state of
+      EOreBuyerState.LOGIN: Login.DoLogin();
+      EOreBuyerState.OPEN_BANK: Self.OpenBank();
+      EOreBuyerState.DEPOSIT_ORES: Self.DepositOres();
+      EOreBuyerState.CLOSE_BANK: Bank.Close();
+
+      EOreBuyerState.OPEN_SHOP: Self.OpenShop();
+      EOreBuyerState.BUY_ORES: Self.BuyOres();
+      EOreBuyerState.CLOSE_SHOP: Shop.Close();
+
+      EOreBuyerState.WAIT_STATE: Sleep(2000, 4000);
+
+      EOreBuyerState.NO_ACTIVITY, EOreBuyerState.MAX_ACTIONS,
+      EOreBuyerState.MAX_TIME, EOreBuyerState.END_SCRIPT,
+      EOreBuyerState.END_SCRIPT: Break;
+    end;
+
+    Antiban.DoAntiban();
+  until False;
+
+  Logger.Info('Thank you for using ' + Logger.Name);
+end;
+
+var
+  OreBuyer: TOreBuyer;
+  TemplateForm: TScriptForm;
+  TemplateConfig: TConfigJSON;
+  FormCheckbox: TLazCheckBox;
+
+procedure TScriptForm.OnStart(sender: TLazObject); override;
+begin
+  inherited;
+
+  OreBuyer.FormSetting := FormCheckbox.IsChecked();
+  if TemplateConfig.Data.Has('form_setting') then
+    TemplateConfig.Data.Item['form_setting'].AsBool := OreBuyer.FormSetting
+  else
+    TemplateConfig.Data.AddBool('form_setting', OreBuyer.FormSetting);
+
+  OreBuyer.MaxActions := Self.Goals.Actions.Value;
+  OreBuyer.MaxTime    := Self.Goals.Time.Value * ONE_MINUTE;
+
+  TemplateConfig.Save();
+end;
+
+procedure TScriptForm.Init();
+var
+  tab: TLazTabSheet;
+  panel: TLazPanel;
+begin
+  TemplateConfig.Setup('scripts' + PATH_SEP + 'godtier-ore-buyer');
+
+  Self.Setup('GodTier Ore Buyer', TemplateConfig.Data);
+
+  tab := Self.CreateTab('GodTier Ore Buyer');
+  panel := Self.CreateGoals(tab, True, True, False, EOrientation.HORIZONTAL);
+  panel.Align := ELazAlign.Bottom;
+
+  FormCheckbox := TLazCheckBox.CreateEx(tab, 'My Setting', 'My setting does cool stuff', 20, 220);
+  if TemplateConfig.Data.Has('form_setting') then
+    FormCheckbox.SetChecked(TemplateConfig.Data.Item['form_setting'].AsBool)
+  else
+    FormCheckbox.SetChecked(True);
+
+  Self.CreateAntibanTab();
+  Self.Run();
+end;
+
+begin
+  TemplateForm.Init();
+
+  OreBuyer.Run();
+end.
