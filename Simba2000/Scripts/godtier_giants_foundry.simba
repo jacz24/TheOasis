@@ -1,0 +1,275 @@
+{$I WaspLib/osrs.simba}
+
+type
+  ETemplateState = enum(
+    LOGIN,
+    LEVEL_UP,
+    WAIT_STATE,
+
+    NO_ACTIVITY, MAX_ACTIONS, MAX_TIME, MAX_LEVEL, END_SCRIPT
+  );
+
+
+
+  TTemplate = record
+    Actions, MaxTime, MaxActions, MaxLevel: UInt64;
+    FormSetting: Boolean;
+
+    modColdPercents, modMediumPercents, modHotPercents,
+    coldPercents, mediumPercents, hotPercents: TDoubleArray;
+
+
+  end;
+
+function TTemplate.GetReportValues(): TStringArray;
+var
+  actionsStr, sleepInfo: String;
+begin
+  actionsStr := ToStr(Self.Actions);
+  if Self.MaxActions <> 0 then
+    actionsStr += '/' + ToStr(Self.MaxActions);
+
+  if Antiban.Sleeps = [] then
+    sleepInfo := 'No sleep'
+  else
+    sleepInfo := Antiban.TimeUntilSleep(Antiban.Sleeps.First, TIME_SHORT);
+
+  Result := [
+    GetTimeStamp(TIME_SHORT),
+    Logger.TimeRunning.ElapsedFmt(TIME_SHORT),
+    Antiban.TimeRunning.ElapsedFmt(TIME_SHORT),
+    sleepInfo,
+    actionsStr
+  ];
+end;
+
+procedure TTemplate.Init();
+var
+  cursorPos: TPoint;
+  cursorPercent, i: Integer;
+  currentPercent: Double;
+begin
+  Logger.Setup('Template');
+  ProgressReport.Setup(
+    'Template',
+    [
+      'Script runtime:', 'Botting runtime:', 'Antiban runtime:', 'Next sleep:',
+      'Actions:'
+    ],
+    @Self.GetReportValues
+  );
+
+  Map.Setup([Chunk(Box(51,180,53,178), 0)]);
+  GiantsFoundryRefinement.SetupInterface();
+  GiantsFoundryRefinement.InitTemperatureBar();
+  GiantsFoundryRefinement.InitTaskBar();
+
+
+  Self.coldPercents := GiantsFoundryRefinement.GetTemperatureZonePercent(ETemperatureState.COLD);
+  Self.mediumPercents := GiantsFoundryRefinement.GetTemperatureZonePercent(ETemperatureState.MEDIUM);
+  Self.hotPercents := GiantsFoundryRefinement.GetTemperatureZonePercent(ETemperatureState.HOT);
+
+  Self.modColdPercents := Self.coldPercents;
+  Self.modColdPercents[0] += 2;
+  Self.modColdPercents[1] -= 2;
+
+  Self.modMediumPercents := Self.mediumPercents;
+  Self.modMediumPercents[0] += 2;
+  Self.modMediumPercents[1] -= 2;
+
+  Self.modHotPercents := Self.hotPercents;
+  Self.modHotPercents[0] += 2;
+  Self.modHotPercents[1] -= 2;
+
+  writeln(coldPercents);
+  //if coldPercents.
+
+  //TerminateScript('Test');
+
+  repeat
+    currentPercent := GiantsFoundryRefinement.GetTemperaturePercent(); // Update cursorPercent
+    GiantsFoundryRefinement.TaskBar.CurrentTask := GiantsFoundryRefinement.FindCurrentTask();
+
+    GiantsFoundryRefinement.TrackTemperatureAction();
+
+    if GiantsFoundryRefinement.TaskBar.CurrentTask.Refining = ETaskState.WHEEL then
+    begin
+      //writeln(GiantsFoundryRefinement.TemperatureBar.Cursor.PositionPercent);
+      if not InRange(GiantsFoundryRefinement.TemperatureBar.Cursor.PositionPercent, Self.modColdPercents[0], Self.coldPercents[1]) and (GiantsFoundryRefinement.TemperatureBar.Target.TargetTemperaturePercent <= 0) then
+      begin
+        GiantsFoundryRefinement.CreateTemperatureTarget(Self.modColdPercents[1], GiantsFoundryRefinement.TemperatureBar.Cursor.PositionPercent);
+        Writeln('Trigger');
+      end;
+
+      if (InRange(GiantsFoundryRefinement.TemperatureBar.Cursor.PositionPercent, Self.modColdPercents[0], Self.coldPercents[1])) and (GiantsFoundryRefinement.ReachedTemperatureTargetAction()) then
+        writeln('Start Polishing Wheel');
+    end;
+
+    if GiantsFoundryRefinement.TaskBar.CurrentTask.Refining = ETaskState.STONE then
+    begin
+      if not InRange(GiantsFoundryRefinement.TemperatureBar.Cursor.PositionPercent, Self.modMediumPercents[0], Self.mediumPercents[1]) and (GiantsFoundryRefinement.TemperatureBar.Target.TargetTemperaturePercent <= 0) then
+      begin
+        GiantsFoundryRefinement.CreateTemperatureTarget(Self.modMediumPercents[1], GiantsFoundryRefinement.TemperatureBar.Cursor.PositionPercent);
+        Writeln('Trigger');
+      end;
+    end;
+
+    if GiantsFoundryRefinement.TaskBar.CurrentTask.Refining = ETaskState.HAMMER then
+    begin
+      writeln('test');
+    end;
+
+
+    //if Length(GiantsFoundryRefinement.TemperatureBar.Tracker.Increments) > 0 then
+    //  WriteLn(GiantsFoundryRefinement.TemperatureBar.Tracker.Increments[High(GiantsFoundryRefinement.TemperatureBar.Tracker.Increments)].StepNumber);
+    //writeln(GiantsFoundryRefinement.TemperatureBar.Tracker.Increments);
+  // Your other logic here
+    Sleep(100);
+    //cursorPercent := GiantsFoundryRefinement.GetTemperaturePercentInt();
+
+    //if cursorPercent <> GiantsFoundryRefinement.GetTemperaturePercentInt() then
+    //  writeln GiantsFoundryRefinement.GetTemperaturePercentInt();
+    //cursorPos := GiantsFoundryRefinement.TemperatureBar.Cursor.Position;
+    //GiantsFoundryRefinement.UpdateTemperatureCursor();
+    //GiantsFoundryRefinement.ShowOnTarget();
+    //if GiantsFoundryRefinement.TemperatureBar.Cursor.Position <> cursorPos then
+    //  writeln(GiantsFoundryRefinement.TemperatureBar.Cursor.Position);
+  until False;
+
+
+  //GiantsFoundryRefinement.InitTaskBar();
+
+  //writeln GiantsFoundryRefinement.TemperatureBar.Temperatures;
+  //GiantsFoundryRefinement.FindTaskBoundaries();
+  //GiantsFoundryRefinement.FindActiveTask();
+  //GiantsFoundryRefinement.FindCursor();
+  //Writeln GiantsFoundryRefinement.TaskBar.Tasks;
+  //
+  //GiantsFoundryRefinement.ShowOnTarget();
+
+  //ShowOnTarget(GiantsFoundryRefinement.FindGrindTaskBoundaries());
+
+  //ShowOnTarget(GiantsFoundryRefinement.FindTripTaskBoundaries());
+
+
+
+  TerminateScript('Test');
+  //Antiban.Zoom.Max := 0;
+  //Antiban.Zoom.Max := 50;
+  //Antiban.Skills := [ERSSkill.TOTAL];
+  //Map.Setup([ERSChunk.VARROCK]);
+  //ShowOnTarget(Self.BankObject);
+  //ShowOnTarget(Self.objs);
+
+  //CollectionBox.Setup();
+  GiantsFoundrySetup.SetupInterface;
+  Writeln GiantsFoundrySetup.GetCommission();
+
+
+  GiantsFoundrySetup.ShowOnTarget();
+  //GiantsFoundrySetup.ResetMouldButton.Click(EMouseButton.LEFT);
+  GiantsFoundrySetup.SetupMoulds(GiantsFoundrySetup.GetCommission);
+
+end;
+
+function TTemplate.GetState(): ETemplateState;
+begin
+  if Activity.IsFinished then
+    Exit(ETemplateState.NO_ACTIVITY);
+
+  if (Self.MaxActions > 0) and (Self.Actions >= Self.MaxActions) then
+    Exit(ETemplateState.MAX_ACTIONS);
+
+  if (Self.MaxTime > 0) and (Logger.TimeRunning.Elapsed >= Self.MaxTime) then
+    Exit(ETemplateState.MAX_TIME);
+
+  if (Self.MaxLevel > 0) and (Stats.GetLevel(ERSSkill.TOTAL) >= Self.MaxLevel) then
+    Exit(ETemplateState.MAX_LEVEL);
+
+  if not RSClient.IsLoggedIn() then
+    Exit(ETemplateState.LOGIN);
+
+  if Chat.LeveledUp() then
+    Exit(ETemplateState.LEVEL_UP);
+
+  Result := ETemplateState.WAIT_STATE;
+end;
+
+procedure TTemplate.Run();
+var
+  state: ETemplateState;
+begin
+  Self.Init();
+
+  repeat
+    state := Self.GetState();
+    Logger.Info(ToStr(state));
+    ProgressReport.Print();
+    WaspClient.SubmitStats();
+
+    case state of
+      ETemplateState.LOGIN: Login.DoLogin();
+      ETemplateState.LEVEL_UP: Chat.HandleLevelUp();
+      ETemplateState.WAIT_STATE: Sleep(2000, 4000);
+
+      ETemplateState.NO_ACTIVITY, ETemplateState.MAX_ACTIONS,
+      ETemplateState.MAX_TIME, ETemplateState.MAX_LEVEL,
+      ETemplateState.END_SCRIPT: Break;
+    end;
+
+  until False;
+
+  Logger.Info('Thank you for using ' + Logger.Name);
+end;
+
+var
+  Template: TTemplate;
+  TemplateForm: TScriptForm;
+  TemplateConfig: TConfigJSON;
+  FormCheckbox: TLazCheckBox;
+
+procedure TScriptForm.OnStart(sender: TLazObject); override;
+begin
+  inherited;
+
+  Template.FormSetting := FormCheckbox.IsChecked();
+  if TemplateConfig.Data.Has('form_setting') then
+    TemplateConfig.Data.Item['form_setting'].AsBool := Template.FormSetting
+  else
+    TemplateConfig.Data.AddBool('form_setting', Template.FormSetting);
+
+  Template.MaxActions := Self.Goals.Actions.Value;
+  Template.MaxTime    := Self.Goals.Time.Value * ONE_MINUTE;
+  Template.MaxLevel   := Self.Goals.Level.Value;
+
+  TemplateConfig.Save();
+end;
+
+procedure TScriptForm.Init();
+var
+  tab: TLazTabSheet;
+  panel: TLazPanel;
+begin
+  TemplateConfig.Setup('scripts' + PATH_SEP + 'my-script-name');
+
+  Self.Setup('My Script Name', TemplateConfig.Data);
+
+  tab := Self.CreateTab('My Script Name');
+  panel := Self.CreateGoals(tab, True, True, True, EOrientation.HORIZONTAL);
+  panel.Align := ELazAlign.Bottom;
+
+  FormCheckbox := TLazCheckBox.CreateEx(tab, 'My Setting', 'My setting does cool stuff', 20, 220);
+  if TemplateConfig.Data.Has('form_setting') then
+    FormCheckbox.SetChecked(TemplateConfig.Data.Item['form_setting'].AsBool)
+  else
+    FormCheckbox.SetChecked(True);
+
+  Self.CreateAntibanTab();
+  Self.Run();
+end;
+
+begin
+  TemplateForm.Init();
+
+  Template.Run();
+end.
