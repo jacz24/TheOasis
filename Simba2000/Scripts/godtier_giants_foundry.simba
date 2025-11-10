@@ -112,6 +112,9 @@ begin
         GiantsFoundryRefinement.CreateTemperatureTarget(Self.modMediumPercents[1], GiantsFoundryRefinement.TemperatureBar.Cursor.PositionPercent);
         Writeln('Trigger');
       end;
+
+      if (InRange(GiantsFoundryRefinement.TemperatureBar.Cursor.PositionPercent, Self.modMediumPercents[0], Self.mediumPercents[1])) and (GiantsFoundryRefinement.ReachedTemperatureTargetAction()) then
+        writeln('Start Polishing Grindstone');
     end;
 
     if GiantsFoundryRefinement.TaskBar.CurrentTask.Refining = ETaskState.HAMMER then
