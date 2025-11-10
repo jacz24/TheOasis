@@ -53,10 +53,77 @@ begin
   ];
 end;
 
-procedure TOreBuyer.Init();
+function TOreBuyer._Hop(next: Integer): Boolean;
 var
-  commission: TRSGiantsFoundryCommission;
-  optimal: TRSGiantsFoundryMouldSelection;
+  scrollamount: Integer;
+  timeout: TCountDown;
+  available: TRSWorldArray;
+  world: TRSWorld;
+begin
+  if not WorldSwitcher.IsSorted() and not WorldSwitcher.Sort() then
+    Exit;
+
+  timeout.Start(20 * ONE_SECOND);
+  scrollamount := WorldSwitcher.Scroll.GetLevel();
+  repeat
+    available := WorldSwitcher.GetWorlds();
+    if available = [] then Exit;
+
+    for world in available do
+    begin
+      //writeln world.Number;
+      //writeln next;
+      if world.Number = next then
+      begin
+        Writeln 'test';
+        Mouse.Click(world.Bounds, EMouseButton.LEFT);
+        if WorldSwitcher.WaitSwitch(next) then
+          Exit(True);
+      end;
+    end;
+    if next > available[0].Number then
+    begin
+      scrollamount += Biometrics.RandomModeInteger(2, 1, 3);
+      WorldSwitcher.Scroll.SetLevel(scrollamount);
+    end;
+    if not next > available[0].Number then
+    begin
+      scrollamount += Biometrics.RandomModeInteger(-2,-1,-3);
+      WorldSwitcher.Scroll.SetLevel(scrollamount);
+    end;
+    //WorldSwitcher.Scroll.SetLevel(Biometrics.RandomModeInteger(2,1,3));
+  until not InRange(WorldSwitcher.Scroll.GetLevel(), 1, 99) or timeout.IsFinished;
+end;
+
+property TOreBuyer.World(next: Integer): Boolean;
+var
+  current: Integer;
+begin
+  if not WorldSwitcher.Cooldown.IsFinished or not WorldSwitcher.Open() then
+    Exit;
+  current := WorldSwitcher.World;
+  if next = current then
+    Exit(True);
+  Result := Self._Hop(next);
+end;
+
+function TOreBuyer.HopWorld(worlds: TIntegerArray): Boolean;
+var
+  current, next: Integer;
+begin
+  current := WorldSwitcher.World;
+  if worlds = [current] then
+    Exit(True);
+
+  next := worlds.IndexOf(current);
+  if Inc(next) > High(worlds) then
+    next := 0;
+
+
+  Result := Self.World[worlds[next]];
+end;
+
+procedure TOreBuyer.Init();
 begin
   Logger.Setup('GodTier Ore Buyer');
   ProgressReport.Setup(
@@ -74,8 +141,15 @@ begin
   Antiban.Skills := [ERSSkill.TOTAL];
 
 
-  Self.Ordan := TRSEntity.Create(NPCsJSON.GetByID(1560).Item[0]);
-
+  Self.Ordan := TRSEntity.Create(NPCsJSON.GetByName('Ordan', 1).Item[0]);
+  //Shop.Open(Self.Ordan);
+  //WorldSwitcher.World[Profiles.Get().Worlds];
+  Writeln Profiles.Get().Worlds;
+  if WorldSwitcher.Open then
+    Self.HopWorld(Profiles.Get().Worlds);
+    //WorldSwitcher.Scroll.SetLevel(80);
+    //WorldSwitcher.World[Profiles.Get().Worlds];
+  Sleep(2000);
   TerminateScript('Test');
 end;
 
@@ -104,19 +178,26 @@ end;
 
 function TOreBuyer.GetState(): EOreBuyerState;
 begin
+  if WorldSwitcher.Open() then
+    WorldSwitcher.World[Profiles.Get().Worlds];
 
+  Writeln Profiles.Get().Worlds;
+  Biometrics.Sleep(1000);
+  Exit;
   // Misc States
   if not RSClient.IsLoggedIn() then
     Exit(EOreBuyerState.LOGIN);
 
-  if InRange(Inventory.Items.ReadStack('Coins'), 1, 8000) then
+  if InRange(Inventory.Items.ReadStack('Coins'), 1, 8000) or not Inventory.Items.Contains('Coins') then
   begin
+    if Inventory.Items.ReadStack('Coins') = -1 then
+      Logger.Info('No Coins in Inventory!');
     Logger.Info('Coin Stack Low: ' + ToStr(Inventory.Items.ReadStack('Coins')));
     Exit(EOreBuyerState.END_SCRIPT);
   end;
 
   // Bank States
-  if Inventory.IsFull() and not Shop.IsOpen() then
+  if Inventory.IsFull() and not Shop.IsOpen() and not Bank.IsOpen() then
     Exit(EOreBuyerState.OPEN_BANK);
 
   if Bank.IsOpen() and Inventory.IsFull() then
