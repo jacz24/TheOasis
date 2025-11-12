@@ -1,27 +1,39 @@
 {$I WaspLib/osrs.simba}
 
 type
-  ETemplateState = enum(
+  EGiantsFoundryState = enum(
     LOGIN,
     LEVEL_UP,
     WAIT_STATE,
+
+    IDLE,
+    HEATING,
+    COOLING,
+    USE_POLISHING_WHEEL,
+    USE_TRIP_HAMMER,
+    USE_GRINDSTONE,
 
     NO_ACTIVITY, MAX_ACTIONS, MAX_TIME, MAX_LEVEL, END_SCRIPT
   );
 
 
 
-  TTemplate = record
+  TGiantsFoundryScript = record
     Actions, MaxTime, MaxActions, MaxLevel: UInt64;
     FormSetting: Boolean;
+    State: EGiantsFoundryState;
 
-    modColdPercents, modMediumPercents, modHotPercents,
-    coldPercents, mediumPercents, hotPercents: TDoubleArray;
+    LastAction: Int64;
+    ActionCooldown: Integer;
+
+    ColdZone, MediumZone, HotZone,
+    ColdTolerance, MediumTolerance, HotTolerance,
+    TargetZone: TDoubleArray;
 
 
   end;
 
-function TTemplate.GetReportValues(): TStringArray;
+function TGiantsFoundryScript.GetReportValues(): TStringArray;
 var
   actionsStr, sleepInfo: String;
 begin
@@ -43,7 +55,15 @@ begin
   ];
 end;
 
-procedure TTemplate.Init();
+function TGiantsFoundryScript.InTemperatureRange(zone: TDoubleArray): Boolean;
+var
+  currentTemp: Double;
+begin
+  currentTemp := GiantsFoundryRefinement.GetTemperaturePercent();
+  Result := InRange(currentTemp, zone[0], zone[1]);
+end;
+
+procedure TGiantsFoundryScript.Init();
 var
   cursorPos: TPoint;
   cursorPercent, i: Integer;
@@ -60,164 +80,200 @@ begin
   );
 
   Map.Setup([Chunk(Box(51,180,53,178), 0)]);
+
+  // Setup interface
   GiantsFoundryRefinement.SetupInterface();
+  GiantsFoundrySetup.SetupInterface();
+
+
+
+
+end;
+
+procedure TGiantsFoundryScript.SetupTemperatureSystem();
+begin
+  // Get temperature zones
+  Self.ColdZone := GiantsFoundryRefinement.GetTemperatureZonePercent(ETemperatureState.COLD);
+  Self.MediumZone := GiantsFoundryRefinement.GetTemperatureZonePercent(ETemperatureState.MEDIUM);
+  Self.HotZone := GiantsFoundryRefinement.GetTemperatureZonePercent(ETemperatureState.HOT);
+
+  // Set tolerances (slightly narrower than actual zones for safety)
+  Self.ColdTolerance := [Self.ColdZone[0] + 3, Self.ColdZone[1] - 3];
+  Self.MediumTolerance := [Self.MediumZone[0] + 3, Self.MediumZone[1] - 3];
+  Self.HotTolerance := [Self.HotZone[0] + 3, Self.HotZone[1] - 3];
+
   GiantsFoundryRefinement.InitTemperatureBar();
   GiantsFoundryRefinement.InitTaskBar();
-
-
-  Self.coldPercents := GiantsFoundryRefinement.GetTemperatureZonePercent(ETemperatureState.COLD);
-  Self.mediumPercents := GiantsFoundryRefinement.GetTemperatureZonePercent(ETemperatureState.MEDIUM);
-  Self.hotPercents := GiantsFoundryRefinement.GetTemperatureZonePercent(ETemperatureState.HOT);
-
-  Self.modColdPercents := Self.coldPercents;
-  Self.modColdPercents[0] += 2;
-  Self.modColdPercents[1] -= 2;
-
-  Self.modMediumPercents := Self.mediumPercents;
-  Self.modMediumPercents[0] += 2;
-  Self.modMediumPercents[1] -= 2;
-
-  Self.modHotPercents := Self.hotPercents;
-  Self.modHotPercents[0] += 2;
-  Self.modHotPercents[1] -= 2;
-
-  writeln(coldPercents);
-  //if coldPercents.
-
-  //TerminateScript('Test');
-
-  repeat
-    currentPercent := GiantsFoundryRefinement.GetTemperaturePercent(); // Update cursorPercent
-    GiantsFoundryRefinement.TaskBar.CurrentTask := GiantsFoundryRefinement.FindCurrentTask();
-
-    GiantsFoundryRefinement.TrackTemperatureAction();
-
-    if GiantsFoundryRefinement.TaskBar.CurrentTask.Refining = ETaskState.WHEEL then
-    begin
-      //writeln(GiantsFoundryRefinement.TemperatureBar.Cursor.PositionPercent);
-      if not InRange(GiantsFoundryRefinement.TemperatureBar.Cursor.PositionPercent, Self.modColdPercents[0], Self.coldPercents[1]) and (GiantsFoundryRefinement.TemperatureBar.Target.TargetTemperaturePercent <= 0) then
-      begin
-        GiantsFoundryRefinement.CreateTemperatureTarget(Self.modColdPercents[1], GiantsFoundryRefinement.TemperatureBar.Cursor.PositionPercent);
-        Writeln('Trigger');
-      end;
-
-      if (InRange(GiantsFoundryRefinement.TemperatureBar.Cursor.PositionPercent, Self.modColdPercents[0], Self.coldPercents[1])) and (GiantsFoundryRefinement.ReachedTemperatureTargetAction()) then
-        writeln('Start Polishing Wheel');
-    end;
-
-    if GiantsFoundryRefinement.TaskBar.CurrentTask.Refining = ETaskState.STONE then
-    begin
-      if not InRange(GiantsFoundryRefinement.TemperatureBar.Cursor.PositionPercent, Self.modMediumPercents[0], Self.mediumPercents[1]) and (GiantsFoundryRefinement.TemperatureBar.Target.TargetTemperaturePercent <= 0) then
-      begin
-        GiantsFoundryRefinement.CreateTemperatureTarget(Self.modMediumPercents[1], GiantsFoundryRefinement.TemperatureBar.Cursor.PositionPercent);
-        Writeln('Trigger');
-      end;
-
-      if (InRange(GiantsFoundryRefinement.TemperatureBar.Cursor.PositionPercent, Self.modMediumPercents[0], Self.mediumPercents[1])) and (GiantsFoundryRefinement.ReachedTemperatureTargetAction()) then
-        writeln('Start Polishing Grindstone');
-    end;
-
-    if GiantsFoundryRefinement.TaskBar.CurrentTask.Refining = ETaskState.HAMMER then
-    begin
-      writeln('test');
-    end;
-
-
-    //if Length(GiantsFoundryRefinement.TemperatureBar.Tracker.Increments) > 0 then
-    //  WriteLn(GiantsFoundryRefinement.TemperatureBar.Tracker.Increments[High(GiantsFoundryRefinement.TemperatureBar.Tracker.Increments)].StepNumber);
-    //writeln(GiantsFoundryRefinement.TemperatureBar.Tracker.Increments);
-  // Your other logic here
-    Sleep(100);
-    //cursorPercent := GiantsFoundryRefinement.GetTemperaturePercentInt();
-
-    //if cursorPercent <> GiantsFoundryRefinement.GetTemperaturePercentInt() then
-    //  writeln GiantsFoundryRefinement.GetTemperaturePercentInt();
-    //cursorPos := GiantsFoundryRefinement.TemperatureBar.Cursor.Position;
-    //GiantsFoundryRefinement.UpdateTemperatureCursor();
-    //GiantsFoundryRefinement.ShowOnTarget();
-    //if GiantsFoundryRefinement.TemperatureBar.Cursor.Position <> cursorPos then
-    //  writeln(GiantsFoundryRefinement.TemperatureBar.Cursor.Position);
-  until False;
-
-
-  //GiantsFoundryRefinement.InitTaskBar();
-
-  //writeln GiantsFoundryRefinement.TemperatureBar.Temperatures;
-  //GiantsFoundryRefinement.FindTaskBoundaries();
-  //GiantsFoundryRefinement.FindActiveTask();
-  //GiantsFoundryRefinement.FindCursor();
-  //Writeln GiantsFoundryRefinement.TaskBar.Tasks;
-  //
-  //GiantsFoundryRefinement.ShowOnTarget();
-
-  //ShowOnTarget(GiantsFoundryRefinement.FindGrindTaskBoundaries());
-
-  //ShowOnTarget(GiantsFoundryRefinement.FindTripTaskBoundaries());
-
-
-
-  TerminateScript('Test');
-  //Antiban.Zoom.Max := 0;
-  //Antiban.Zoom.Max := 50;
-  //Antiban.Skills := [ERSSkill.TOTAL];
-  //Map.Setup([ERSChunk.VARROCK]);
-  //ShowOnTarget(Self.BankObject);
-  //ShowOnTarget(Self.objs);
-
-  //CollectionBox.Setup();
-  GiantsFoundrySetup.SetupInterface;
-  Writeln GiantsFoundrySetup.GetCommission();
-
-
-  GiantsFoundrySetup.ShowOnTarget();
-  //GiantsFoundrySetup.ResetMouldButton.Click(EMouseButton.LEFT);
-  GiantsFoundrySetup.SetupMoulds(GiantsFoundrySetup.GetCommission);
-
 end;
 
-function TTemplate.GetState(): ETemplateState;
+procedure TGiantsFoundryScript.Use_PolishingWheel();
 begin
+  Writeln('Use Polishing Wheel');
+end;
+
+procedure TGiantsFoundryScript.Use_Grindstone();
+begin
+  Writeln('Use Grindstone');
+end;
+
+procedure TGiantsFoundryScript.Use_TripHammer();
+begin
+  Writeln('Use Trip Hammer');
+end;
+
+function TGiantsFoundryScript.GetState(): EGiantsFoundryState;
+var
+  currentTask: TRefineTask;
+  needsHeating: Boolean;
+  currentTemp: Double;
+  tempTarget: TTemperatureTarget;
+begin
+  // Update current task
+  currentTask := GiantsFoundryRefinement.FindCurrentTask();
+  GiantsFoundryRefinement.TaskBar.CurrentTask := currentTask;
+  currentTemp := GiantsFoundryRefinement.GetTemperaturePercent();
+
+  GiantsFoundrySetup.SetupMoulds(GiantsFoundrySetup.GetCommission());
+
+  writeln(GiantsFoundryRefinement.IsOpen());
+  TerminateScript('Test');
+  // Track temperature changes
+  GiantsFoundryRefinement.TrackTemperatureAction();
+
+  // Determine target temperature zone based on current task
+  case currentTask.Refining of
+    ETaskState.WHEEL:
+      begin
+        Self.TargetZone := [Self.ColdTolerance[0], Self.ColdZone[1]];
+        if (Self.InTemperatureRange(Self.TargetZone)) then
+        begin
+          if (GiantsFoundryRefinement.TemperatureBar.Target.Direction = ETemperatureDirection.HEAT) and (GiantsFoundryRefinement.TemperatureBar.Target.CurrentAction >= GiantsFoundryRefinement.TemperatureBar.Target.ActionsNeeded) then
+            Exit(EGiantsFoundryState.USE_POLISHING_WHEEL);
+
+          if (GiantsFoundryRefinement.TemperatureBar.Target.Direction = ETemperatureDirection.COOL)  then
+            Exit(EGiantsFoundryState.USE_POLISHING_WHEEL);
+        end;
+
+
+        if not Self.InTemperatureRange(Self.TargetZone) then
+          if not (GiantsFoundryRefinement.TemperatureBar.Target.TargetTemperaturePercent = Self.ColdTolerance[1]) then
+            GiantsFoundryRefinement.UpdateTemperatureTarget(Self.ColdTolerance[1], GiantsFoundryRefinement.GetTemperaturePercent());
+
+
+        if GiantsFoundryRefinement.TemperatureBar.Target.Direction = ETemperatureDirection.HEAT then
+          Exit(EGiantsFoundryState.HEATING)
+        else
+          Exit(EGiantsFoundryState.COOLING);
+      end;
+
+    ETaskState.STONE:
+      begin
+        Self.TargetZone := [Self.MediumZone[0], Self.MediumTolerance[1]];
+        if (Self.InTemperatureRange(Self.TargetZone)) then
+        begin
+          if GiantsFoundryRefinement.TemperatureBar.Target.Direction = ETemperatureDirection.HEAT then
+            Exit(EGiantsFoundryState.USE_GRINDSTONE);
+
+          if (GiantsFoundryRefinement.TemperatureBar.Target.Direction = ETemperatureDirection.COOL) and (GiantsFoundryRefinement.TemperatureBar.Target.CurrentAction >= GiantsFoundryRefinement.TemperatureBar.Target.ActionsNeeded) then
+            Exit(EGiantsFoundryState.USE_GRINDSTONE);
+        end;
+
+
+        if not Self.InTemperatureRange(Self.TargetZone) then
+          if not (GiantsFoundryRefinement.TemperatureBar.Target.TargetTemperaturePercent = Self.MediumTolerance[0]) then
+            GiantsFoundryRefinement.UpdateTemperatureTarget(Self.MediumTolerance[0], GiantsFoundryRefinement.GetTemperaturePercent());
+
+
+        if GiantsFoundryRefinement.TemperatureBar.Target.Direction = ETemperatureDirection.HEAT then
+          Exit(EGiantsFoundryState.HEATING)
+        else
+          Exit(EGiantsFoundryState.COOLING);
+      end;
+
+    ETaskState.HAMMER:
+      begin
+        Self.TargetZone := [Self.HotTolerance[0], Self.HotZone[1]];
+        if (Self.InTemperatureRange(Self.TargetZone)) then
+        begin
+          if GiantsFoundryRefinement.TemperatureBar.Target.Direction = ETemperatureDirection.HEAT then
+            Exit(EGiantsFoundryState.USE_TRIP_HAMMER);
+
+          if (GiantsFoundryRefinement.TemperatureBar.Target.Direction = ETemperatureDirection.COOL) and (GiantsFoundryRefinement.TemperatureBar.Target.CurrentAction >= GiantsFoundryRefinement.TemperatureBar.Target.ActionsNeeded) then
+            Exit(EGiantsFoundryState.USE_TRIP_HAMMER);
+        end;
+
+
+        if not Self.InTemperatureRange(Self.TargetZone) then
+          if not (GiantsFoundryRefinement.TemperatureBar.Target.TargetTemperaturePercent = Self.HotTolerance[0]) then
+            GiantsFoundryRefinement.UpdateTemperatureTarget(Self.HotTolerance[1], GiantsFoundryRefinement.GetTemperaturePercent());
+
+
+        if GiantsFoundryRefinement.TemperatureBar.Target.Direction = ETemperatureDirection.HEAT then
+          Exit(EGiantsFoundryState.HEATING)
+        else
+          Exit(EGiantsFoundryState.COOLING);
+      end;
+
+    ETaskState.COMPLETE:
+      begin
+        WriteLn('[Complete] Sword refinement finished!');
+        // Handle completion - hand in sword, get new commission, etc.
+      end;
+
+    ETaskState.NOTFOUND:
+      begin
+        WriteLn('[Error] No task found, checking interface...');
+      end;
+  end;
+
+  (*
   if Activity.IsFinished then
-    Exit(ETemplateState.NO_ACTIVITY);
+    Exit(EGiantsFoundryState.NO_ACTIVITY);
 
   if (Self.MaxActions > 0) and (Self.Actions >= Self.MaxActions) then
-    Exit(ETemplateState.MAX_ACTIONS);
+    Exit(EGiantsFoundryState.MAX_ACTIONS);
 
   if (Self.MaxTime > 0) and (Logger.TimeRunning.Elapsed >= Self.MaxTime) then
-    Exit(ETemplateState.MAX_TIME);
+    Exit(EGiantsFoundryState.MAX_TIME);
 
   if (Self.MaxLevel > 0) and (Stats.GetLevel(ERSSkill.TOTAL) >= Self.MaxLevel) then
-    Exit(ETemplateState.MAX_LEVEL);
+    Exit(EGiantsFoundryState.MAX_LEVEL);
 
   if not RSClient.IsLoggedIn() then
-    Exit(ETemplateState.LOGIN);
+    Exit(EGiantsFoundryState.LOGIN);
 
   if Chat.LeveledUp() then
-    Exit(ETemplateState.LEVEL_UP);
+    Exit(EGiantsFoundryState.LEVEL_UP);
 
-  Result := ETemplateState.WAIT_STATE;
+  Result := EGiantsFoundryState.WAIT_STATE;
+  *)
 end;
 
-procedure TTemplate.Run();
-var
-  state: ETemplateState;
+procedure TGiantsFoundryScript.Run();
 begin
   Self.Init();
 
   repeat
-    state := Self.GetState();
-    Logger.Info(ToStr(state));
+    Self.State := Self.GetState();
+    Logger.Info(ToStr(Self.State));
     ProgressReport.Print();
     WaspClient.SubmitStats();
 
-    case state of
-      ETemplateState.LOGIN: Login.DoLogin();
-      ETemplateState.LEVEL_UP: Chat.HandleLevelUp();
-      ETemplateState.WAIT_STATE: Sleep(2000, 4000);
+    case Self.State of
+      EGiantsFoundryState.LOGIN: Login.DoLogin();
+      EGiantsFoundryState.LEVEL_UP: Chat.HandleLevelUp();
+      EGiantsFoundryState.WAIT_STATE: Sleep(2000, 4000);
 
-      ETemplateState.NO_ACTIVITY, ETemplateState.MAX_ACTIONS,
-      ETemplateState.MAX_TIME, ETemplateState.MAX_LEVEL,
-      ETemplateState.END_SCRIPT: Break;
+      EGiantsFoundryState.HEATING: Writeln('Heating Sword');
+      EGiantsFoundryState.COOLING: Writeln('Cooling Sword');
+
+      EGiantsFoundryState.USE_POLISHING_WHEEL: Self.Use_PolishingWheel();
+      EGiantsFoundryState.USE_GRINDSTONE: Self.Use_Grindstone();
+      EGiantsFoundryState.USE_TRIP_HAMMER: Self.Use_TripHammer();
+
+      EGiantsFoundryState.NO_ACTIVITY, EGiantsFoundryState.MAX_ACTIONS,
+      EGiantsFoundryState.MAX_TIME, EGiantsFoundryState.MAX_LEVEL,
+      EGiantsFoundryState.END_SCRIPT: Break;
     end;
 
   until False;
@@ -226,7 +282,7 @@ begin
 end;
 
 var
-  Template: TTemplate;
+  Template: TGiantsFoundryScript;
   TemplateForm: TScriptForm;
   TemplateConfig: TConfigJSON;
   FormCheckbox: TLazCheckBox;
