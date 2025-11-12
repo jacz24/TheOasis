@@ -13,15 +13,25 @@ type
     USE_TRIP_HAMMER,
     USE_GRINDSTONE,
 
+
+    SWORD_COMPLETE,
+    GRAB_COMMISION,
+    SETUP_MOULD,
+    WITHDRAW_BARS,
+    FILL_CRUCIBLE_BAR_ONE,
+    FILL_CRUCIBLE_BAR_TWO,
+    POUR_CRUCIBLE,
+    GRAB_SWORD,
+
     NO_ACTIVITY, MAX_ACTIONS, MAX_TIME, MAX_LEVEL, END_SCRIPT
   );
 
 
 
   TGiantsFoundryScript = record
+    State: EGiantsFoundryState;
     Actions, MaxTime, MaxActions, MaxLevel: UInt64;
     FormSetting: Boolean;
-    State: EGiantsFoundryState;
 
     LastAction: Int64;
     ActionCooldown: Integer;
@@ -30,6 +40,10 @@ type
     ColdTolerance, MediumTolerance, HotTolerance,
     TargetZone: TDoubleArray;
 
+    BankChest, LavaPool, Waterfall, PolishingWheel,
+    Grindstone, TripHammer, Crucible, MouldJig: TRSObject;
+    KovacNPC: TRSEntity;
+    MouldSet, CrucibleFullBarOne, CrucibleFullBarTwo, CruciblePoured: Boolean;
 
   end;
 
@@ -85,8 +99,24 @@ begin
   GiantsFoundryRefinement.SetupInterface();
   GiantsFoundrySetup.SetupInterface();
 
+  // Setup Objects and Entity
+  Writeln(Map.Position());
+  //Self.Brewma := TRSObject.Create(@Map.Walker, [0.5,0.5,6], [[2444,34486]], ['Brew', 'Brew''ma']);
+  Self.LavaPool := TRSObject.Create(@Map.Walker, [1.5, 1.5, 0.5], [[9394, 4440]], ['Lava pool']);
+  Self.Waterfall := TRSObject.Create(@Map.Walker, [2, 2, 12], [[9336, 4474]], ['Waterfall']);
 
+  Self.PolishingWheel := TRSObject.Create(@Map.Walker, [1.5, 1.5, 6], [[9356, 4490]], ['Polishing wheel']);
+  Self.Grindstone := TRSObject.Create(@Map.Walker, [2, 1, 6], [[9354, 4462]], ['Grindstone']);
+  Self.TripHammer := TRSObject.Create(@Map.Walker, [3, 0.8, 4], [[9362, 4442]], ['Trip hammer']);
 
+  Self.MouldJig := TRSObject.Create(@Map.Walker, [1, 1, 2], [[9386, 4474]], ['ould']);
+  Self.BankChest := TRSObject.Create(@Map.Walker, [1.2, 1.2, 1.5], [[9406, 4456]], ['Bank chest']);
+
+  Self.Crucible := TRSObject.Create(@Map.Walker, [1,2,12], [[9398, 4474]], ['rucible']);
+  Self.Crucible.Finder.Colors := [[$5D504D, 8.423, EColorSpace.RGB, [1.077, 1.026, 0.898]], [$402B25, 6.695, EColorSpace.RGB, [1.086, 1.052, 0.863]]];
+
+  ShowOnTarget(Self.Crucible);
+  TerminateScript('Test');
 
 end;
 
@@ -121,6 +151,8 @@ begin
   Writeln('Use Trip Hammer');
 end;
 
+
+
 function TGiantsFoundryScript.GetState(): EGiantsFoundryState;
 var
   currentTask: TRefineTask;
@@ -133,10 +165,18 @@ begin
   GiantsFoundryRefinement.TaskBar.CurrentTask := currentTask;
   currentTemp := GiantsFoundryRefinement.GetTemperaturePercent();
 
-  GiantsFoundrySetup.SetupMoulds(GiantsFoundrySetup.GetCommission());
+  if not GiantsFoundryRefinement.IsOpen() then
+  begin
+    if not GiantsFoundry.IsCommissionValid() then
+      Exit(EGiantsFoundryState.GRAB_COMMISION);
 
-  writeln(GiantsFoundryRefinement.IsOpen());
+    if GiantsFoundry.IsCommissionValid() and not Self.MouldSet then
+      Exit(EGiantsFoundryState.SETUP_MOULD);
+
+  end;
+
   TerminateScript('Test');
+
   // Track temperature changes
   GiantsFoundryRefinement.TrackTemperatureAction();
 
