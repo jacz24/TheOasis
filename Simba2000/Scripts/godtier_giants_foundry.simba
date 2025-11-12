@@ -115,8 +115,9 @@ begin
   Self.Crucible := TRSObject.Create(@Map.Walker, [1,2,12], [[9398, 4474]], ['rucible']);
   Self.Crucible.Finder.Colors := [[$5D504D, 8.423, EColorSpace.RGB, [1.077, 1.026, 0.898]], [$402B25, 6.695, EColorSpace.RGB, [1.086, 1.052, 0.863]]];
 
-  ShowOnTarget(Self.Crucible);
-  TerminateScript('Test');
+  Self.KovacNPC := TRSEntity.Create(@Map.Walker, [1.2,1.2,8], 6, [[9380, 4482]], ['Kovac'], [ERSMinimapDot.NPC]);
+  //ShowOnTarget(Self.KovacNPC);
+  //TerminateScript('Test');
 
 end;
 
@@ -172,6 +173,7 @@ begin
 
     if GiantsFoundry.IsCommissionValid() and not Self.MouldSet then
       Exit(EGiantsFoundryState.SETUP_MOULD);
+
 
   end;
 
