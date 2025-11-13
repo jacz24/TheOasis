@@ -250,6 +250,16 @@ begin
   Bank.Withdraw(Self.BarOneBankItem, True, True);
 end;
 
+procedure TGiantsFoundryScript.FillBarOneInCrucible();
+begin
+
+end;
+
+procedure TGiantsFoundryScript.FillBarTwoInCrucible();
+begin
+
+end;
+
 function TGiantsFoundryScript.GetState(): EGiantsFoundryState;
 var
   currentTask: TRefineTask;
@@ -439,13 +449,10 @@ begin
       EGiantsFoundryState.OPEN_BANK: SleepUntil(Bank.Open(Self.BankChest, True), 250, 5000);
       EGiantsFoundryState.WITHDRAW_BARS: Self.WithdrawBars();
       EGiantsFoundryState.CLOSE_BANK: Bank.Close();
+      EGiantsFoundryState.FILL_CRUCIBLE_BAR_ONE: Self.FillBarOneInCrucible();
+      EGiantsFoundryState.FILL_CRUCIBLE_BAR_TWO: Self.FillBarTwoInCrucible();
       (*
 
-
-
-
-      EGiantsFoundryState.FILL_CRUCIBLE_BAR_ONE:
-      EGiantsFoundryState.FILL_CRUCIBLE_BAR_TWO:
       EGiantsFoundryState.POUR_CRUCIBLE:
       EGiantsFoundryState.GRAB_SWORD:
       *)
