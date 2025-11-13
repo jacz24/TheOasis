@@ -1,5 +1,8 @@
 {$I WaspLib/osrs.simba}
 
+
+
+
 type
   EGiantsFoundryState = enum(
     LOGIN,
@@ -13,20 +16,24 @@ type
     USE_TRIP_HAMMER,
     USE_GRINDSTONE,
 
-
     SWORD_COMPLETE,
     GRAB_COMMISION,
+    OPEN_MOULD_SETUP,
     SETUP_MOULD,
     WITHDRAW_BARS,
     FILL_CRUCIBLE_BAR_ONE,
     FILL_CRUCIBLE_BAR_TWO,
     POUR_CRUCIBLE,
     GRAB_SWORD,
+    CLOSE_BANK,
+    OPEN_BANK,
 
     NO_ACTIVITY, MAX_ACTIONS, MAX_TIME, MAX_LEVEL, END_SCRIPT
   );
 
-
+  ETask = enum(
+    BRONZE_IRON, IRON_STEEL, STEEL_MIHTRIL, MITHRIL_ADAMANTITE, ADAMANTITE_RUNITE
+  );
 
   TGiantsFoundryScript = record
     State: EGiantsFoundryState;
@@ -40,12 +47,18 @@ type
     ColdTolerance, MediumTolerance, HotTolerance,
     TargetZone: TDoubleArray;
 
+    BarOne, BarTwo: TRSItem;
+    BarOneBankItem, BarTwoBankItem: TRSBankItem;
     BankChest, LavaPool, Waterfall, PolishingWheel,
-    Grindstone, TripHammer, Crucible, MouldJig: TRSObject;
+    Grindstone, TripHammer, Crucible, MouldJig, KovacObject: TRSObject;
     KovacNPC: TRSEntity;
-    MouldSet, CrucibleFullBarOne, CrucibleFullBarTwo, CruciblePoured: Boolean;
+    MouldSet, HasCommission,
+    CrucibleFullBarOne, CrucibleFullBarTwo, CruciblePoured: Boolean;
 
   end;
+
+var
+  CurrentTask: ETask := ETask.MITHRIL_ADAMANTITE;
 
 function TGiantsFoundryScript.GetReportValues(): TStringArray;
 var
@@ -77,6 +90,44 @@ begin
   Result := InRange(currentTemp, zone[0], zone[1]);
 end;
 
+procedure TGiantsFoundryScript.SetupBars();
+begin
+  case CurrentTask of
+    ETask.BRONZE_IRON:
+    begin
+      Self.BarOne := 'Bronze bar';
+      Self.BarTwo := 'Iron bar';
+    end;
+
+    ETask.IRON_STEEL:
+    begin
+      Self.BarOne := 'Iron bar';
+      Self.BarTwo := 'Steel bar';
+    end;
+
+    ETask.STEEL_MIHTRIL:
+    begin
+      Self.BarOne := 'Steel bar';
+      Self.BarTwo := 'Mithril bar';
+    end;
+
+    ETask.MITHRIL_ADAMANTITE:
+    begin
+      Self.BarOne := 'Mithril bar';
+      Self.BarTwo := 'Adamantite bar';
+    end;
+
+    ETask.ADAMANTITE_RUNITE:
+    begin
+      Self.BarOne := 'Adamantite bar';
+      Self.BarTwo := 'Runite bar';
+    end;
+  end;
+
+  Self.BarOneBankItem := new TRSBankItem(Self.BarOne, 10);
+  Self.BarTwoBankItem := new TRSBankItem(Self.BarTwo, 10);
+end;
+
 procedure TGiantsFoundryScript.Init();
 var
   cursorPos: TPoint;
@@ -100,8 +151,6 @@ begin
   GiantsFoundrySetup.SetupInterface();
 
   // Setup Objects and Entity
-  Writeln(Map.Position());
-  //Self.Brewma := TRSObject.Create(@Map.Walker, [0.5,0.5,6], [[2444,34486]], ['Brew', 'Brew''ma']);
   Self.LavaPool := TRSObject.Create(@Map.Walker, [1.5, 1.5, 0.5], [[9394, 4440]], ['Lava pool']);
   Self.Waterfall := TRSObject.Create(@Map.Walker, [2, 2, 12], [[9336, 4474]], ['Waterfall']);
 
@@ -116,9 +165,9 @@ begin
   Self.Crucible.Finder.Colors := [[$5D504D, 8.423, EColorSpace.RGB, [1.077, 1.026, 0.898]], [$402B25, 6.695, EColorSpace.RGB, [1.086, 1.052, 0.863]]];
 
   Self.KovacNPC := TRSEntity.Create(@Map.Walker, [1.2,1.2,8], 6, [[9380, 4482]], ['Kovac'], [ERSMinimapDot.NPC]);
-  //ShowOnTarget(Self.KovacNPC);
-  //TerminateScript('Test');
 
+  Self.KovacObject := TRSObject.Create(@Map.Walker, [1,1,8], [[9382, 4484]], ['Kovac']);
+  Self.SetupBars();
 end;
 
 procedure TGiantsFoundryScript.SetupTemperatureSystem();
@@ -152,7 +201,54 @@ begin
   Writeln('Use Trip Hammer');
 end;
 
+function TGiantsFoundryScript.IsCrucibleFull(): Boolean;
+begin
+  Result := Self.CrucibleFullBarOne and Self.CrucibleFullBarTwo;
+end;
 
+procedure TGiantsFoundryScript.GrabCommission();
+var
+  commission: TRSGiantsFoundryCommission;
+begin
+  if Self.KovacObject.WalkInteract(['Com'], 3) then
+  begin
+    Minimap.WaitMoving();
+  end;
+  if SleepUntil(Chat.GetTitle = 'Kovac', 250, 5000) then
+  begin
+    commission := GiantsFoundry.GetCommission();
+    if commission <> [] then
+      Self.HasCommission := True;
+  end;
+end;
+
+procedure TGiantsFoundryScript.OpenMouldSetup();
+begin
+  Self.MouldJig.Click();
+  SleepUntil(GiantsFoundrySetup.IsOpen(), 250, 5000);
+end;
+
+procedure TGiantsFoundryScript.SetupMould();
+var
+  commission: TRSGiantsFoundryCommission;
+begin
+  commission := GiantsFoundrySetup.GetCommission();
+
+  if GiantsFoundrySetup.SetupMoulds(commission) then
+    GiantsFoundry.Commission := commission;
+    Self.MouldSet := True;
+end;
+
+procedure TGiantsFoundryScript.WithdrawBars();
+begin
+  Bank.Withdraw(Self.BarTwoBankItem, True, True);
+
+  Biometrics.Sleep(250, 500);
+
+  Bank.Withdraw(Self.BarOneBankItem, True, True);
+  SleepUntil(Inventory.Items.Count(Self.BarOne) = 10 , 300, 5000);
+  Bank.Withdraw(Self.BarOneBankItem, True, True);
+end;
 
 function TGiantsFoundryScript.GetState(): EGiantsFoundryState;
 var
@@ -166,106 +262,129 @@ begin
   GiantsFoundryRefinement.TaskBar.CurrentTask := currentTask;
   currentTemp := GiantsFoundryRefinement.GetTemperaturePercent();
 
-  if not GiantsFoundryRefinement.IsOpen() then
+  if GiantsFoundryRefinement.IsOpen() then
   begin
-    if not GiantsFoundry.IsCommissionValid() then
-      Exit(EGiantsFoundryState.GRAB_COMMISION);
+    // Track temperature changes
+    GiantsFoundryRefinement.TrackTemperatureAction();
 
-    if GiantsFoundry.IsCommissionValid() and not Self.MouldSet then
-      Exit(EGiantsFoundryState.SETUP_MOULD);
+    // Determine target temperature zone based on current task
+    case currentTask.Refining of
+      ETaskState.WHEEL:
+        begin
+          Self.TargetZone := [Self.ColdTolerance[0], Self.ColdZone[1]];
+          if (Self.InTemperatureRange(Self.TargetZone)) then
+          begin
+            if (GiantsFoundryRefinement.TemperatureBar.Target.Direction = ETemperatureDirection.HEAT) and (GiantsFoundryRefinement.TemperatureBar.Target.CurrentAction >= GiantsFoundryRefinement.TemperatureBar.Target.ActionsNeeded) then
+              Exit(EGiantsFoundryState.USE_POLISHING_WHEEL);
+
+            if (GiantsFoundryRefinement.TemperatureBar.Target.Direction = ETemperatureDirection.COOL)  then
+              Exit(EGiantsFoundryState.USE_POLISHING_WHEEL);
+          end;
 
 
+          if not Self.InTemperatureRange(Self.TargetZone) then
+            if not (GiantsFoundryRefinement.TemperatureBar.Target.TargetTemperaturePercent = Self.ColdTolerance[1]) then
+              GiantsFoundryRefinement.UpdateTemperatureTarget(Self.ColdTolerance[1], GiantsFoundryRefinement.GetTemperaturePercent());
+
+
+          if GiantsFoundryRefinement.TemperatureBar.Target.Direction = ETemperatureDirection.HEAT then
+            Exit(EGiantsFoundryState.HEATING)
+          else
+            Exit(EGiantsFoundryState.COOLING);
+        end;
+
+      ETaskState.STONE:
+        begin
+          Self.TargetZone := [Self.MediumZone[0], Self.MediumTolerance[1]];
+          if (Self.InTemperatureRange(Self.TargetZone)) then
+          begin
+            if GiantsFoundryRefinement.TemperatureBar.Target.Direction = ETemperatureDirection.HEAT then
+              Exit(EGiantsFoundryState.USE_GRINDSTONE);
+
+            if (GiantsFoundryRefinement.TemperatureBar.Target.Direction = ETemperatureDirection.COOL) and (GiantsFoundryRefinement.TemperatureBar.Target.CurrentAction >= GiantsFoundryRefinement.TemperatureBar.Target.ActionsNeeded) then
+              Exit(EGiantsFoundryState.USE_GRINDSTONE);
+          end;
+
+
+          if not Self.InTemperatureRange(Self.TargetZone) then
+            if not (GiantsFoundryRefinement.TemperatureBar.Target.TargetTemperaturePercent = Self.MediumTolerance[0]) then
+              GiantsFoundryRefinement.UpdateTemperatureTarget(Self.MediumTolerance[0], GiantsFoundryRefinement.GetTemperaturePercent());
+
+
+          if GiantsFoundryRefinement.TemperatureBar.Target.Direction = ETemperatureDirection.HEAT then
+            Exit(EGiantsFoundryState.HEATING)
+          else
+            Exit(EGiantsFoundryState.COOLING);
+        end;
+
+      ETaskState.HAMMER:
+        begin
+          Self.TargetZone := [Self.HotTolerance[0], Self.HotZone[1]];
+          if (Self.InTemperatureRange(Self.TargetZone)) then
+          begin
+            if GiantsFoundryRefinement.TemperatureBar.Target.Direction = ETemperatureDirection.HEAT then
+              Exit(EGiantsFoundryState.USE_TRIP_HAMMER);
+
+            if (GiantsFoundryRefinement.TemperatureBar.Target.Direction = ETemperatureDirection.COOL) and (GiantsFoundryRefinement.TemperatureBar.Target.CurrentAction >= GiantsFoundryRefinement.TemperatureBar.Target.ActionsNeeded) then
+              Exit(EGiantsFoundryState.USE_TRIP_HAMMER);
+          end;
+
+
+          if not Self.InTemperatureRange(Self.TargetZone) then
+            if not (GiantsFoundryRefinement.TemperatureBar.Target.TargetTemperaturePercent = Self.HotTolerance[0]) then
+              GiantsFoundryRefinement.UpdateTemperatureTarget(Self.HotTolerance[1], GiantsFoundryRefinement.GetTemperaturePercent());
+
+
+          if GiantsFoundryRefinement.TemperatureBar.Target.Direction = ETemperatureDirection.HEAT then
+            Exit(EGiantsFoundryState.HEATING)
+          else
+            Exit(EGiantsFoundryState.COOLING);
+        end;
+
+      ETaskState.COMPLETE:
+        begin
+          WriteLn('[Complete] Sword refinement finished!');
+          // Handle completion - hand in sword, get new commission, etc.
+        end;
+
+      ETaskState.NOTFOUND:
+        begin
+          WriteLn('[Error] No task found, checking interface...');
+        end;
+    end;
   end;
 
-  TerminateScript('Test');
+  if not GiantsFoundryRefinement.IsOpen() then
+  begin
+    if not GiantsFoundry.IsCommissionValid() and not Self.MouldSet and GiantsFoundrySetup.IsOpen() then
+      Exit(EGiantsFoundryState.SETUP_MOULD);
 
-  // Track temperature changes
-  GiantsFoundryRefinement.TrackTemperatureAction();
+    if not GiantsFoundry.IsCommissionValid() and not Self.HasCommission then
+      Exit(EGiantsFoundryState.GRAB_COMMISION);
 
-  // Determine target temperature zone based on current task
-  case currentTask.Refining of
-    ETaskState.WHEEL:
-      begin
-        Self.TargetZone := [Self.ColdTolerance[0], Self.ColdZone[1]];
-        if (Self.InTemperatureRange(Self.TargetZone)) then
-        begin
-          if (GiantsFoundryRefinement.TemperatureBar.Target.Direction = ETemperatureDirection.HEAT) and (GiantsFoundryRefinement.TemperatureBar.Target.CurrentAction >= GiantsFoundryRefinement.TemperatureBar.Target.ActionsNeeded) then
-            Exit(EGiantsFoundryState.USE_POLISHING_WHEEL);
+    if not GiantsFoundry.IsCommissionValid and not Self.MouldSet and not GiantsFoundrySetup.IsOpen() then
+      Exit(EGiantsFoundryState.OPEN_MOULD_SETUP);
 
-          if (GiantsFoundryRefinement.TemperatureBar.Target.Direction = ETemperatureDirection.COOL)  then
-            Exit(EGiantsFoundryState.USE_POLISHING_WHEEL);
-        end;
+    if GiantsFoundry.IsCommissionValid() and Self.MouldSet and not Self.IsCrucibleFull() and not Inventory.Items.ContainsAll([Self.BarOne, Self.BarTwo]) and not Bank.IsOpen() then
+      Exit(EGiantsFoundryState.OPEN_BANK);
 
+    if GiantsFoundry.IsCommissionValid() and Self.MouldSet and not Self.IsCrucibleFull() and not Inventory.Items.ContainsAll([Self.BarOne, Self.BarTwo]) and Bank.IsOpen() then
+      Exit(EGiantsFoundryState.WITHDRAW_BARS);
 
-        if not Self.InTemperatureRange(Self.TargetZone) then
-          if not (GiantsFoundryRefinement.TemperatureBar.Target.TargetTemperaturePercent = Self.ColdTolerance[1]) then
-            GiantsFoundryRefinement.UpdateTemperatureTarget(Self.ColdTolerance[1], GiantsFoundryRefinement.GetTemperaturePercent());
+    if GiantsFoundry.IsCommissionValid() and Self.MouldSet and Inventory.IsFull() and Bank.IsOpen() then
+      Exit(EGiantsFoundryState.CLOSE_BANK);
 
+    if GiantsFoundry.IsCommissionValid() and Self.MouldSet and Inventory.Items.ContainsAll([Self.BarOne, Self.BarTwo]) and not Bank.IsOpen() then
+      Exit(EGiantsFoundryState.FILL_CRUCIBLE_BAR_ONE);
 
-        if GiantsFoundryRefinement.TemperatureBar.Target.Direction = ETemperatureDirection.HEAT then
-          Exit(EGiantsFoundryState.HEATING)
-        else
-          Exit(EGiantsFoundryState.COOLING);
-      end;
+    if GiantsFoundry.IsCommissionValid() and Self.MouldSet and Inventory.Items.ContainsAny([Self.BarOne, Self.BarTwo]) and not Bank.IsOpen() then
+      Exit(EGiantsFoundryState.FILL_CRUCIBLE_BAR_TWO);
 
-    ETaskState.STONE:
-      begin
-        Self.TargetZone := [Self.MediumZone[0], Self.MediumTolerance[1]];
-        if (Self.InTemperatureRange(Self.TargetZone)) then
-        begin
-          if GiantsFoundryRefinement.TemperatureBar.Target.Direction = ETemperatureDirection.HEAT then
-            Exit(EGiantsFoundryState.USE_GRINDSTONE);
+    if GiantsFoundry.IsCommissionValid() and Self.MouldSet and Self.IsCrucibleFull() and not Self.CruciblePoured and not Inventory.Items.ContainsAll([Self.BarOne, Self.BarTwo]) and not Bank.IsOpen() then
+      Exit(EGiantsFoundryState.POUR_CRUCIBLE);
 
-          if (GiantsFoundryRefinement.TemperatureBar.Target.Direction = ETemperatureDirection.COOL) and (GiantsFoundryRefinement.TemperatureBar.Target.CurrentAction >= GiantsFoundryRefinement.TemperatureBar.Target.ActionsNeeded) then
-            Exit(EGiantsFoundryState.USE_GRINDSTONE);
-        end;
-
-
-        if not Self.InTemperatureRange(Self.TargetZone) then
-          if not (GiantsFoundryRefinement.TemperatureBar.Target.TargetTemperaturePercent = Self.MediumTolerance[0]) then
-            GiantsFoundryRefinement.UpdateTemperatureTarget(Self.MediumTolerance[0], GiantsFoundryRefinement.GetTemperaturePercent());
-
-
-        if GiantsFoundryRefinement.TemperatureBar.Target.Direction = ETemperatureDirection.HEAT then
-          Exit(EGiantsFoundryState.HEATING)
-        else
-          Exit(EGiantsFoundryState.COOLING);
-      end;
-
-    ETaskState.HAMMER:
-      begin
-        Self.TargetZone := [Self.HotTolerance[0], Self.HotZone[1]];
-        if (Self.InTemperatureRange(Self.TargetZone)) then
-        begin
-          if GiantsFoundryRefinement.TemperatureBar.Target.Direction = ETemperatureDirection.HEAT then
-            Exit(EGiantsFoundryState.USE_TRIP_HAMMER);
-
-          if (GiantsFoundryRefinement.TemperatureBar.Target.Direction = ETemperatureDirection.COOL) and (GiantsFoundryRefinement.TemperatureBar.Target.CurrentAction >= GiantsFoundryRefinement.TemperatureBar.Target.ActionsNeeded) then
-            Exit(EGiantsFoundryState.USE_TRIP_HAMMER);
-        end;
-
-
-        if not Self.InTemperatureRange(Self.TargetZone) then
-          if not (GiantsFoundryRefinement.TemperatureBar.Target.TargetTemperaturePercent = Self.HotTolerance[0]) then
-            GiantsFoundryRefinement.UpdateTemperatureTarget(Self.HotTolerance[1], GiantsFoundryRefinement.GetTemperaturePercent());
-
-
-        if GiantsFoundryRefinement.TemperatureBar.Target.Direction = ETemperatureDirection.HEAT then
-          Exit(EGiantsFoundryState.HEATING)
-        else
-          Exit(EGiantsFoundryState.COOLING);
-      end;
-
-    ETaskState.COMPLETE:
-      begin
-        WriteLn('[Complete] Sword refinement finished!');
-        // Handle completion - hand in sword, get new commission, etc.
-      end;
-
-    ETaskState.NOTFOUND:
-      begin
-        WriteLn('[Error] No task found, checking interface...');
-      end;
+    if GiantsFoundry.IsCommissionValid() and Self.MouldSet and Self.IsCrucibleFull() and Self.CruciblePoured and not Inventory.Items.ContainsAll([Self.BarOne, Self.BarTwo]) and not Bank.IsOpen() then
+      Exit(EGiantsFoundryState.GRAB_SWORD);
   end;
 
   (*
@@ -313,6 +432,23 @@ begin
       EGiantsFoundryState.USE_GRINDSTONE: Self.Use_Grindstone();
       EGiantsFoundryState.USE_TRIP_HAMMER: Self.Use_TripHammer();
 
+
+      EGiantsFoundryState.GRAB_COMMISION: Self.GrabCommission();
+      EGiantsFoundryState.OPEN_MOULD_SETUP: Self.OpenMouldSetup();
+      EGiantsFoundryState.SETUP_MOULD: Self.SetupMould();
+      EGiantsFoundryState.OPEN_BANK: SleepUntil(Bank.Open(Self.BankChest, True), 250, 5000);
+      EGiantsFoundryState.WITHDRAW_BARS: Self.WithdrawBars();
+      EGiantsFoundryState.CLOSE_BANK: Bank.Close();
+      (*
+
+
+
+
+      EGiantsFoundryState.FILL_CRUCIBLE_BAR_ONE:
+      EGiantsFoundryState.FILL_CRUCIBLE_BAR_TWO:
+      EGiantsFoundryState.POUR_CRUCIBLE:
+      EGiantsFoundryState.GRAB_SWORD:
+      *)
       EGiantsFoundryState.NO_ACTIVITY, EGiantsFoundryState.MAX_ACTIONS,
       EGiantsFoundryState.MAX_TIME, EGiantsFoundryState.MAX_LEVEL,
       EGiantsFoundryState.END_SCRIPT: Break;
@@ -328,6 +464,7 @@ var
   TemplateForm: TScriptForm;
   TemplateConfig: TConfigJSON;
   FormCheckbox: TLazCheckBox;
+
 
 procedure TScriptForm.OnStart(sender: TLazObject); override;
 begin
