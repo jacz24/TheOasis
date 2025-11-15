@@ -4,6 +4,1977 @@
 
 
 type
+(*
+## ERSGiantsFoundryAttribute
+```pascal
+ERSGiantsFoundryAttribute = enum(HEAVY, LIGHT, BROAD, NARROW, FLAT, SPIKED);
+```
+Enum representing the different mould attributes in Giants' Foundry.
+Each commission from Kovac requires two of these attributes.
+*)
+  ERSGiantsFoundryAttribute = enum(HEAVY, LIGHT, BROAD, NARROW, FLAT, SPIKED);
+(*
+## TRSGiantsFoundryCommission
+Record representing Kovac's commission requirements.
+*)
+  TRSGiantsFoundryCommission = record
+    Attribute1: ERSGiantsFoundryAttribute;
+    Attribute2: ERSGiantsFoundryAttribute;
+  end;
+
+  TRSGiantsFoundry = record
+    Commission: TRSGiantsFoundryCommission;
+  end;
+
+
+
+function TRSGiantsFoundry.IsCommissionValid(): Boolean;
+begin
+  Result := not ((Self.Commission.Attribute1 = ERSGiantsFoundryAttribute.HEAVY) and (Self.Commission.Attribute2 = ERSGiantsFoundryAttribute.HEAVY));
+end;
+
+function TRSGiantsFoundry.IsCommissionValid(commission: TRSGiantsFoundryCommission): Boolean; overload;
+begin
+  Result := not ((commission.Attribute1 = ERSGiantsFoundryAttribute.HEAVY) and (commission.Attribute2 = ERSGiantsFoundryAttribute.HEAVY));
+end;
+
+(*
+## GiantsFoundrySetup._AttributeToString
+```pascal
+function TRSGiantsFoundrySetup._AttributeToString(attr: ERSGiantsFoundryAttribute): String;
+```
+Internal helper function to convert an attribute enum to its string representation.
+*)
+function TRSGiantsFoundry._AttributeToString(attr: ERSGiantsFoundryAttribute): String;
+begin
+  case attr of
+    ERSGiantsFoundryAttribute.HEAVY:  Result := 'Heavy';
+    ERSGiantsFoundryAttribute.LIGHT:  Result := 'Light';
+    ERSGiantsFoundryAttribute.BROAD:  Result := 'Broad';
+    ERSGiantsFoundryAttribute.NARROW: Result := 'Narrow';
+    ERSGiantsFoundryAttribute.FLAT:   Result := 'Flat';
+    ERSGiantsFoundryAttribute.SPIKED: Result := 'Spiked';
+  end;
+end;
+
+(*
+## GiantsFoundrySetup._StringToAttribute
+```pascal
+function TRSGiantsFoundrySetup._StringToAttribute(s: String): ERSGiantsFoundryAttribute;
+```
+Internal helper function to convert a string to an attribute enum.
+*)
+function TRSGiantsFoundry._StringToAttribute(s: String): ERSGiantsFoundryAttribute;
+var
+  attributes: TStringArray;
+  idx: Int32;
+begin
+  s := LowerCase(Trim(s));
+  attributes := ['heavy', 'light', 'broad', 'narrow', 'flat', 'spiked'];
+
+  for idx := 0 to High(attributes) do
+    if s.Contains(attributes[idx], False) then
+      Exit(ERSGiantsFoundryAttribute(idx));
+end;
+
+function TRSGiantsFoundry.IsKovicOpen(): Boolean;
+begin
+  Result := Chat.GetTitle.Contains('Kovac', False);
+end;
+
+function TRSGiantsFoundry.GetCommission(): TRSGiantsFoundryCommission;
+var
+  request: TRSChatOption;
+  tmp, split: TStringArray;
+begin
+  Writeln('Getting Commission From Kovic');
+  if not Self.IsKovicOpen then Exit;
+
+  for request in Chat.GetOptions(Chat.GetColors([ERSChatColor.RED])) do
+    tmp += request.Text;
+
+  if tmp.Length = 2 then
+  begin
+    Result.Attribute1 := Self._StringToAttribute(tmp[0]);
+    Result.Attribute2 := Self._StringToAttribute(tmp[1]);
+  end else
+  begin
+    split := tmp[0].Split(' ');
+    Result.Attribute1 := Self._StringToAttribute(split[0]);
+    Result.Attribute2 := Self._StringToAttribute(split[1]);
+  end;;
+
+  //Result := tmp;
+end;
+
+var
+(*
+## GiantsFoundry variable
+Global {ref}`TRSGiantsFoundry` variable.
+*)
+  GiantsFoundry: TRSGiantsFoundry;
+
+type
+
+  ETaskState = enum(WHEEL, STONE, HAMMER, COMPLETE, NOTFOUND);
+  ETemperatureState = enum(COLD, MEDIUM, HOT, USELESS);
+  ETemperatureDirection = enum(COOL, HEAT);
+
+  TRSRefinementCursor = record
+    Bounds, BarBounds, ZoneBounds: TBox;
+    Position: TPoint;
+    PositionPercent: Double;
+    CurrentZoneIdx, DistanceToNextZone: Integer;
+    LastUpdateTime: Int64;
+  end;
+
+  // Quality Records
+  TRSRefinementQualityBar = record
+    Bounds: TBox;
+    Cursor: TRSRefinementCursor;
+  end;
+
+  // Temperature Records
+
+  TQuadraticCoefficients = record
+    a, b, c: Double;  // For ax² + bx + c
+    R2: Double;       // R-squared value
+  end;
+
+  TTemperatureTarget = record
+    TargetTemperaturePercent, TemperatureChange, ActionChange,
+    StartPercent: Double;
+    ActionsNeeded, CurrentAction: Integer;
+    Direction: ETemperatureDirection;
+    Forumula: TQuadraticCoefficients;
+  end;
+
+  TRefineTemperature = record
+    TemperatureBounds: TBox;
+    Temperature: ETemperatureState;
+    Active: Boolean;
+    Idx: Integer;
+  end;
+
+  TRefineTemperatureBarArray = array of TRefineTemperature;
+
+  TRSRefinementTemperatureBar = record
+    Bounds: TBox;
+    Temperatures: TRefineTemperatureBarArray;
+    Cursor: TRSRefinementCursor;
+    NextTemperature, CurrentTemperature, PreviousTemperature: TRefineTemperature;
+
+    Target: TTemperatureTarget;
+    //Predictor: TStepPrediction;
+    //Tracker: TTemperatureTracker;
+  end;
+
+  // Task Records
+  TRefineTask = record
+    TaskBounds: TBox;
+    Refining: ETaskState;
+    Active: Boolean;
+    Idx: Int32;
+  end;
+
+  TRefineTaskBarArray = array of TRefineTask;
+
+  TRSRefinementTaskBar = record
+    Bounds: TBox;
+    Tasks: TRefineTaskBarArray;
+    NextTask, CurrentTask: TRefineTask;
+    Cursor: TRSRefinementCursor;
+  end;
+
+
+  // General Refinement Record
+  TRSGiantsFoundryRefinement = record
+    Bounds: TBox;
+
+    QualityBar: TRSRefinementQualityBar;
+    TemperatureBar: TRSRefinementTemperatureBar;
+    TaskBar: TRSRefinementTaskBar;
+
+  end;
+
+const
+  // Color arrays for each bar type
+  RedColours: TIntegerArray = [2969828, 9617142, 1975224, 3810928];
+  GreenColours: TIntegerArray = [11266515, 6737800, 4621632, 4482857];
+  YellowColours: TIntegerArray = [6148603, 763374, 1927902, 11398142];
+
+
+
+  WhiteColour: Integer = 16777215;
+  BlackColour: Integer = 65536;
+  TrueBlackColour: Integer = 0;
+  GreyColour: Integer = 2763306;
+
+function TRSGiantsFoundryRefinement.FindCursor(cursor: TRSRefinementCursor): TBox;
+var
+  tpa, line, blackPoints: TPointArray;
+  atpa: T2DPointArray;
+  b, searchBox: TBox;
+  x, y: Integer;
+  colour: TColor;
+begin
+  searchBox := TBox.Create(cursor.BarBounds.X1+1, cursor.BarBounds.Y2-2, cursor.BarBounds.X2-1, cursor.BarBounds.Y2-2);
+
+
+  // Iterate through each pixel in the search box
+  for y := searchBox.Y1 to searchBox.Y2 do
+    for x := searchBox.X1 to searchBox.X2 do
+    begin
+      line += [x,y];
+      colour := Target.GetColor([x,y]);
+      if colour = BlackColour then
+        blackPoints += Point(x, y);
+    end;
+
+  if blackPoints <> [] then
+  begin
+    atpa := blackPoints.Cluster(12, 1);
+    for tpa in atpa do
+    begin
+      b := tpa.Bounds();
+      Result := TBox.Create(b.X1, cursor.BarBounds.Y1, b.X2, cursor.BarBounds.Y2);
+    end;
+  end;
+end;
+
+// Temperature Specific Functions
+
+procedure TRSGiantsFoundryRefinement.SortTemperaturesByX1(Temperatures: TRefineTemperatureBarArray);
+var
+  i, j: Integer;
+  temp: TRefineTemperature;
+begin
+  for i := 0 to High(Temperatures) - 1 do
+    for j := 0 to High(Temperatures) - i - 1 do
+      if Temperatures[j].TemperatureBounds.X1 > Temperatures[j + 1].TemperatureBounds.X1 then
+      begin
+        temp := Temperatures[j];
+        Temperatures[j] := Temperatures[j + 1];
+        Temperatures[j + 1] := temp;
+      end;
+end;
+
+function TRSGiantsFoundryRefinement.FindTemperatureBoundaries(): TRefineTemperatureBarArray;
+var
+  tpa, redPoints, greenPoints, yellowPoints, whitePoints, greyPoints, line: TPointArray;
+  atpa: T2DPointArray;
+  b, searchBox, tempBox: TBox;
+  i, x, y: Integer;
+  colour: TColor;
+  temptemperature: TRefineTemperature;
+
+
+  // Helper function to check if white points exist at position
+  function HasWhiteAt(xPos, yPos: Integer): Boolean;
+  var
+    pt: TPoint;
+  begin
+    Result := False;
+    for pt in whitePoints do
+      if (pt.X = xPos) and (pt.Y = yPos) then
+        Exit(True);
+  end;
+begin
+
+  searchBox := TBox.Create(Self.TemperatureBar.Bounds.X1+1, Self.TemperatureBar.Bounds.Y1+2, Self.TemperatureBar.Bounds.X2-1, Self.TemperatureBar.Bounds.Y1+2);
+
+  // Iterate through each pixel in the search box
+  for y := searchBox.Y1 to searchBox.Y2 do
+    for x := searchBox.X1 to searchBox.X2 do
+    begin
+      line += [x,y];
+      colour := Target.GetColor([x,y]);
+
+
+      // Check red colours
+      if RedColours.Contains(colour) then
+        redPoints += Point(x, y)
+      // Check green colours
+      else if GreenColours.Contains(colour) then
+        greenPoints += Point(x, y)
+      // Check yellow colours
+      else if YellowColours.Contains(colour) then
+        yellowPoints += Point(x, y)
+      // Check white outline
+      else if colour = WhiteColour then
+        whitePoints += Point(x, y)
+      // Check grey colours
+      else if colour = GreyColour then
+        greyPoints += Point(x, y);
+    end;
+
+  // Process green points
+  if greenPoints <> [] then
+  begin
+    atpa := greenPoints.Cluster(3, 1);
+    for tpa in atpa do
+    begin
+      b := tpa.Bounds();
+      //Writeln('Green boundary: ', b);
+      if HasWhiteAt(b.X1 - 1, searchBox.Y1) and HasWhiteAt(b.X2 + 1, searchBox.Y1)then
+      begin
+        b.X1 := b.X1 - 1;
+        b.X2 := b.X2 + 1;
+      end;
+      temptemperature.Temperature := ETemperatureState.COLD;
+      temptemperature.TemperatureBounds := [b.X1, Self.TemperatureBar.Bounds.Y1, b.X2, Self.TemperatureBar.Bounds.Y2];
+      Result += temptemperature;//[b.X1, Self.TaskBar.Bounds.Y1, b.X2, Self.TaskBar.Bounds.Y2];
+    end;
+  end;
+
+  // Process yellow points
+  if yellowPoints <> [] then
+  begin
+    atpa := yellowPoints.Cluster(3, 1);
+    for tpa in atpa do
+    begin
+      b := tpa.Bounds();
+      //Writeln('Yellow boundary: ', b);
+      if HasWhiteAt(b.X1 - 1, searchBox.Y1) and HasWhiteAt(b.X2 + 1, searchBox.Y1)then
+      begin
+        b.X1 := b.X1 - 1;
+        b.X2 := b.X2 + 1;
+      end;
+      temptemperature.Temperature := ETemperatureState.MEDIUM;
+      temptemperature.TemperatureBounds := [b.X1, Self.TemperatureBar.Bounds.Y1, b.X2, Self.TemperatureBar.Bounds.Y2];
+      Result += temptemperature;
+    end;
+  end;
+
+  // Process red points
+  if redPoints <> [] then
+  begin
+    atpa := redPoints.Cluster(3, 1);
+    for tpa in atpa do
+    begin
+      b := tpa.Bounds();
+      //Writeln('Red boundary: ', b);
+      if HasWhiteAt(b.X1 - 1, searchBox.Y1) and HasWhiteAt(b.X2 + 1, searchBox.Y1)then
+      begin
+        b.X1 := b.X1 - 1;
+        b.X2 := b.X2 + 1;
+      end;
+      temptemperature.Temperature := ETemperatureState.HOT;
+      temptemperature.TemperatureBounds := [b.X1, Self.TemperatureBar.Bounds.Y1, b.X2, Self.TemperatureBar.Bounds.Y2];
+      Result += temptemperature;
+    end;
+  end;
+
+  // Process grey points
+  if greyPoints <> [] then
+  begin
+    atpa := greyPoints.Cluster(3, 1);
+    for tpa in atpa do
+    begin
+      b := tpa.Bounds();
+      //Writeln('Red boundary: ', b);
+      if HasWhiteAt(b.X1 - 1, searchBox.Y1) and HasWhiteAt(b.X2 + 1, searchBox.Y1)then
+      begin
+        b.X1 := b.X1 - 1;
+        b.X2 := b.X2 + 1;
+      end;
+      temptemperature.Temperature := ETemperatureState.USELESS;
+      temptemperature.TemperatureBounds := [b.X1, Self.TemperatureBar.Bounds.Y1, b.X2, Self.TemperatureBar.Bounds.Y2];
+      Result += temptemperature;
+    end;
+  end;
+
+  Self.SortTemperaturesByX1(Result);
+  for i := 0 to High(Result) do
+  begin
+    Result[i].Idx := i;
+  end;
+  Self.TemperatureBar.Temperatures := Result;
+end;
+
+
+function TRSGiantsFoundryRefinement.GetCoolingQuadratic(): TQuadraticCoefficients;
+begin
+  // Coefficients derived from least squares regression
+  Result.a := -0.0128;  // x² coefficient
+  Result.b := -0.1502;  // x coefficient
+  Result.c := -0.4245;  // constant term
+  Result.R2 := 0.9426; // R² = 94.26% (very good fit)
+end;
+
+function TRSGiantsFoundryRefinement.GetHeatingQuadratic(): TQuadraticCoefficients;
+begin
+  // Coefficients derived from least squares regression
+  Result.a := 0.0128;  // x² coefficient
+  Result.b := 0.1502;  // x coefficient
+  Result.c := 0.4245;  // constant term
+  Result.R2 := 0.9426; // R² = 94.26% (very good fit)
+end;
+
+function TRSGiantsFoundryRefinement.ReachedTemperatureTargetAction(): Boolean;
+begin
+  Result := False;
+  if Self.TemperatureBar.Target.CurrentAction >= Self.TemperatureBar.Target.ActionsNeeded then
+    Result := True;
+end;
+
+function TRSGiantsFoundryRefinement.ReachedTemperatureTargetPercent(): Boolean;
+begin
+  Result := False;
+
+end;
+
+function TRSGiantsFoundryRefinement.StepsToTargetTemperature(): Integer;
+var
+  currentTemp, targetTemperature, increment: Double;
+  step, maxsteps: Integer;
+  coeffs: TQuadraticCoefficients;
+begin
+  currentTemp := Self.TemperatureBar.Target.StartPercent;
+  targetTemperature := Self.TemperatureBar.Target.TargetTemperaturePercent;
+  coeffs := Self.TemperatureBar.Target.Forumula;
+
+  step := 0;
+  maxSteps := 100; // Safety limit
+
+  while (step < maxsteps) do
+  begin
+    Inc(step);
+
+    increment := coeffs.a * Sqr(step) + coeffs.b * step + coeffs.c;
+    currentTemp := currentTemp + increment;
+
+    if Self.TemperatureBar.Target.Direction = ETemperatureDirection.COOL then
+    begin
+      if currentTemp <= targetTemperature then
+        Break;
+    end else
+    begin
+      if currentTemp >= targetTemperature then
+        Break;
+    end;
+  end;
+  Result := step;
+end;
+(*
+TTemperatureTarget = record
+    TargetTemperaturePercent, TemperatureChange, ActionChange,
+    StartPercent: Double;
+    ActionsNeeded, CurrentAction: Integer;
+    Direction: ETemperatureDirection;
+
+  end;
+*)
+function TRSGiantsFoundryRefinement.CreateTemperatureTarget(targetTemperature, startPercent: Double): TTemperatureTarget;
+begin
+  Result.TargetTemperaturePercent := targetTemperature;
+  Result.StartPercent := startPercent;
+  Result.TemperatureChange := Result.TargetTemperaturePercent - Result.StartPercent;
+
+  Result.CurrentAction := 0;
+
+  if targetTemperature > startPercent then
+  begin
+    Result.Direction := ETemperatureDirection.Heat;
+    Result.Forumula := Self.GetHeatingQuadratic;
+  end else
+  begin
+    Result.Direction := ETemperatureDirection.COOL;
+    Result.Forumula := Self.GetCoolingQuadratic();
+  end;
+
+  Result.ActionsNeeded := Self.StepsToTargetTemperature();
+end;
+
+procedure TRSGiantsFoundryRefinement.UpdateTemperatureTarget(targetTemperature, startPercent: Double);
+begin
+  Self.TemperatureBar.Target.TargetTemperaturePercent := targetTemperature;
+  Self.TemperatureBar.Target.StartPercent := startPercent;
+  Self.TemperatureBar.Target.TemperatureChange := Self.TemperatureBar.Target.TargetTemperaturePercent - Self.TemperatureBar.Target.StartPercent;
+
+
+  Self.TemperatureBar.Target.CurrentAction := 0;
+
+  if targetTemperature > startPercent then
+  begin
+    Self.TemperatureBar.Target.Direction := ETemperatureDirection.Heat;
+    Self.TemperatureBar.Target.Forumula := Self.GetHeatingQuadratic;
+  end else
+  begin
+    Self.TemperatureBar.Target.Direction := ETemperatureDirection.COOL;
+    Self.TemperatureBar.Target.Forumula := Self.GetCoolingQuadratic();
+  end;
+
+  Self.TemperatureBar.Target.ActionsNeeded := Self.StepsToTargetTemperature();
+
+  writeln(Self.TemperatureBar.Target);
+end;
+
+procedure TRSGiantsFoundryRefinement.TrackTemperatureAction();
+var
+  currentPercent, percentChange: Double;
+  currentTime: Int64;
+begin
+  currentPercent := Self.GetTemperaturePercent();
+  currentTime := GetTimeRunning;
+  // Check if there was a significant change (threshold of 0.3%)
+  percentChange := Abs(currentPercent - Self.TemperatureBar.Cursor.PositionPercent);
+  if percentChange > 0.3 then
+  begin
+    Inc(Self.TemperatureBar.Target.CurrentAction);
+    Self.TemperatureBar.Target.ActionChange := currentPercent - Self.TemperatureBar.Cursor.PositionPercent;
+
+    if Self.TemperatureBar.Target.Direction = ETemperatureDirection.HEAT then
+      if Self.TemperatureBar.Target.ActionChange > 0 then
+        Writeln('Heating!');
+
+    if Self.TemperatureBar.Target.Direction = ETemperatureDirection.COOL then
+      if Self.TemperatureBar.Target.ActionChange < 0 then
+        Writeln('Cooling!');
+
+    // Update tracking variables
+    Self.TemperatureBar.Cursor.PositionPercent := currentPercent;
+    Self.TemperatureBar.Cursor.LastUpdateTime := currentTime;
+  end;
+  if (Self.TemperatureBar.Cursor.LastUpdateTime + 4000 < currentTime) and (Self.TemperatureBar.Target.CurrentAction > 0) then
+  begin
+    Self.ResetTemperatureTracker();
+  end;
+  Self.TemperatureBar.Cursor.PositionPercent := currentPercent;
+
+end;
+
+procedure TRSGiantsFoundryRefinement.ExecuteTemperatureActions();
+begin
+
+
+
+end;
+// Track when an increment occurs
+procedure TRSGiantsFoundryRefinement.TrackTemperatureIncrement();
+var
+  currentPercent, percentChange: Double;
+  currentTime: Int64;
+  timeDiff: Integer;
+begin
+
+  currentPercent := Self.GetTemperaturePercent();
+  currentTime := GetTimeRunning;
+  // Check if there was a significant change (threshold of 0.3%)
+  percentChange := Abs(currentPercent - Self.TemperatureBar.Cursor.PositionPercent);
+  if percentChange > 0.3 then
+  begin
+    Inc(Self.TemperatureBar.Target.CurrentAction);
+    timeDiff := currentTime - Self.TemperatureBar.Cursor.LastUpdateTime;
+    Self.TemperatureBar.Target.ActionChange := currentPercent - Self.TemperatureBar.Cursor.PositionPercent;
+
+    // Check if change was positive (heating) or negative (cooling)
+    if Self.TemperatureBar.Target.ActionChange > 0 then
+      WriteLn('[Tracker] Heating: ', Self.TemperatureBar.Target.CurrentAction, ': +',
+              Self.TemperatureBar.Target.ActionsNeeded)
+    else
+      WriteLn('[Tracker] Cooling: ', Self.TemperatureBar.Target.CurrentAction, ': +',
+              Self.TemperatureBar.Target.ActionsNeeded);
+
+    // Update tracking variables
+    Self.TemperatureBar.Cursor.PositionPercent := currentPercent;
+    Self.TemperatureBar.Cursor.LastUpdateTime := currentTime;
+
+  end;
+
+  if (Self.TemperatureBar.Cursor.LastUpdateTime + 2000 < currentTime) and (Self.TemperatureBar.Target.CurrentAction > 0) then
+    Self.ResetTemperatureTracker();
+
+  Self.TemperatureBar.Cursor.PositionPercent := currentPercent;
+end;
+
+procedure TRSGiantsFoundryRefinement.ResetTemperatureTracker();
+begin
+  Self.TemperatureBar.Target.CurrentAction := 0;
+  Self.TemperatureBar.Target.ActionsNeeded := -1;
+  Self.TemperatureBar.Target.StartPercent := -1;
+  Self.TemperatureBar.Target.TargetTemperaturePercent := -1;
+  Self.TemperatureBar.Target.TemperatureChange := 0;
+  Self.TemperatureBar.Cursor.PositionPercent := Self.GetTemperaturePercent();
+  Self.TemperatureBar.Cursor.LastUpdateTime := GetTimeRunning;
+  WriteLn('[Tracker] Reset');
+end;
+
+function TRSGiantsFoundryRefinement.GetTemperaturePercent(): Double;
+var
+  currentX, minX, maxX: Integer;
+  barWidth: Integer;
+begin
+  // Update cursor position
+  Self.UpdateTemperatureCursor();
+
+  // Get bar boundaries
+  minX := Self.TemperatureBar.Bounds.X1;
+  maxX := Self.TemperatureBar.Bounds.X2;
+
+  // Get current cursor position (using middle of cursor)
+  currentX := Self.TemperatureBar.Cursor.Bounds.Center.X;
+
+  // Calculate bar width
+  barWidth := maxX - minX;
+
+  // Safety check
+  if barWidth <= 0 then
+  begin
+    Result := 0.0;
+    Exit;
+  end;
+
+  // Calculate percentage
+  Result := ((currentX - minX) / barWidth) * 100;
+
+  // Clamp to 0-100 range
+  if Result < 0 then Result := 0
+  else if Result > 100 then Result := 100;
+
+  //Self.TemperatureBar.Cursor.PositionPercent := Result;
+end;
+
+
+// Function to get temperature as integer percentage (0-100)
+function TRSGiantsFoundryRefinement.GetTemperaturePercentInt(): Integer;
+begin
+  Result := Round(Self.GetTemperaturePercent());
+end;
+
+// Function to convert a specific X position to percentage
+function TRSGiantsFoundryRefinement.XPositionToPercent(xPos: Integer): Double;
+var
+  minX, maxX: Integer;
+  barWidth: Integer;
+begin
+  minX := Self.TemperatureBar.Bounds.X1;
+  maxX := Self.TemperatureBar.Bounds.X2;
+  barWidth := maxX - minX;
+
+  if barWidth <= 0 then
+  begin
+    Result := 0.0;
+    Exit;
+  end;
+
+  Result := ((xPos - minX) / barWidth) * 100;
+
+  // Clamp to 0-100 range
+  if Result < 0 then Result := 0
+  else if Result > 100 then Result := 100;
+end;
+
+// Function to convert percentage back to X position
+function TRSGiantsFoundryRefinement.PercentToXPosition(percent: Double): Integer;
+var
+  minX, maxX: Integer;
+  barWidth: Integer;
+begin
+  minX := Self.TemperatureBar.Bounds.X1;
+  maxX := Self.TemperatureBar.Bounds.X2;
+  barWidth := maxX - minX;
+
+  // Clamp percentage to valid range
+  if percent < 0 then percent := 0
+  else if percent > 100 then percent := 100;
+
+  Result := Round(minX + (barWidth * percent / 100));
+end;
+
+// Function to get the percentage range of a temperature zone
+function TRSGiantsFoundryRefinement.GetTemperatureZonePercent(zone: ETemperatureState): TDoubleArray;
+var
+  i: Integer;
+  startPercent, endPercent: Double;
+begin
+  SetLength(Result, 0);
+
+  for i := 0 to High(Self.TemperatureBar.Temperatures) do
+  begin
+    if Self.TemperatureBar.Temperatures[i].Temperature = zone then
+    begin
+      startPercent := Self.XPositionToPercent(Self.TemperatureBar.Temperatures[i].TemperatureBounds.X1);
+      endPercent := Self.XPositionToPercent(Self.TemperatureBar.Temperatures[i].TemperatureBounds.X2);
+      Result := [startPercent, endPercent];
+      Exit;
+    end;
+  end;
+end;
+
+// Function to determine which temperature zone a percentage falls into
+function TRSGiantsFoundryRefinement.GetTemperatureAtPercent(percent: Double): ETemperatureState;
+var
+  xPos: Integer;
+  i: Integer;
+begin
+  Result := ETemperatureState.USELESS; // Default
+
+  xPos := Self.PercentToXPosition(percent);
+
+  for i := 0 to High(Self.TemperatureBar.Temperatures) do
+  begin
+    if Self.TemperatureBar.Temperatures[i].TemperatureBounds.Contains(Point(xPos, Self.TemperatureBar.Bounds.Center.Y)) then
+    begin
+      Result := Self.TemperatureBar.Temperatures[i].Temperature;
+      Exit;
+    end;
+  end;
+end;
+
+// Helper function to display current temperature status
+function TRSGiantsFoundryRefinement.GetTemperatureStatus(): String;
+var
+  percent: Double;
+  currentTemp: ETemperatureState;
+  tempStr: String;
+begin
+  percent := Self.GetTemperaturePercent();
+  currentTemp := Self.FindCurrentTemperature().Temperature;
+
+  case currentTemp of
+    ETemperatureState.COLD: tempStr := 'COLD';
+    ETemperatureState.MEDIUM: tempStr := 'MEDIUM';
+    ETemperatureState.HOT: tempStr := 'HOT';
+    ETemperatureState.USELESS: tempStr := 'USELESS';
+  end;
+
+  Result := Format('Temperature: %s (%.1f%%)', [tempStr, percent]);
+end;
+
+  //movementsNeeded := Self.MovementsToPercent(90.0);
+  //WriteLn('Movements needed to reach Hot Sweetspot%: ', movementsNeeded);
+
+
+  //movementsNeeded := Self.MovementsToPercent(42.0);
+  //WriteLn('Movements needed to reach Medium Sweetspot%: ', movementsNeeded);
+
+  //movementsNeeded := Self.MovementsToPercent(25.0);
+  //WriteLn('Movements needed to reach Cold Sweetspot%: ', movementsNeeded);
+
+
+
+// Initialize the temperature tracker
+procedure TRSGiantsFoundryRefinement.InitTemperatureTracker();
+begin
+  Self.TemperatureBar.Cursor.PositionPercent := Self.GetTemperaturePercent();
+  Self.TemperatureBar.Cursor.LastUpdateTime := GetTimeRunning;
+  Self.TemperatureBar.Target.CurrentAction := 0;
+
+  WriteLn('[Tracker] Initialized at ', Self.TemperatureBar.Cursor.PositionPercent, '%');
+end;
+
+procedure TRSGiantsFoundryRefinement.InitTemperatureBar();
+begin
+  Self.FindTemperatureBoundaries();
+  //writeln(Self.TemperatureBar.Temperatures);
+  // Cursor Init
+  Self.TemperatureBar.Cursor.BarBounds := Self.TemperatureBar.Bounds;
+  //Self.UpdateTemperatureCursor;
+  Self.InitTemperatureTracker();
+end;
+
+
+procedure TRSGiantsFoundryRefinement.UpdateTemperatureCursor();
+begin
+  Self.TemperatureBar.Cursor.Bounds := Self.FindCursor(Self.TemperatureBar.Cursor);
+  Self.TemperatureBar.Cursor.Position := Self.TemperatureBar.Cursor.Bounds.Center;
+end;
+
+function TRSGiantsFoundryRefinement.FindCurrentTemperature(): TRefineTemperature;
+var
+  i: Integer;
+begin
+  // If a bar has white outline then its the active temperature
+  for i := 0 to High(Self.TemperatureBar.Temperatures) do
+  begin
+    Self.TemperatureBar.Temperatures[i].Active := False;
+    if Target.GetColor(Self.TemperatureBar.Temperatures[i].TemperatureBounds.TopLeft.Offset(0,1)) = WhiteColour then
+    begin
+      Self.TemperatureBar.Temperatures[i].Active := True;
+      Result := Self.TemperatureBar.Temperatures[i];
+      Self.TemperatureBar.CurrentTemperature := Result;
+      Exit;
+    end;
+  end;
+
+  // If no bar has white outline then the active bar is a useless one
+  for i := 0 to High(Self.TemperatureBar.Temperatures) do
+  begin
+    Self.UpdateTemperatureCursor();
+    Self.TemperatureBar.Temperatures[i].Active := False;
+    if Self.TemperatureBar.Temperatures[i].Temperature = ETemperatureState.USELESS then
+      if Self.TemperatureBar.Temperatures[i].TemperatureBounds.Overlap(Self.TemperatureBar.Cursor.Bounds) then
+      begin
+        Self.TemperatureBar.Temperatures[i].Active := True;
+        Result := Self.TemperatureBar.Temperatures[i];
+        Self.TemperatureBar.CurrentTemperature := Result;
+        Exit;
+      end;
+  end;
+
+end;
+
+// Task Specfic functions
+
+procedure TRSGiantsFoundryRefinement.SortTasksByX1(Tasks: TRefineTaskBarArray);
+var
+  i, j: Integer;
+  temp: TRefineTask;
+begin
+  for i := 0 to High(Tasks) - 1 do
+    for j := 0 to High(Tasks) - i - 1 do
+      if Tasks[j].TaskBounds.X1 > Tasks[j + 1].TaskBounds.X1 then
+      begin
+        temp := Tasks[j];
+        Tasks[j] := Tasks[j + 1];
+        Tasks[j + 1] := temp;
+      end;
+end;
+
+function TRSGiantsFoundryRefinement.FindNextTask(): TRefineTask;
+var
+  i, currentIdx: Integer;
+  currentTask: TRefineTask;
+  hasCurrentTask: Boolean;
+begin
+  // Initialize result with empty task
+  Result.Refining := ETaskState.NOTFOUND;
+  Result.Active := False;
+
+  // First find the current active task
+  currentTask := Self.FindCurrentTask();
+
+  // Check if we found an active task
+  hasCurrentTask := currentTask.Active;
+
+  if hasCurrentTask then
+  begin
+    currentIdx := currentTask.Idx;
+
+    // Look for the next task in sequence
+    for i := 0 to High(Self.TaskBar.Tasks) do
+    begin
+      if Self.TaskBar.Tasks[i].Idx = (currentIdx + 1) then
+      begin
+        Result := Self.TaskBar.Tasks[i];
+        Self.TaskBar.NextTask := Result;
+        Exit;
+      end;
+    end;
+
+    // If we reached here, current task is the last one
+    // Mark as COMPLETE
+    Result.Refining := ETaskState.COMPLETE;
+  end
+  else
+  begin
+    // No active task found - return the first task if it exists
+    if Length(Self.TaskBar.Tasks) > 0 then
+    begin
+      Result := Self.TaskBar.Tasks[0];
+      Self.TaskBar.NextTask := Result;
+    end;
+  end;
+end;
+
+function TRSGiantsFoundryRefinement.FindCurrentTask(): TRefineTask;
+var
+  i: Integer;
+  currentTask: TRefineTask;
+begin
+  for i := 0 to High(Self.TaskBar.Tasks) do
+  begin
+
+    Self.TaskBar.Tasks[i].Active := False;
+    if Target.GetColor(Self.TaskBar.Tasks[i].TaskBounds.TopLeft.Offset(0,1)) = WhiteColour then
+    begin
+      Self.TaskBar.Tasks[i].Active := True;
+      Exit(Self.TaskBar.Tasks[i]);
+    end else
+      Self.TaskBar.Tasks[i].Refining := ETaskState.COMPLETE;
+
+    currentTask := Self.TaskBar.Tasks[i];
+  end;
+  Result := currentTask;
+end;
+
+
+
+function TRSGiantsFoundryRefinement.FindTaskBoundaries(): TRefineTaskBarArray;
+var
+  tpa, redPoints, greenPoints, yellowPoints, whitePoints, completePoints, line: TPointArray;
+  atpa: T2DPointArray;
+  b, searchBox, tempBox: TBox;
+  i, x, y: Integer;
+  colour: TColor;
+  temptask: TRefineTask;
+
+
+  // Helper function to check if white points exist at position
+  function HasWhiteAt(xPos, yPos: Integer): Boolean;
+  var
+    pt: TPoint;
+  begin
+    Result := False;
+    for pt in whitePoints do
+      if (pt.X = xPos) and (pt.Y = yPos) then
+        Exit(True);
+  end;
+begin
+
+  searchBox := TBox.Create(Self.TaskBar.Bounds.X1+1, Self.TaskBar.Bounds.Y1+2, Self.TaskBar.Bounds.X2-1,Self.TaskBar.Bounds.Y1+2);
+
+  // Iterate through each pixel in the search box
+  for y := searchBox.Y1 to searchBox.Y2 do
+    for x := searchBox.X1 to searchBox.X2 do
+    begin
+      line += [x,y];
+      colour := Target.GetColor([x,y]);
+
+      // Check red colors
+      if RedColours.Contains(colour) then
+        redPoints += Point(x, y)
+      // Check green colors
+      else if GreenColours.Contains(colour) then
+        greenPoints += Point(x, y)
+      // Check yellow colors
+      else if YellowColours.Contains(colour) then
+        yellowPoints += Point(x, y)
+      // Check white outline
+      else if colour = WhiteColour then
+        whitePoints += Point(x, y)
+      else
+        completePoints += Point(x,y);
+
+    end;
+
+  // Process green points
+  if greenPoints <> [] then
+  begin
+    atpa := greenPoints.Cluster(3, 1);
+    for tpa in atpa do
+    begin
+      b := tpa.Bounds();
+      //Writeln('Green boundary: ', b);
+      if HasWhiteAt(b.X1 - 1, searchBox.Y1) and HasWhiteAt(b.X2 + 1, searchBox.Y1)then
+      begin
+        b.X1 := b.X1 - 1;
+        b.X2 := b.X2 + 1;
+      end;
+      temptask.Refining := ETaskState.WHEEL;
+      temptask.TaskBounds := [b.X1, Self.TaskBar.Bounds.Y1, b.X2, Self.TaskBar.Bounds.Y2];
+      Result += temptask;//[b.X1, Self.TaskBar.Bounds.Y1, b.X2, Self.TaskBar.Bounds.Y2];
+    end;
+  end;
+
+  // Process yellow points
+  if yellowPoints <> [] then
+  begin
+    atpa := yellowPoints.Cluster(3, 1);
+    for tpa in atpa do
+    begin
+      b := tpa.Bounds();
+      //Writeln('Yellow boundary: ', b);
+      if HasWhiteAt(b.X1 - 1, searchBox.Y1) and HasWhiteAt(b.X2 + 1, searchBox.Y1)then
+      begin
+        b.X1 := b.X1 - 1;
+        b.X2 := b.X2 + 1;
+      end;
+      temptask.Refining := ETaskState.STONE;
+      temptask.TaskBounds := [b.X1, Self.TaskBar.Bounds.Y1, b.X2, Self.TaskBar.Bounds.Y2];
+      Result += temptask;
+    end;
+  end;
+
+  // Process red points
+  if redPoints <> [] then
+  begin
+    atpa := redPoints.Cluster(3, 1);
+    for tpa in atpa do
+    begin
+      b := tpa.Bounds();
+      //Writeln('Red boundary: ', b);
+      if HasWhiteAt(b.X1 - 1, searchBox.Y1) and HasWhiteAt(b.X2 + 1, searchBox.Y1)then
+      begin
+        b.X1 := b.X1 - 1;
+        b.X2 := b.X2 + 1;
+      end;
+      temptask.Refining := ETaskState.HAMMER;
+      temptask.TaskBounds := [b.X1, Self.TaskBar.Bounds.Y1, b.X2, Self.TaskBar.Bounds.Y2];
+      Result += temptask;
+    end;
+  end;
+
+  // Process Bar If Complete
+  if completePoints <> [] then
+  begin
+    atpa := completePoints.Cluster(3, 1);
+    for tpa in atpa do
+    begin
+      b := tpa.Bounds();
+      temptask.Refining := ETaskState.COMPLETE;
+      temptask.TaskBounds := [b.X1, Self.TaskBar.Bounds.Y1, b.X2, Self.TaskBar.Bounds.Y2];
+      Result += temptask;
+    end;
+  end;
+  Self.SortTasksByX1(Result);
+  for i := 0 to High(Result) do
+  begin
+    Result[i].Idx := i;
+  end;
+  Self.TaskBar.Tasks := Result;
+
+end;
+
+function TRSGiantsFoundryRefinement.IsOpen(): Boolean;
+begin
+  Result := Target.GetColor([Self.TemperatureBar.Bounds.X1, Self.TemperatureBar.Bounds.Y1]) = TrueBlackColour;
+end;
+
+procedure TRSGiantsFoundryRefinement.InitTaskBar();
+begin
+  Self.FindTaskBoundaries();
+  Self.FindCurrentTask();
+  Self.FindNextTask();
+
+  // Cursor Init
+  Self.TaskBar.Cursor.BarBounds := Self.TaskBar.Bounds;
+  Self.TaskBar.Cursor.Bounds := Self.FindCursor(Self.TaskBar.Cursor);
+end;
+
+
+
+procedure TRSGiantsFoundryRefinement.SetupInterface();
+begin
+  case RSClient.Mode of
+    ERSMode.FIXED:
+      Self.Bounds := MSInterface.CreateBounds([0, -195, 0, 0], 480, 74);
+    ERSMode.RESIZABLE, ERSMode.MODERN_COMPACT, ERSMode.MODERN_WIDE:
+      begin
+        if (MSInterface.Bounds.X2 < 640) or (MSInterface.Bounds.Y2 < 481) then
+          Self.Bounds := MSInterface.CreateBounds([0, -200, 0, 339 - MSInterface.Height], 480, 74);
+
+        if (MSInterface.Bounds.X2 >= 640) and (MSInterface.Bounds.Y2 >= 481)  then
+          Self.Bounds := MSInterface.CreateBounds([0, -196, 0, 339 - MSInterface.Height], 600, 78);
+
+        if (MSInterface.Bounds.X2 >= 800) and (MSInterface.Bounds.Y2 >= 601) then
+          Self.Bounds := MSInterface.CreateBounds([0, -196, 0, 339 - MSInterface.Height], 720, 78);
+
+        if (MSInterface.Bounds.X2 >= 1024) and (MSInterface.Bounds.Y2 >= 769) then
+          Self.Bounds := MSInterface.CreateBounds([0, -186, 0, 339 - MSInterface.Height], 850, 88);
+
+      end;
+
+  end;
+
+  with Self.Bounds do
+  begin
+    if (MSInterface.Bounds.X2 < 640) or (MSInterface.Bounds.Y2 < 481) then
+    begin
+      Self.QualityBar.Bounds := TBox.Create(X1+32, Y1+6, X2-6, Y2-53);
+      Self.TemperatureBar.Bounds := TBox.Create(X1+32, Y1+27, X2-6, Y2-32);
+      Self.TaskBar.Bounds := TBox.Create(X1+32, Y1+48, X2-6, Y2-6);
+    end;
+    if (MSInterface.Bounds.X2 >= 640) and (MSInterface.Bounds.Y2 >= 481) then
+    begin
+      Self.QualityBar.Bounds := TBox.Create(X1+32, Y1+6, X2-6, Y2-55);
+      Self.TemperatureBar.Bounds := TBox.Create(X1+32, Y1+29, X2-6, Y2-32);
+      Self.TaskBar.Bounds := TBox.Create(X1+32, Y1+52, X2-6, Y2-6);
+    end;
+    if (MSInterface.Bounds.X2 >= 1024) and (MSInterface.Bounds.Y2 >= 769) then
+    begin
+      Self.QualityBar.Bounds := TBox.Create(X1+36, Y1+6, X2-6, Y2-62);
+      Self.TemperatureBar.Bounds := TBox.Create(X1+36, Y1+32, X2-6, Y2-36);
+      Self.TaskBar.Bounds := TBox.Create(X1+36, Y1+58, X2-6, Y2-6);
+    end;
+  end;
+end;
+
+procedure TRSGiantsFoundryRefinement.Draw(img: TImage);
+var
+  i: Integer;
+begin
+  //if not Self.IsOpen() then Exit;
+
+  img.DrawColor := $00FFFF;
+  img.DrawBox(Self.Bounds);
+
+  img.DrawBox(Self.QualityBar.Bounds);
+  img.DrawBox(Self.TemperatureBar.Bounds);
+  img.DrawBox(Self.TaskBar.Bounds);
+
+  img.DrawColor := Colors.CHOCOLATE;
+  img.DrawBox(Self.TemperatureBar.Cursor.Bounds);
+  img.DrawBox(Self.TaskBar.Cursor.Bounds);
+
+  img.DrawColor := $854F31;
+  for i := 0 to High(Self.TemperatureBar.Temperatures) do
+    img.DrawBox(Self.TemperatureBar.Temperatures[i].TemperatureBounds);
+
+  for i := 0 to High(Self.TaskBar.Tasks) do
+    img.DrawBox(Self.TaskBar.Tasks[i].TaskBounds);
+end;
+
+procedure TRSGiantsFoundryRefinement.ShowOnTarget();
+var
+  img: TImage;
+begin
+  img := Target.GetImage();
+  Self.Draw(img);
+  img.Show();
+end;
+
+var
+(*
+## GiantsFoundryRefinement variable
+Global {ref}`TRSGiantsFoundryRefinement` variable.
+*)
+  GiantsFoundryRefinement: TRSGiantsFoundryRefinement;
+
+type
+(*
+## ERSGiantsFoundryMouldType
+```pascal
+ERSGiantsFoundryMouldType = (FORTE, BLADE, TIP);
+```
+Enum representing the possible mould types
+*)
+  ERSGiantsFoundryMouldType = enum(FORTE, BLADE, TIP);
+
+
+  ERSGiantsFoundrySetupSize = enum(SMALL,MEDIUM,LARGE);
+(*
+## TRSFoundryMould
+Record representing a single mould piece with its attributes and scores.
+*)
+  TRSGiantsFoundryMould = record
+    Name: String;
+    MouldType: ERSGiantsFoundryMouldType;
+    Broad: Integer;
+    Narrow: Integer;
+    Heavy: Integer;
+    Light: Integer;
+    Spiked: Integer;
+    Flat: Integer;
+    LevelRequired: Integer;
+    IsDefault: Boolean;
+  end;
+
+
+  TRSGiantFoundrySetupAttribute = record
+    Bounds: TBox;
+    Attribute: ERSGiantsFoundryAttribute;
+    AttributeTotalScore: Integer;
+  end;
+
+(*
+## TRSGiantsFoundryMouldSelection
+Record representing a complete mould setup (Forte, Blade, Tip).
+*)
+  TRSGiantsFoundryMouldSelection = record
+    Forte: TRSGiantsFoundryMould;
+    Blade: TRSGiantsFoundryMould;
+    Tip: TRSGiantsFoundryMould;
+    TotalScore: TRSGiantFoundrySetupAttribute;
+  end;
+
+(*
+## TRSGiantsFoundrySetup
+Record responsible to handle the {ref}`GiantsFoundrySetup` interface.
+This relates to the
+*)
+
+  TRSGiantsFoundrySetup = record
+    Title: TRSInterfaceTitle;
+    Scroll: TRSScrollBar;
+
+    Bounds, MouldsArea, CommissionArea: TBox;
+    MouldSlots: TBoxArray;
+    SetMouldButton, ResetMouldButton: TRSButton;
+    MouldTypeButtons: array [ERSGiantsFoundryMouldType] of TRSButton;
+    AvailableMoulds: array of TRSGiantsFoundryMould;
+
+    ScaledInterface: ERSGiantsFoundrySetupSize;
+    GiantsFoundryRegularFont, GiantsFoundryBoldFont,
+    GiantsFoundryTitleFont: TPixelFont;
+    Atrribute1, Atrribute2: TRSGiantFoundrySetupAttribute;
+  end;
+
+(*
+## GiantsFoundrySetup.FindItemBoundaries
+```pascal
+function TRSGiantsFoundrySetup.FindMouldBoundaries(): TBoxArray;
+```
+Finds mould boundaries and returns them as a TBoxArray.
+
+You have 2 ways of getting the mould slots, a static one:
+```pascal
+ShowOnTarget(GiantsFoundrySetup.MouldSlots);
+```
+
+
+And a dynamic one:
+```pascal
+ShowOnTarget(GiantsFoundrySetup.FindMouldBoundaries());
+```
+
+There are use cases for both, internally, `GiantsFoundrySetup.FindItemBoundaries` is usually used.
+
+*)
+function TRSGiantsFoundrySetup.FindMouldBoundaries(): TBoxArray;
+var
+  tpa, final: TPointArray;
+  atpa: T2DPointArray;
+  b: TBox;
+begin
+  final := Target.FindColor($96A4A5, 24, Self.MouldsArea);
+  if final = [] then Exit;
+
+  atpa := final.Cluster(200, 5);
+  for tpa in atpa do
+  begin
+    b := tpa.Bounds();
+    if b.Height <= 28 then Continue;
+    Result += TBoxArray.Create([Self.MouldsArea.X1 + 2, b.Y1-5], 1, 1, Self.MouldsArea.X2 - Self.MouldsArea.X1 - 9, Min(Self.MouldsArea.Y2-b.Y1, 39), [0, 17]);
+
+  end;
+end;
+
+(*
+## GiantsFoundrySetup.SetupInterface
+```pascal
+procedure TRSGiantsFoundrySetup.SetupInterface();
+```
+Internal method used to setup the {ref}`TRSGiantsFoundrySetup` coordinates.
+This is automatically called for you on the {ref}`GiantsFoundry` variable.
+*)
+procedure TRSGiantsFoundrySetup.SetupInterface();
+var
+  boxes: TBoxArray;
+  mouldtype: ERSGiantsFoundryMouldType;
+begin
+  case RSClient.Mode of
+    ERSMode.FIXED:
+      Self.Bounds := MSInterface.CreateBounds([0, 0, 0, 0], 480, 314);
+    ERSMode.RESIZABLE, ERSMode.MODERN_COMPACT, ERSMode.MODERN_WIDE:
+      begin
+        if (MSInterface.Bounds.X2 < 640) or (MSInterface.Bounds.Y2 < 481) then
+          Self.Bounds := MSInterface.CreateBounds([0, -1, 0, 0], 480, 314);
+
+        if (MSInterface.Bounds.X2 >= 640) and (MSInterface.Bounds.Y2 >= 481)  then
+          Self.Bounds := MSInterface.CreateBounds([0, -1, 0, 0], 600, 392);
+
+        if (MSInterface.Bounds.X2 >= 800) and (MSInterface.Bounds.Y2 >= 601) then
+          Self.Bounds := MSInterface.CreateBounds([0, -1, 0, 0], 720, 470);
+
+        if (MSInterface.Bounds.X2 >= 1024) and (MSInterface.Bounds.Y2 >= 769) then
+          Self.Bounds := MSInterface.CreateBounds([0, -1, 0, 0], 850, 556);
+
+      end;
+
+  end;
+
+  with Self.Bounds do
+  begin
+    if (MSInterface.Bounds.X2 < 640) or (MSInterface.Bounds.Y2 < 481) then
+    begin
+      Self.MouldsArea := TBox.Create(X1 + 134, Y1 + 129, X2-36, Y2-20);
+
+      Self.CommissionArea := TBox.Create(X1 + 9, Y1 + 240, X2-360, Y2-9);
+      Self.Atrribute1.Bounds := TBox.Create(X1 + 16, Y1 + 263, X2-365, Y2-34);
+      Self.Atrribute2.Bounds := TBox.Create(X1 + 16, Y1 + 281, X2-365, Y2-15);
+
+      Self.SetMouldButton.Bounds := TBox.Create(X1 + 345, Y1 + 78, X2 - 9, Y2 - 199);
+      Self.ResetMouldButton.Bounds := TBox.Create(X1 + 345, Y1 + 38, X2 - 9, Y2 - 239);
+      boxes := TBoxArray.Create([X1 + 9,Y1 + 118], 1, 3, 114, 37, [0, 4]);
+      Self.MouldSlots := TBoxArray.Create([X1 + 135,Y1 + 130], 1, 4, 300, 42, [0, -2]);
+
+      Self.ScaledInterface := ERSGiantsFoundrySetupSize.SMALL;
+    end;
+    if (MSInterface.Bounds.X2 >= 640) and (MSInterface.Bounds.Y2 >= 481) then
+    begin
+      Self.MouldsArea := TBox.Create(X1 + 134, Y1 + 131, X2-36, Y2-20);
+      boxes := TBoxArray.Create([X1 + 9,Y1 + 120], 1, 3, 114, 39, [0, 4]);
+      Self.MouldSlots := TBoxArray.Create([X1 + 135,Y1 + 132], 1, 6, 300, 44, [0, -2]);
+      Self.SetMouldButton.Bounds := TBox.Create(X1 + 465, Y1 + 80, X2 - 9, Y2 - 275);
+      Self.ResetMouldButton.Bounds := TBox.Create(X1 + 465, Y1 + 40, X2 - 9, Y2 - 315);
+
+      Self.CommissionArea := TBox.Create(X1 + 9, Y1 + 40, X2-474, Y2-275);
+      Self.Atrribute1.Bounds := TBox.Create(Self.CommissionArea.X1 + 6, Self.CommissionArea.Y1 + 26, Self.CommissionArea.X2-9, Self.CommissionArea.Y2 - 30);
+      Self.Atrribute2.Bounds := TBox.Create(Self.CommissionArea.X1 + 6, Self.CommissionArea.Y1 + 48, Self.CommissionArea.X2-9, Self.CommissionArea.Y2 - 9);
+
+      Self.ScaledInterface := ERSGiantsFoundrySetupSize.MEDIUM;
+    end;
+
+    if (MSInterface.Bounds.X2 >= 800) and (MSInterface.Bounds.Y2 >= 601)  then
+    begin
+      Self.MouldsArea := TBox.Create(X1 + 134, Y1 + 131, X2-36, Y2-20);
+      boxes := TBoxArray.Create([X1 + 9,Y1 + 120], 1, 3, 114, 39, [0, 4]);
+      Self.MouldSlots := TBoxArray.Create([X1 + 135,Y1 + 132], 1, 6, 300, 44, [0, -2]);
+      Self.SetMouldButton.Bounds := TBox.Create(X1 + 585, Y1 + 80, X2 - 9, Y2 - 353);
+      Self.ResetMouldButton.Bounds := TBox.Create(X1 + 585, Y1 + 40, X2 - 9, Y2 - 393);
+
+      Self.CommissionArea := TBox.Create(X1 + 9, Y1 + 40, X2-585, Y2-353);
+      Self.Atrribute1.Bounds := TBox.Create(Self.CommissionArea.X1 + 6, Self.CommissionArea.Y1 + 26, Self.CommissionArea.X2-9, Self.CommissionArea.Y2 - 30);
+      Self.Atrribute2.Bounds := TBox.Create(Self.CommissionArea.X1 + 6, Self.CommissionArea.Y1 + 48, Self.CommissionArea.X2-9, Self.CommissionArea.Y2 - 9);
+
+      Self.ScaledInterface := ERSGiantsFoundrySetupSize.MEDIUM;
+    end;
+
+    if (MSInterface.Bounds.X2 >= 1024) and (MSInterface.Bounds.Y2 >= 769) then
+    begin
+      Self.MouldsArea := TBox.Create(X1 + 134, Y1 + 133, X2-36, Y2-20);
+      boxes := TBoxArray.Create([X1 + 9,Y1 + 122], 1, 3, 114, 44, [0, 5]);
+      Self.MouldSlots := TBoxArray.Create([X1 + 135,Y1 + 132], 1, 6, 300, 44, [0, -2]);
+      Self.SetMouldButton.Bounds := TBox.Create(X1 + 715, Y1 + 82, X2 - 9, Y2 - 437);
+      Self.ResetMouldButton.Bounds := TBox.Create(X1 + 715, Y1 + 42, X2 - 9, Y2 - 477);
+
+      Self.CommissionArea := TBox.Create(X1 + 9, Y1 + 42, X2-715, Y2-437);
+      Self.Atrribute1.Bounds := TBox.Create(Self.CommissionArea.X1 + 6, Self.CommissionArea.Y1 + 26, Self.CommissionArea.X2-9, Self.CommissionArea.Y2 - 30);
+      Self.Atrribute2.Bounds := TBox.Create(Self.CommissionArea.X1 + 6, Self.CommissionArea.Y1 + 48, Self.CommissionArea.X2-9, Self.CommissionArea.Y2 - 9);
+
+
+      Self.ScaledInterface := ERSGiantsFoundrySetupSize.Large;
+    end;
+  end;
+
+  Self.Scroll.Area := Self.MouldsArea;
+  Self.Scroll.Setup();
+  Self.Title.Setup(Self.Bounds);
+
+  Self.SetMouldButton.EnabledColors := [[$333E47, 0.610]];
+  for mouldtype := Low(ERSGiantsFoundryMouldType) to High(ERSGiantsFoundryMouldType) do
+  begin
+    Self.MouldTypeButtons[mouldtype].Bounds := boxes[Ord(mouldtype)];
+    Self.MouldTypeButtons[mouldtype].EnabledColors := [[$344049, 0.000], [$333E48, 0.000]];
+  end;
+
+  if Self.ScaledInterface = ERSGiantsFoundrySetupSize.SMALL then
+  begin
+    Self.Title.CloseButton := Self.Title.CloseButton.Offset([0,-1]);
+    Self.GiantsFoundryRegularFont := RSFonts.PLAIN_12;
+    Self.GiantsFoundryBoldFont := RSFonts.BOLD;
+    Self.GiantsFoundryTitleFont := RSFonts.BOLD;
+  end;
+
+  if Self.ScaledInterface = ERSGiantsFoundrySetupSize.MEDIUM then
+  begin
+    Self.Title.CloseButton := Self.Title.CloseButton.Offset([-1,0]);
+    Self.GiantsFoundryRegularFont := RSFonts.VERDANA_13;
+    Self.GiantsFoundryBoldFont := RSFonts.VERDANA_13_BOLD;
+    Self.GiantsFoundryTitleFont := RSFonts.VERDANA_13_BOLD;
+  end;
+
+  if Self.ScaledInterface = ERSGiantsFoundrySetupSize.LARGE then
+  begin
+    Self.Title.Bounds.Y2 := Self.Title.Bounds.Y1 + 21;
+    Self.Title.CloseButton := Self.Title.CloseButton.Offset([-2,1]);
+    Self.GiantsFoundryRegularFont := RSFonts.VERDANA_13;
+    Self.GiantsFoundryBoldFont := RSFonts.VERDANA_13_BOLD;
+    Self.GiantsFoundryTitleFont := RSFonts.VERDANA_15;
+  end;
+  //Self.Title.Font := @Self.GiantsFoundryTitleFont; // TODO: This doesn't work for some reason
+end;
+
+function TRSGiantsFoundrySetup.SelectMouldType(mouldtype: ERSGiantsFoundryMouldType): Boolean;
+begin
+  if Self.MouldTypeButtons[mouldtype].Enabled then Exit(True);
+
+  Result := Self.MouldTypeButtons[mouldtype].Enable;
+end;
+
+(*
+## GiantsFoundrySetup._SetupMoulds
+```pascal
+procedure TRSGiantsFoundrySetup._SetupMoulds();
+```
+Internal method used to populate the mould database.
+This is automatically called for you.
+*)
+
+procedure TRSGiantsFoundrySetup._SetupMoulds();
+var
+  m: TRSGiantsFoundryMould;
+begin
+  // DEFAULT FORTES
+  m := ['Chopper Forte', ERSGiantsFoundryMouldType.FORTE, 4, 0, 0, 4, 0, 4, 1, True];
+  Self.AvailableMoulds += m;
+
+  m := ['Gladius Ricasso', ERSGiantsFoundryMouldType.FORTE, 4, 0, 4, 0, 0, 4, 1, True];
+  Self.AvailableMoulds += m;
+
+  m := ['Disarming Forte', ERSGiantsFoundryMouldType.FORTE, 0, 4, 0, 4, 4, 0, 1, True];
+  Self.AvailableMoulds += m;
+
+  m := ['Medusa Ricasso', ERSGiantsFoundryMouldType.FORTE, 8, 0, 6, 0, 0, 8, 1, True];
+  Self.AvailableMoulds += m;
+
+  m := ['Serpent Ricasso', ERSGiantsFoundryMouldType.FORTE, 0, 6, 0, 8, 0, 8, 1, True];
+  Self.AvailableMoulds += m;
+
+  m := ['Serrated Forte', ERSGiantsFoundryMouldType.FORTE, 0, 8, 8, 0, 6, 0, 1, True];
+  Self.AvailableMoulds += m;
+
+  // PURCHASABLE FORTES
+  m := ['Stiletto Forte', ERSGiantsFoundryMouldType.FORTE, 0, 8, 0, 10, 0, 8, 50, False];
+  Self.AvailableMoulds += m;
+
+  m := ['Defender Base', ERSGiantsFoundryMouldType.FORTE, 8, 0, 10, 0, 0, 8, 51, False];
+  Self.AvailableMoulds += m;
+
+  m := ['Juggernaut Forte', ERSGiantsFoundryMouldType.FORTE, 4, 0, 4, 0, 16, 0, 61, False];
+  Self.AvailableMoulds += m;
+
+  m := ['Chopper Forte +1', ERSGiantsFoundryMouldType.FORTE, 3, 0, 0, 4, 0, 18, 70, False];
+  Self.AvailableMoulds += m;
+
+  m := ['Spiker!', ERSGiantsFoundryMouldType.FORTE, 0, 1, 2, 0, 22, 0, 79, False];
+  Self.AvailableMoulds += m;
+
+  // DEFAULT BLADES
+  m := ['Saw Blade', ERSGiantsFoundryMouldType.BLADE, 4, 0, 0, 4, 4, 0, 1, True];
+  Self.AvailableMoulds += m;
+
+  m := ['Defenders Edge', ERSGiantsFoundryMouldType.BLADE, 4, 0, 4, 0, 4, 0, 1, True];
+  Self.AvailableMoulds += m;
+
+  m := ['Fish Blade', ERSGiantsFoundryMouldType.BLADE, 0, 4, 0, 4, 0, 4, 1, True];
+  Self.AvailableMoulds += m;
+
+  m := ['Medusa Blade', ERSGiantsFoundryMouldType.BLADE, 8, 0, 8, 0, 0, 6, 1, True];
+  Self.AvailableMoulds += m;
+
+  m := ['Stiletto Blade', ERSGiantsFoundryMouldType.BLADE, 0, 8, 0, 6, 0, 8, 1, True];
+  Self.AvailableMoulds += m;
+
+  m := ['Gladius Edge', ERSGiantsFoundryMouldType.BLADE, 0, 6, 8, 0, 0, 8, 1, True];
+  Self.AvailableMoulds += m;
+
+  // PURCHASABLE BLADES
+  m := ['Flamberge Blade', ERSGiantsFoundryMouldType.BLADE, 0, 8, 0, 8, 10, 0, 48, False];
+  Self.AvailableMoulds += m;
+
+  m := ['Serpent Blade', ERSGiantsFoundryMouldType.BLADE, 0, 10, 0, 8, 0, 8, 50, False];
+  Self.AvailableMoulds += m;
+
+  m := ['Claymore Blade', ERSGiantsFoundryMouldType.BLADE, 16, 0, 4, 0, 0, 4, 59, False];
+  Self.AvailableMoulds += m;
+
+  m := ['Fleur de Blade', ERSGiantsFoundryMouldType.BLADE, 4, 0, 18, 0, 1, 0, 71, False];
+  Self.AvailableMoulds += m;
+
+  m := ['Choppa!', ERSGiantsFoundryMouldType.BLADE, 1, 0, 0, 22, 0, 2, 80, False];
+  Self.AvailableMoulds += m;
+
+  // DEFAULT TIPS
+  m := ['People Poker Point', ERSGiantsFoundryMouldType.TIP, 0, 4, 4, 0, 0, 4, 1, True];
+  Self.AvailableMoulds += m;
+
+  m := ['Chopper Tip', ERSGiantsFoundryMouldType.TIP, 4, 0, 0, 4, 4, 0, 1, True];
+  Self.AvailableMoulds += m;
+
+  m := ['Medusa''s Head', ERSGiantsFoundryMouldType.TIP, 4, 0, 4, 0, 4, 0, 1, True];
+  Self.AvailableMoulds += m;
+
+  m := ['Serpent''s Fang', ERSGiantsFoundryMouldType.TIP, 0, 8, 0, 6, 8, 0, 1, True];
+  Self.AvailableMoulds += m;
+
+  m := ['Gladius Point', ERSGiantsFoundryMouldType.TIP, 0, 8, 8, 0, 0, 6, 1, True];
+  Self.AvailableMoulds += m;
+
+  m := ['Saw Tip', ERSGiantsFoundryMouldType.TIP, 6, 0, 8, 0, 8, 0, 1, True];
+  Self.AvailableMoulds += m;
+
+  // PURCHASABLE TIPS
+  m := ['Corrupted Point', ERSGiantsFoundryMouldType.TIP, 0, 8, 0, 10, 8, 0, 49, False];
+  Self.AvailableMoulds += m;
+
+  m := ['Defenders Tip', ERSGiantsFoundryMouldType.TIP, 10, 0, 8, 0, 8, 0, 52, False];
+  Self.AvailableMoulds += m;
+
+  m := ['Serrated Tip', ERSGiantsFoundryMouldType.TIP, 0, 4, 0, 16, 4, 0, 60, False];
+  Self.AvailableMoulds += m;
+
+  m := ['Needle Point', ERSGiantsFoundryMouldType.TIP, 0, 18, 0, 3, 0, 4, 69, False];
+  Self.AvailableMoulds += m;
+
+  m := ['The Point!', ERSGiantsFoundryMouldType.TIP, 2, 0, 0, 1, 0, 22, 81, False];
+  Self.AvailableMoulds += m;
+end;
+
+(*
+## GiantsFoundrySetup.IsOpen
+```pascal
+function TRSGiantsFoundrySetup.IsOpen(): Boolean;
+```
+Returns true if the mould setup interface is open.
+
+Example:
+```pascal
+WriteLn GiantsFoundrySetup.IsOpen();
+```
+*)
+
+function TRSGiantsFoundrySetup.IsOpen(): Boolean;
+begin
+  Result := OCR.Recognize(Self.Title.Bounds, Self.GiantsFoundryTitleFont, [RSFonts.ORANGE], 0).Contains('Foundry Mould Setup', True);
+end;
+
+(*
+## GiantsFoundrySetup.WaitOpen
+```pascal
+function TRSGiantsFoundrySetup.WaitOpen(time: Integer = 600; interval: Integer = -1): Boolean;
+```
+Returns true if the mould setup opens within `time` milliseconds.
+
+Example:
+```pascal
+WriteLn GiantsFoundrySetup.WaitOpen();
+```
+*)
+
+function TRSGiantsFoundrySetup.WaitOpen(time: Integer; interval: Integer = -1): Boolean;
+begin
+  if interval < 0 then interval := RandomMode(100, 50, 1500);
+  Result := SleepUntil(Self.IsOpen(), interval, time);
+end;
+
+(*
+## GiantsFoundrySetup.Close
+```pascal
+function TRSGiantsFoundrySetup.Close(escape: Boolean): Boolean;
+function TRSGiantsFoundrySetup.Close(escapeProbability: Double = BioHash): Boolean; overload;
+```
+Closes the {ref}`GiantsFoundrySetup` interface, depending on `escape` the function will either
+press escape or click the close button.
+
+Example:
+```pascal
+WriteLn GiantsFoundrySetup.Close();
+```
+*)
+
+function TRSGiantsFoundrySetup.Close(escape: Boolean): Boolean;
+begin
+  Result := Self.Title.Close(escape);
+end;
+
+function TRSGiantsFoundrySetup.Close(escapeProbability: Single = -1): Boolean; overload;
+begin
+  Result := Self.Title.Close(escapeProbability);
+end;
+
+function TRSGiantsFoundrySetup.Find(mould: TRSGiantsFoundryMould): Boolean;
+var
+  mouldbox: TBox;
+begin
+  for mouldbox in Self.FindMouldBoundaries do
+  begin
+    if OCR.Recognize(mouldbox, Self.GiantsFoundryBoldFont, [RSFonts.ORANGE], 0).Contains(mould.Name) then
+    begin
+      Result := True;
+      Exit;
+    end;
+  end;
+end;
+
+function TRSGiantsFoundrySetup.FindScroll(mould: TRSGiantsFoundryMould; attempts: Integer = 5): Integer;
+var
+  next, attempt: Integer;
+  down: Boolean;
+begin
+  if not Self.Scroll.CanScroll() then Exit(-1);
+
+  if not Self.SelectMouldType(mould.MouldType) then Exit(-1);
+
+  for attempt := 1 to attempts do
+  begin
+
+    Result := Self.Scroll.GetLevel();
+    down := (Result > 0) or RandomBoolean(0.5);
+
+    // Check if mould is visible at current position
+    Biometrics.Sleep(300, 500); // Give interface time to render
+    if Self.Find(mould) then
+    begin
+      Exit;
+    end;
+
+    // Scroll down or up
+    repeat
+      if down then next := Result - Random(1,3)
+      else next := Result + Random(1,3);
+
+      Result := Self.Scroll.SetLevel(next);
+      Biometrics.Sleep(300, 500);
+
+      if Self.Find(mould) then
+      begin
+        Exit;
+      end;
+
+      if not Self.IsOpen() then Exit(-1); //failsafe
+    until not InRange(Result, 1, 99);
+
+    // Try opposite direction
+    down := not down;
+    repeat
+      if down then next := Result - Random(1,3)
+      else next := Result + Random(1,3);
+
+      Result := Self.Scroll.SetLevel(next);
+      Biometrics.Sleep(300, 500); // Wait for scroll to complete
+
+      if Self.Find(mould) then
+      begin
+        Exit;
+      end;
+
+      if not Self.IsOpen() then Exit(-1);
+    until not InRange(Result, 1, 99);
+
+    // If this wasn't the last attempt, reset to a random position before retrying
+    if attempt < attempts then
+    begin
+      WriteLn('Mould not found, resetting scroll position for retry...');
+      Self.Scroll.SetLevel(Random(20, 80));
+      Biometrics.Sleep(300, 500);
+    end;
+  end;
+
+  Result := -1;
+end;
+
+function TRSGiantsFoundrySetup.IsMouldSelected(mouldBox: TBox): Boolean;
+begin
+  Result := False;
+  if not Self.IsOpen then
+    Exit;
+  if Target.CountColor($465058, 0.610, mouldBox) > 100 then
+    Result := True;
+end;
+
+function TRSGiantsFoundrySetup.IsMouldSelected(mould: TRSGiantsFoundryMould): Boolean; overload;
+var
+  mouldBox: TBox;
+begin
+  Result := False;
+  if not Self.IsOpen then
+    Exit;
+
+  for mouldBox in Self.FindMouldBoundaries() do
+  begin
+    if OCR.Recognize(mouldBox, Self.GiantsFoundryBoldFont, [RSFonts.ORANGE], 0).Contains(mould.Name) then
+      if Self.IsMouldSelected(mouldBox) then // Mould is already selected
+        Exit(True);
+  end;
+end;
+
+function TRSGiantsFoundrySetup.ClickMould(mould: TRSGiantsFoundryMould): Boolean;
+var
+  mouldBox: TBox;
+begin
+  Result := False;
+  for mouldBox in Self.FindMouldBoundaries() do
+  begin
+    if OCR.Recognize(mouldBox, Self.GiantsFoundryBoldFont, [RSFonts.ORANGE], 0).Contains(mould.Name) then
+    begin
+      if Self.IsMouldSelected(mouldBox) then // Mould is already selected
+        Exit(True);
+      Mouse.Click(mouldBox, EMouseButton.LEFT);
+      Result := True;
+      Exit;
+    end;
+  end;
+end;
+
+function TRSGiantsFoundrySetup.SelectMould(mould: TRSGiantsFoundryMould): Boolean;
+var
+  scrollLevel: Integer;
+begin
+  // Select the correct mould type tab
+  if not Self.SelectMouldType(mould.MouldType) then
+    Exit(False);
+
+
+  // Check if mould is visible without scrolling
+  Biometrics.Sleep(300, 500);
+  if Self.Find(mould) then
+  begin
+    Biometrics.Sleep(500);
+    Result := Self.ClickMould(mould);
+    Exit;
+  end;
+
+  // Scroll to find the mould
+  Biometrics.Sleep(300, 500);
+  scrollLevel := Self.FindScroll(mould);
+  if scrollLevel = -1 then
+    Exit(False);
+
+  // Click the mould
+  Biometrics.Sleep(300, 500);
+  Result := Self.ClickMould(mould);
+end;
+
+(*
+## GiantsFoundry.SetupMoulds
+```pascal
+function TRSGiantsFoundry.SetupMoulds(commission: TRSGiantsFoundryCommission): Boolean;
+```
+Automatically selects the optimal moulds for the current commission.
+
+Example:
+```pascal
+var commission: TRSGiantsFoundryCommission;
+begin
+  commission := GiantsFoundrySetup.GetCommission();
+
+  if GiantsFoundry.SetupMoulds(commission, 75) then
+    WriteLn('Successfully configured optimal moulds');
+end;
+```
+*)
+
+function TRSGiantsFoundrySetup.SetupMoulds(commission: TRSGiantsFoundryCommission; playerLevel: Integer = 99): Boolean;
+var
+  optimal: TRSGiantsFoundryMouldSelection;
+begin
+  Result := False;
+
+  if not Self.IsOpen then
+  begin
+    WriteLn('GiantsFoundrySetup: Interface is not open');
+    Exit(False);
+  end;
+
+  optimal := Self.GetOptimalMoulds(commission, playerLevel);
+
+  WriteLn('Optimal Moulds:');
+  WriteLn('  Forte: ', optimal.Forte.Name);
+  WriteLn('  Blade: ', optimal.Blade.Name);
+  WriteLn('  Tip: ', optimal.Tip.Name);
+  WriteLn('  Total Score: ', optimal.TotalScore.AttributeTotalScore);
+
+  if not Self.SelectMould(optimal.Forte) then
+  begin
+    WriteLn('Failed to select Forte: ', optimal.Forte.Name);
+    Exit(False);
+  end;
+  Biometrics.Sleep(300, 600);
+
+  if not Self.SelectMould(optimal.Blade) then
+  begin
+    WriteLn('Failed to select Blade: ', optimal.Blade.Name);
+    Exit(False);
+  end;
+  Biometrics.Sleep(300, 600);
+
+  if not Self.SelectMould(optimal.Tip) then
+  begin
+    WriteLn('Failed to select Tip: ', optimal.Tip.Name);
+    Exit(False);
+  end;
+  Biometrics.Sleep(300, 600);
+
+  if Self.SetMouldButton.Enabled() then
+  begin
+    Self.SetMouldButton.Click();
+    Biometrics.Sleep(500, 800);
+    Result := True;
+    WriteLn('Successfully configured moulds');
+  end
+  else
+  begin
+    WriteLn('Set Mould button is not enabled, Something must have went wrong!');
+    Result := False;
+  end;
+end;
+
+(*
+## GiantsFoundrySetup.GetCommission
+```pascal
+function TRSGiantsFoundrySetup.GetCommission(): TRSGiantsFoundryCommission;
+```
+Attempts to read the commision section in the bottom left
+of the mould setup interface to determine what commision we have and return it.
+*)
+
+function TRSGiantsFoundrySetup.GetCommission(): TRSGiantsFoundryCommission;
+begin
+  Result.Attribute1 := GiantsFoundry._StringToAttribute(OCR.Recognize(Self.Atrribute1.Bounds, Self.GiantsFoundryRegularFont, [RSFonts.ORANGE], 0));
+  Result.Attribute2 := GiantsFoundry._StringToAttribute(OCR.Recognize(Self.Atrribute2.Bounds, Self.GiantsFoundryRegularFont, [RSFonts.ORANGE], 0));
+end;
+
+(*
+## GiantsFoundrySetup.GetAttributeScore
+```pascal
+function TRSGiantsFoundrySetup.GetAttributeScore():
+```
+Attempts to read the a attribute from the commision section in the bottom left
+to determine what commision we have and return it.
+*)
+
+function TRSGiantsFoundrySetup.GetAttributeScore(attribute: TRSGiantFoundrySetupAttribute): Integer;
+begin
+  Result := OCR.Recognize(attribute.Bounds, Self.GiantsFoundryRegularFont, [RSFonts.ORANGE], 0).ExtractInteger();
+end;
+
+(*
+## TRSGiantsFoundrySetup.GetMouldScore
+```pascal
+function TRSGiantsFoundrySetup.GetMouldScore(mould: TRSGiantsFoundryMould; attribute: ERSGiantsFoundryAttribute): Integer;
+```
+Returns the score a mould provides for a specific attribute.
+*)
+function TRSGiantsFoundrySetup.GetMouldScore(mould: TRSGiantsFoundryMould; attribute: ERSGiantsFoundryAttribute): Integer;
+begin
+  case attribute of
+    ERSGiantsFoundryAttribute.BROAD:  Result := mould.Broad;
+    ERSGiantsFoundryAttribute.NARROW: Result := mould.Narrow;
+    ERSGiantsFoundryAttribute.HEAVY:  Result := mould.Heavy;
+    ERSGiantsFoundryAttribute.LIGHT:  Result := mould.Light;
+    ERSGiantsFoundryAttribute.SPIKED: Result := mould.Spiked;
+    ERSGiantsFoundryAttribute.FLAT:   Result := mould.Flat;
+  end;
+end;
+
+(*
+## TRSGiantsFoundrySetup.CalculateCombinationScore
+```pascal
+function TRSGiantsFoundrySetup.CalculateCombinationScore(forte, blade, tip: TRSGiantsFoundryMould; commission: TRSGiantsFoundryCommission): Integer;
+```
+Calculates the total score for a mould combination based on commission attributes.
+*)
+function TRSGiantsFoundrySetup.CalculateCombinationScore(forte, blade, tip: TRSGiantsFoundryMould; commission: TRSGiantsFoundryCommission): Integer;
+var
+  attr1Score, attr2Score: Integer;
+begin
+  // Calculate score for first attribute
+  attr1Score := Self.GetMouldScore(forte, commission.Attribute1) +
+                Self.GetMouldScore(blade, commission.Attribute1) +
+                Self.GetMouldScore(tip, commission.Attribute1);
+
+  // Calculate score for second attribute
+  attr2Score := Self.GetMouldScore(forte, commission.Attribute2) +
+                Self.GetMouldScore(blade, commission.Attribute2) +
+                Self.GetMouldScore(tip, commission.Attribute2);
+
+  // Total score is the sum of both attribute scores
+  Result := attr1Score + attr2Score;
+end;
+
+(*
+## TRSGiantsFoundrySetup.GetOptimalMoulds
+```pascal
+function TRSGiantsFoundrySetup.GetOptimalMoulds(commission: TRSGiantsFoundryCommission; playerLevel: Integer = 99): TRSGiantsFoundryMouldSelection;
+```
+Finds the optimal combination of moulds for the given commission.
+Takes into account player smithing level to filter available moulds.
+
+Example:
+```pascal
+var
+  commission: TRSGiantsFoundryCommission;
+  optimal: TRSGiantsFoundryMouldSelection;
+begin
+  commission := GiantsFoundrySetup.GetCommission();
+  optimal := GiantsFoundrySetup.GetOptimalMoulds(commission, 75);
+
+  WriteLn('Best Forte: ', optimal.Forte.Name);
+  WriteLn('Best Blade: ', optimal.Blade.Name);
+  WriteLn('Best Tip: ', optimal.Tip.Name);
+  WriteLn('Total Score: ', optimal.TotalScore);
+end;
+```
+*)
+function TRSGiantsFoundrySetup.GetOptimalMoulds(commission: TRSGiantsFoundryCommission; playerLevel: Integer = 99): TRSGiantsFoundryMouldSelection;
+var
+  fortes, blades, tips: array of TRSGiantsFoundryMould;
+  i, currentScore, bestScore: Integer;
+  forte, blade, tip: TRSGiantsFoundryMould;
+begin
+  // Initialize moulds if not already done
+  if Length(Self.AvailableMoulds) = 0 then
+    Self._SetupMoulds();
+
+  // Filter moulds by type and player level
+  for i := 0 to High(Self.AvailableMoulds) do
+  begin
+    if Self.AvailableMoulds[i].LevelRequired > playerLevel then
+      Continue;
+
+    case Self.AvailableMoulds[i].MouldType of
+      ERSGiantsFoundryMouldType.FORTE: fortes += Self.AvailableMoulds[i];
+      ERSGiantsFoundryMouldType.BLADE: blades += Self.AvailableMoulds[i];
+      ERSGiantsFoundryMouldType.TIP:   tips += Self.AvailableMoulds[i];
+    end;
+  end;
+
+  // Find the best combination
+  bestScore := -1;
+
+  for forte in fortes do
+    for blade in blades do
+      for tip in tips do
+      begin
+        currentScore := Self.CalculateCombinationScore(forte, blade, tip, commission);
+
+        if currentScore > bestScore then
+        begin
+          bestScore := currentScore;
+          Result.Forte := forte;
+          Result.Blade := blade;
+          Result.Tip := tip;
+          Result.TotalScore.AttributeTotalScore := bestScore;
+          Result.TotalScore.Attribute := commission.Attribute1;
+        end;
+      end;
+end;
+
+procedure TRSGiantsFoundrySetup.Draw(img: TImage);
+var
+  i: Integer;
+begin
+  //if not Self.IsOpen() then Exit;
+
+  img.DrawColor := $00FFFF;
+  img.DrawBox(Self.Bounds);
+  //img.DrawBoxArray(Self.MouldSlots, False);
+  img.DrawBoxArray(Self.FindMouldBoundaries, False);
+  img.DrawBox(Self.SetMouldButton.Bounds);
+  img.DrawBox(Self.ResetMouldButton.Bounds);
+  img.DrawBox(Self.CommissionArea);
+  img.DrawBox(Self.MouldsArea);
+  img.DrawColor := $854F31;
+
+  img.DrawBox(Self.Atrribute1.Bounds);
+  img.DrawBox(Self.Atrribute2.Bounds);
+  img.DrawBox(Self.Title.Bounds);
+  img.DrawBox(Self.Title.CloseButton);
+  Self.Scroll.Draw(img);
+  for i := 0 to High(Self.MouldTypeButtons) do
+    Self.MouldTypeButtons[i].Draw(img);
+
+end;
+
+procedure TRSGiantsFoundrySetup.ShowOnTarget();
+var
+  img: TImage;
+begin
+  img := Target.GetImage();
+  Self.Draw(img);
+  img.Show();
+end;
+var
+(*
+## GiantsFoundrySetup variable
+Global {ref}`TRSGiantsFoundrySetup` variable.
+*)
+  GiantsFoundrySetup: TRSGiantsFoundrySetup;
+
+type
   EGiantsFoundryState = enum(
     LOGIN,
     LEVEL_UP,
@@ -224,6 +2195,9 @@ end;
 procedure TGiantsFoundryScript.Use_LavaPool();
 begin
   Self.UseTool(Self.LavaPool);
+
+
+
 end;
 
 procedure TGiantsFoundryScript.Use_PolishingWheel();
