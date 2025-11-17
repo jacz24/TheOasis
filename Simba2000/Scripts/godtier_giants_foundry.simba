@@ -1,7 +1,13 @@
 {$I WaspLib/osrs.simba}
 
 
+const
+  METAL_TYPE: TStringArray = ['Bronze', 'Iron', 'Steel', 'Mithril', 'Adamantite', 'Runite',
+  'Steel & Mithril', 'Mithril & Adamant', '19 Adamant & 9 Rune', '14 Adamant & 14 Rune'];
 
+  MOULD_TYPE: TStringArray = ['Stiletto Forte', 'Defender Base', 'Juggernaut Forte', 'Chopper Forte +1',
+  'Spiker!', 'Flamberge Blade', 'Serpent Blade', 'Claymore Blade', 'Fleur de Blade', 'Choppa!',
+  'Corrupted Point', 'Defenders Tip', 'Serrated Tip', 'Needle Point', 'The Point!'];
 
 type
 (*
@@ -628,6 +634,7 @@ begin
   // Calculate percentage
   Result := ((currentX - minX) / barWidth) * 100;
 
+  Writeln(Result);
   // Clamp to 0-100 range
   if Result < 0 then Result := 0
   else if Result > 100 then Result := 100;
@@ -1029,7 +1036,8 @@ end;
 
 function TRSGiantsFoundryRefinement.IsOpen(): Boolean;
 begin
-  Result := Target.GetColor([Self.TemperatureBar.Bounds.X1, Self.TemperatureBar.Bounds.Y1]) = TrueBlackColour;
+  //Writeln(Target.GetColorsMatrix([Self.TemperatureBar.Bounds.X1, Self.TemperatureBar.Bounds.Y1, Self.TemperatureBar.Bounds.X2, Self.TemperatureBar.Bounds.Y1])[0].Length);
+  Result := Target.HasColor(TrueBlackColour, 0, 200, [Self.TemperatureBar.Bounds.X1, Self.TemperatureBar.Bounds.Y1, Self.TemperatureBar.Bounds.X2, Self.TemperatureBar.Bounds.Y1]);
 end;
 
 procedure TRSGiantsFoundryRefinement.InitTaskBar();
@@ -1485,6 +1493,7 @@ begin
 
   m := ['Saw Tip', ERSGiantsFoundryMouldType.TIP, 6, 0, 8, 0, 8, 0, 1, True];
   Self.AvailableMoulds += m;
+
 
   // PURCHASABLE TIPS
   m := ['Corrupted Point', ERSGiantsFoundryMouldType.TIP, 0, 8, 0, 10, 8, 0, 49, False];
@@ -2004,13 +2013,20 @@ type
   );
 
   ETask = enum(
-    BRONZE_IRON, IRON_STEEL, STEEL_MIHTRIL, MITHRIL_ADAMANTITE, ADAMANTITE_RUNITE
+    BRONZE, IRON, STEEL, MITHRIL, ADAMANT, RUNE,
+    STEEL_MIHTRIL, MITHRIL_ADAMANTITE, ADAMANTITE_RUNITE_19_9, ADAMANTITE_RUNITE_14_14
   );
+
+  TBarItem = record
+    Bar: TRSItem;
+    BarBankItem: TRSBankItem;
+    Quantity: Integer;
+  end;
 
   TGiantsFoundryScript = record
     State: EGiantsFoundryState;
     Actions, MaxTime, MaxActions, MaxLevel: UInt64;
-    FormSetting: Boolean;
+    CurrentTask: ETask;
     Position: TPoint;
     LastAction: Int64;
     ActionCooldown: Integer;
@@ -2027,11 +2043,9 @@ type
     KovacNPC: TRSEntity;
     MouldSet, HasCommission,
     CrucibleFullBarOne, CrucibleFullBarTwo, CruciblePoured: Boolean;
-
+    MouldsList: TStringArray;
   end;
 
-var
-  CurrentTask: ETask := ETask.MITHRIL_ADAMANTITE;
 
 function TGiantsFoundryScript.GetReportValues(): TStringArray;
 var
@@ -2060,27 +2074,16 @@ var
   currentTemp: Double;
 begin
   currentTemp := GiantsFoundryRefinement.GetTemperaturePercent();
+  //Writeln(zone[0]);
+  //Writeln(zone[1]);
+  //Writeln(currentTemp);
   Result := InRange(currentTemp, zone[0], zone[1]);
 end;
 
 procedure TGiantsFoundryScript.SetupBars();
 begin
-  case CurrentTask of
-    ETask.BRONZE_IRON:
-    begin
-      Self.BarOne := 'Bronze bar';
-      Self.BarTwo := 'Iron bar';
-      Self.BarOneMakeIdx := 0;
-      Self.BarTwoMakeIdx := 1;
-    end;
+  case Self.CurrentTask of
 
-    ETask.IRON_STEEL:
-    begin
-      Self.BarOne := 'Iron bar';
-      Self.BarTwo := 'Steel bar';
-      Self.BarOneMakeIdx := 1;
-      Self.BarTwoMakeIdx := 2;
-    end;
 
     ETask.STEEL_MIHTRIL:
     begin
@@ -2098,7 +2101,15 @@ begin
       Self.BarTwoMakeIdx := 4;
     end;
 
-    ETask.ADAMANTITE_RUNITE:
+    ETask.ADAMANTITE_RUNITE_19_9:
+    begin
+      Self.BarOne := 'Adamantite bar';
+      Self.BarTwo := 'Runite bar';
+      Self.BarOneMakeIdx := 4;
+      Self.BarTwoMakeIdx := 5;
+    end;
+
+    ETask.ADAMANTITE_RUNITE_14_14:
     begin
       Self.BarOne := 'Adamantite bar';
       Self.BarTwo := 'Runite bar';
@@ -2127,11 +2138,26 @@ begin
     @Self.GetReportValues
   );
 
+
+  WriteLn(Self.MouldsList);
+  TerminateScript('test');
+
+  WebGraphGenerator.Setup(12, 4, 50, 6, 3, True);
   Map.Setup([Chunk(Box(51,180,53,178), 0)]);
+
+  Map.Loader.Graph.AddNode([9365, 4473], EGraphNode.NORMAL, Map.Loader.Graph.Nodes.NearestIndex([9365, 4473]));
+  Map.Loader.Graph.AddNode([9386, 4441], EGraphNode.NORMAL, Map.Loader.Graph.Nodes.NearestIndex([9386, 4441]));
+  Map.Loader.Graph.AddNode([9355, 4474], EGraphNode.NORMAL, Map.Loader.Graph.Nodes.NearestIndex([9355, 4474]));
+
+  //Map.Setup([ERSChunk.VARROCK]);
+  //MapDebugger.Setup(@Map.Loader);
+  //MapDebugger.Show();
 
   // Setup interface
   GiantsFoundryRefinement.SetupInterface();
   GiantsFoundrySetup.SetupInterface();
+
+
 
   // Setup Objects and Entity
   Self.LavaPool := TRSObject.Create(@Map.Walker, [1.5, 1.5, 0.5], [[9394, 4440]], ['Lava pool']);
@@ -2151,6 +2177,20 @@ begin
 
   Self.KovacObject := TRSObject.Create(@Map.Walker, [1,1,8], [[9382, 4484]], ['Kovac']);
   Self.SetupBars();
+
+  // Placeholder
+  //Self.SetupTemperatureSystem();
+  //Self.TargetZone := [Self.HotTolerance[0], Self.HotZone[1]];
+  //Writeln(Self.InTemperatureRange(Self.TargetZone));
+  //WriteLn(GiantsFoundryRefinement.GetTemperaturePercent);
+  //GiantsFoundryRefinement.ShowOnTarget();
+  //TerminateScript('test');
+
+  //Map.Walker.ScreenWalk := True;
+  //Writeln(Self.Waterfall.WalkHover());
+  //Writeln(GiantsFoundryRefinement.IsOpen());
+  //TerminateScript('Test');
+
 
   (*
   //Self.FillBarOneInCrucible();
@@ -2189,15 +2229,14 @@ end;
 
 procedure TGiantsFoundryScript.Use_WaterFall();
 begin
+  Writeln('Using Waterfall!');
   Self.UseTool(Self.Waterfall);
 end;
 
 procedure TGiantsFoundryScript.Use_LavaPool();
 begin
+  Writeln('Using Lavapool!');
   Self.UseTool(Self.LavaPool);
-
-
-
 end;
 
 procedure TGiantsFoundryScript.Use_PolishingWheel();
@@ -2285,17 +2324,26 @@ end;
 
 procedure TGiantsFoundryScript.WithdrawBars();
 begin
-  Bank.Withdraw(Self.BarTwoBankItem, True, True);
+  if Inventory.Items.DiscoverAll <> [] then
+    Bank.DepositInventory();
 
-  Biometrics.Sleep(250, 500);
 
-  Bank.Withdraw(Self.BarOneBankItem, True, True);
-  SleepUntil(Inventory.Items.Count(Self.BarOne) = 10 , 300, 5000);
-  Bank.Withdraw(Self.BarOneBankItem, True, True);
+  if Inventory.Items.DiscoverAll = [] then
+  begin
+    Bank.Withdraw(Self.BarTwoBankItem, True, True);
+
+    Biometrics.Sleep(250, 500);
+
+    Bank.Withdraw(Self.BarOneBankItem, True, True);
+    SleepUntil(Inventory.Items.Count(Self.BarOne) = 10 , 300, 5000);
+    Bank.Withdraw(Self.BarOneBankItem, True, True);
+  end;
+
 end;
 
 procedure TGiantsFoundryScript.FillBarOneInCrucible();
 begin
+  Writeln('Putting Bar One In Crucible');
   Self.CrucibleFullBarOne := False;
   if not Make.IsOpen() then
     Self.Crucible.WalkClick();
@@ -2303,7 +2351,7 @@ begin
   if SleepUntil(Make.IsOpen(), 300, 5000) then
   begin
     if Inventory.Items.Contains(Self.BarOne) then
-      Make.Select(Self.BarOne, QUANTITY_ALL);
+      Make.Select(Self.BarOne, QUANTITY_ALL, 0);
 
     if SleepUntil(not Inventory.Items.Contains(Self.BarOne), 300, 5000) then
       Self.CrucibleFullBarOne := True;
@@ -2315,6 +2363,7 @@ end;
 
 procedure TGiantsFoundryScript.FillBarTwoInCrucible();
 begin
+  Writeln('Putting Bar Two In Crucible');
   Self.CrucibleFullBarTwo := False;
   if not Make.IsOpen() then
     Self.Crucible.WalkClick();
@@ -2322,7 +2371,7 @@ begin
   if SleepUntil(Make.IsOpen(), 300, 5000) then
   begin
     if Inventory.Items.Contains(Self.BarTwo) then
-      Make.Select(Self.BarTwo, QUANTITY_ALL);
+      Make.Select(Self.BarTwo, QUANTITY_ALL, 0);
 
     if SleepUntil(not Inventory.Items.Contains(Self.BarTwo), 300, 5000) then
       Self.CrucibleFullBarTwo := True;
@@ -2462,7 +2511,7 @@ begin
 
   if GiantsFoundryRefinement.IsOpen() then
   begin
-
+    //GiantsFoundryRefinement.ShowOnTarget();
     // Track temperature changes
     GiantsFoundryRefinement.TrackTemperatureAction();
 
@@ -2521,6 +2570,7 @@ begin
       ETaskState.HAMMER:
         begin
           Self.TargetZone := [Self.HotTolerance[0], Self.HotZone[1]];
+
           if (Self.InTemperatureRange(Self.TargetZone)) and not Self.AtTripHammer() then
           begin
             if (GiantsFoundryRefinement.TemperatureBar.Target.Direction = ETemperatureDirection.HEAT) and (GiantsFoundryRefinement.TemperatureBar.Target.CurrentAction >= GiantsFoundryRefinement.TemperatureBar.Target.ActionsNeeded) then
@@ -2531,10 +2581,10 @@ begin
           end;
 
 
+          //Writeln(Self.InTemperatureRange(Self.TargetZone));
           if not Self.InTemperatureRange(Self.TargetZone) then
             if not (GiantsFoundryRefinement.TemperatureBar.Target.TargetTemperaturePercent = Self.HotTolerance[1]) then
               GiantsFoundryRefinement.UpdateTemperatureTarget(Self.HotTolerance[1], GiantsFoundryRefinement.GetTemperaturePercent());
-
 
           if (GiantsFoundryRefinement.TemperatureBar.Target.Direction = ETemperatureDirection.HEAT) and (not Self.AtLavaPool) and (GiantsFoundryRefinement.TemperatureBar.Target.ActionsNeeded <> -1) then
             Exit(EGiantsFoundryState.HEATING);
@@ -2666,54 +2716,111 @@ begin
 end;
 
 var
-  Template: TGiantsFoundryScript;
-  TemplateForm: TScriptForm;
-  TemplateConfig: TConfigJSON;
+  GiantsFoundryScript: TGiantsFoundryScript;
+  Form: TScriptForm;
+  Config: TConfigJSON;
   FormCheckbox: TLazCheckBox;
-
+  BarCombobox, MouldCombobox: TLazComboBox;
+  MouldListBox: TLazListBox;
 
 procedure TScriptForm.OnStart(sender: TLazObject); override;
+var
+  mouldsJSON: TJSONArray;
 begin
   inherited;
 
-  Template.FormSetting := FormCheckbox.IsChecked();
-  if TemplateConfig.Data.Has('form_setting') then
-    TemplateConfig.Data.Item['form_setting'].AsBool := Template.FormSetting
+  GiantsFoundryScript.CurrentTask := ETask(BarCombobox.ItemIndex);
+  if Config.Data.Has('bar') then
+    Config.Data.Item['bar'].AsInt := BarCombobox.ItemIndex
   else
-    TemplateConfig.Data.AddBool('form_setting', Template.FormSetting);
+    Config.Data.AddInt('bar', BarCombobox.ItemIndex);
 
-  Template.MaxActions := Self.Goals.Actions.Value;
-  Template.MaxTime    := Self.Goals.Time.Value * ONE_MINUTE;
-  Template.MaxLevel   := Self.Goals.Level.Value;
+  GiantsFoundryScript.MaxActions := Self.Goals.Actions.Value;
+  GiantsFoundryScript.MaxTime    := Self.Goals.Time.Value * ONE_MINUTE;
+  GiantsFoundryScript.MaxLevel   := Self.Goals.Level.Value;
 
-  TemplateConfig.Save();
+  mouldsJSON := new TJSONArray();
+
+  if MouldListBox.Count = 0 then
+  begin
+    GiantsFoundryScript.MouldsList = []; // Set its as empty to use only default moulds
+  end;
+
+
+
+  Config.Save();
 end;
+
+{$H-}
+procedure TGiantsFoundryScript.OnAdd(sender: TLazObject);
+begin
+  MouldListBox.Items.Add(MouldCombobox.Text);
+  MouldListBox.ItemIndex := MouldListBox.Items.Count - 1;
+end;
+
+procedure TGiantsFoundryScript.OnRemove(sender: TLazObject);
+var
+  i: Integer;
+begin
+  i := MouldListBox.ItemIndex;
+  if i < 0 then Exit;
+
+  MouldListBox.Items.Delete(i);
+  MouldListBox.ItemIndex := i - 1;
+end;
+
+procedure TGiantsFoundryScript.OnKeyDown(sender: TLazObject; var key: Int16; shift: ELazShiftStates);
+begin
+  if key <> 46 then Exit;
+  Self.OnRemove(sender);
+end;
+
+{$H+}
 
 procedure TScriptForm.Init();
 var
   tab: TLazTabSheet;
   panel: TLazPanel;
+  btn: TLazButton;
+  banner: TLazImage;
 begin
-  TemplateConfig.Setup('scripts' + PATH_SEP + 'my-script-name');
+  Config.Setup('scripts' + PATH_SEP + 'godtier-giants-foundry');
 
-  Self.Setup('My Script Name', TemplateConfig.Data);
+  Self.Setup('GodTier Giants Foundry', Config.Data);
+  tab := Self.CreateTab('Giants Foundry');
 
-  tab := Self.CreateTab('My Script Name');
   panel := Self.CreateGoals(tab, True, True, True, EOrientation.HORIZONTAL);
   panel.Align := ELazAlign.Bottom;
 
-  FormCheckbox := TLazCheckBox.CreateEx(tab, 'My Setting', 'My setting does cool stuff', 20, 220);
-  if TemplateConfig.Data.Has('form_setting') then
-    FormCheckbox.SetChecked(TemplateConfig.Data.Item['form_setting'].AsBool)
-  else
-    FormCheckbox.SetChecked(True);
+  //TODO Add Banner
+  banner := TLazImage.CreateEx(tab, '', '', 20, 10, tab.Width-44, 195);
+
+  BarCombobox := TLazComboBox.CreateEx(tab, 'Bar type:', 'Type of metal bar', banner.Left + 40, banner.Bottom + 40, 200);
+  BarCombobox.Items.AddStrings(METAL_TYPE);
+  BarCombobox.ItemIndex := 0;
+
+  MouldCombobox := TLazComboBox.CreateEx(tab, 'Mould Type:', 'Type of mould', BarCombobox.Left, BarCombobox.Bottom + 20, 200);
+  MouldCombobox.Items.AddStrings(MOULD_TYPE);
+  MouldCombobox.ItemIndex := 0;
+
+  btn := TLazButton.CreateEx(tab, 'Add mould', 'Add mould to use', MouldCombobox.Left, MouldCombobox.Bottom + 20, MouldCombobox.Width div 2);
+  btn.OnClick := @GiantsFoundryScript.OnAdd;
+
+  btn := TLazButton.CreateEx(tab, 'Remove mould', 'Remove mould to use', MouldCombobox.Left + MouldCombobox.Width div 2, MouldCombobox.Bottom + 20, MouldCombobox.Width div 2);
+  btn.OnClick := @GiantsFoundryScript.OnRemove;
+
+  MouldListBox := TLazListBox.CreateEx(tab, 'Mould List:', 'List of moulds to use', tab.Width - 360, BarCombobox.Top, 300, 140);
+  MouldListBox.OnKeyDown := @GiantsFoundryScript.OnKeyDown;
+
+  //if Config.Data.Has('bars') and Config.Data.Has('moulds') then
+  //  FormCheckbox.SetChecked(Config.Data.Item['form_setting'].AsBool)
 
   Self.CreateAntibanTab();
   Self.Run();
 end;
 
 begin
-  TemplateForm.Init();
+  Form.Init();
 
-  Template.Run();
+  GiantsFoundryScript.Run();
 end.
