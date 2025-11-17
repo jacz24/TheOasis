@@ -1383,6 +1383,8 @@ begin
     Self.GiantsFoundryTitleFont := RSFonts.VERDANA_15;
   end;
   //Self.Title.Font := @Self.GiantsFoundryTitleFont; // TODO: This doesn't work for some reason
+  if Length(Self.AvailableMoulds) = 0 then
+    Self._SetupMoulds();
 end;
 
 function TRSGiantsFoundrySetup.SelectMouldType(mouldtype: ERSGiantsFoundryMouldType): Boolean;
@@ -2138,9 +2140,8 @@ begin
     @Self.GetReportValues
   );
 
-  Writeln(Self.CurrentTask);
-  WriteLn(Self.MouldsListToKeep);
-  TerminateScript('test');
+
+
 
   WebGraphGenerator.Setup(12, 4, 50, 6, 3, True);
   Map.Setup([Chunk(Box(51,180,53,178), 0)]);
@@ -2157,6 +2158,12 @@ begin
   GiantsFoundryRefinement.SetupInterface();
   GiantsFoundrySetup.SetupInterface();
 
+  for i := High(GiantsFoundrySetup.AvailableMoulds) downto 0 do
+  begin
+    if GiantsFoundrySetup.AvailableMoulds[i].Name.ContainsAny(MOULD_TYPE, False) then
+      if not GiantsFoundrySetup.AvailableMoulds[i].Name.ContainsAny(Self.MouldsListToKeep, False) then
+        GiantsFoundrySetup.AvailableMoulds.Delete(i);
+  end;
 
 
   // Setup Objects and Entity
@@ -2178,7 +2185,13 @@ begin
   Self.KovacObject := TRSObject.Create(@Map.Walker, [1,1,8], [[9382, 4484]], ['Kovac']);
   Self.SetupBars();
 
+
+  (*
   // Placeholder
+  Writeln(Self.CurrentTask);
+  WriteLn(Self.MouldsListToKeep);
+  Writeln(GiantsFoundrySetup.AvailableMoulds);
+  TerminateScript('test');
   //Self.SetupTemperatureSystem();
   //Self.TargetZone := [Self.HotTolerance[0], Self.HotZone[1]];
   //Writeln(Self.InTemperatureRange(Self.TargetZone));
@@ -2192,7 +2205,7 @@ begin
   //TerminateScript('Test');
 
 
-  (*
+
   //Self.FillBarOneInCrucible();
   Self.FillBarTwoInCrucible();
   Biometrics.Sleep(5000);
@@ -2223,7 +2236,7 @@ begin
   //Map.Walker.MakePointVisible(tool.Coordinates.First);
   if tool.WalkClick(True, 3) then
   begin
-    Minimap.WaitMoving(20000, 350);
+    Minimap.WaitMoving(20000, Biometrics.RandomModeInteger(300, 250, 350);
   end;
 end;
 
@@ -2765,7 +2778,6 @@ begin
     if Config.Data.Key[i] = 'moulds' then
     begin
       Config.Data.Delete(Config.Data.Item[i]);
-      Break;
     end;
   end;
 
@@ -2777,7 +2789,15 @@ end;
 
 {$H-}
 procedure TGiantsFoundryScript.OnAdd(sender: TLazObject);
+var
+  i: Integer;
 begin
+  for i := 0 to MouldListBox.Items.Count - 1 do
+  begin
+    if MouldListBox.Items.Strings[i] = MouldCombobox.Text then
+      Exit; // Already exists
+  end;
+
   MouldListBox.Items.Add(MouldCombobox.Text);
   MouldListBox.ItemIndex := MouldListBox.Items.Count - 1;
 end;
