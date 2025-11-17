@@ -611,6 +611,7 @@ var
   currentX, minX, maxX: Integer;
   barWidth: Integer;
 begin
+
   // Update cursor position
   Self.UpdateTemperatureCursor();
 
@@ -2037,6 +2038,8 @@ type
     ColdTolerance, MediumTolerance, HotTolerance,
     TargetZone: TDoubleArray;
 
+    BarItemOne, BarItemTwo: TBarItem;
+
     BarOne, BarTwo: TRSItem;
     BarOneBankItem, BarTwoBankItem: TRSBankItem;
     BarOneMakeIdx, BarTwoMakeIdx: Integer;
@@ -2086,6 +2089,47 @@ procedure TGiantsFoundryScript.SetupBars();
 begin
   case Self.CurrentTask of
 
+    ETask.BRONZE:
+    begin
+      Self.BarItemOne.Bar := 'Bronze bar';
+      Self.BarItemOne.Quantity := 28;
+      Self.BarItemTwo := [];
+    end;
+
+    ETask.IRON:
+    begin
+      Self.BarItemOne.Bar := 'Iron bar';
+      Self.BarItemOne.Quantity := 28;
+      Self.BarItemTwo := [];
+    end;
+
+    ETask.STEEL:
+    begin
+      Self.BarItemOne.Bar := 'Steel bar';
+      Self.BarItemOne.Quantity := 28;
+      Self.BarItemTwo := [];
+    end;
+
+    ETask.MITHRIL:
+    begin
+      Self.BarItemOne.Bar := 'Mithril bar';
+      Self.BarItemOne.Quantity := 28;
+      Self.BarItemTwo := [];
+    end;
+
+    ETask.ADAMANT:
+    begin
+      Self.BarItemOne.Bar := 'Adamantite bar';
+      Self.BarItemOne.Quantity := 28;
+      Self.BarItemTwo := [];
+    end;
+
+    ETask.RUNE:
+    begin
+      Self.BarItemOne.Bar := 'Runite bar';
+      Self.BarItemOne.Quantity := 28;
+      Self.BarItemTwo := [];
+    end;
 
     ETask.STEEL_MIHTRIL:
     begin
@@ -2119,6 +2163,10 @@ begin
       Self.BarTwoMakeIdx := 5;
     end;
   end;
+
+  Self.BarItemOne.BarBankItem := new TRSBankItem(Self.BarItemOne.Bar, Self.BarItemOne.Quantity);
+  if not (Self.BarItemTwo = []) then
+    Self.BarItemTwo.BarBankItem := new TRSBankItem(Self.BarItemTwo.Bar, Self.BarItemTwo.Quantity);
 
   Self.BarOneBankItem := new TRSBankItem(Self.BarOne, 10);
   Self.BarTwoBankItem := new TRSBankItem(Self.BarTwo, 10);
@@ -2233,10 +2281,14 @@ end;
 
 procedure TGiantsFoundryScript.UseTool(tool: TRSObject);
 begin
+
+  // TODO: I BELIEVE A BUG IS HAPPENING WHERE ITS FAILING TO CLICK AND GETTING STUCK
+  // IN THE Minimap.WAITMOVING since the player is still doing something
+  // DESTROYING THE SWORD
   //Map.Walker.MakePointVisible(tool.Coordinates.First);
   if tool.WalkClick(True, 3) then
   begin
-    Minimap.WaitMoving(20000, Biometrics.RandomModeInteger(300, 250, 350);
+    Minimap.WaitMoving(20000, Biometrics.RandomModeInteger(300, 250, 350));
   end;
 end;
 
@@ -2367,7 +2419,8 @@ begin
       Make.Select(Self.BarOne, QUANTITY_ALL, 0);
 
     if SleepUntil(not Inventory.Items.Contains(Self.BarOne), 300, 5000) then
-      Self.CrucibleFullBarOne := True;
+      if not Inventory.Items.Contains(Self.BarOne) then
+        Self.CrucibleFullBarOne := True;
 
     SleepUntil(Chat.HasContinue(), 300, 5000);
     SleepUntil(Chat.Continue(), 300, 5000);
@@ -2387,7 +2440,8 @@ begin
       Make.Select(Self.BarTwo, QUANTITY_ALL, 0);
 
     if SleepUntil(not Inventory.Items.Contains(Self.BarTwo), 300, 5000) then
-      Self.CrucibleFullBarTwo := True;
+      if not Inventory.Items.Contains(Self.BarTwo) then
+        Self.CrucibleFullBarTwo := True;
 
     SleepUntil(Chat.HasContinue(), 300, 5000);
     SleepUntil(Chat.Continue(), 300, 5000);
@@ -2514,16 +2568,17 @@ var
   currentTemp: Double;
   tempTarget: TTemperatureTarget;
 begin
-  // Update current task
-  currentTask := GiantsFoundryRefinement.FindCurrentTask();
-  GiantsFoundryRefinement.TaskBar.CurrentTask := currentTask;
-  currentTemp := GiantsFoundryRefinement.GetTemperaturePercent();
 
-  if (Self.ColdZone = []) and (GiantsFoundryRefinement.IsOpen()) then
-    Exit(EGiantsFoundryState.SETUP_TEMPERATURE_SYSTEM);
 
   if GiantsFoundryRefinement.IsOpen() then
   begin
+    // Update current task
+    currentTask := GiantsFoundryRefinement.FindCurrentTask();
+    GiantsFoundryRefinement.TaskBar.CurrentTask := currentTask;
+    currentTemp := GiantsFoundryRefinement.GetTemperaturePercent();
+
+    if (Self.ColdZone = []) then
+      Exit(EGiantsFoundryState.SETUP_TEMPERATURE_SYSTEM);
     //GiantsFoundryRefinement.ShowOnTarget();
     // Track temperature changes
     GiantsFoundryRefinement.TrackTemperatureAction();
@@ -2732,7 +2787,6 @@ var
   GiantsFoundryScript: TGiantsFoundryScript;
   Form: TScriptForm;
   Config: TConfigJSON;
-  FormCheckbox: TLazCheckBox;
   BarCombobox, MouldCombobox: TLazComboBox;
   MouldListBox: TLazListBox;
 
