@@ -2043,7 +2043,7 @@ type
     KovacNPC: TRSEntity;
     MouldSet, HasCommission,
     CrucibleFullBarOne, CrucibleFullBarTwo, CruciblePoured: Boolean;
-    MouldsList: TStringArray;
+    MouldsListToKeep: TStringArray;
   end;
 
 
@@ -2138,8 +2138,8 @@ begin
     @Self.GetReportValues
   );
 
-
-  WriteLn(Self.MouldsList);
+  Writeln(Self.CurrentTask);
+  WriteLn(Self.MouldsListToKeep);
   TerminateScript('test');
 
   WebGraphGenerator.Setup(12, 4, 50, 6, 3, True);
@@ -2725,15 +2725,17 @@ var
 
 procedure TScriptForm.OnStart(sender: TLazObject); override;
 var
+  i: Integer;
   mouldsJSON: TJSONArray;
+  mouldTxt: String;
 begin
   inherited;
 
   GiantsFoundryScript.CurrentTask := ETask(BarCombobox.ItemIndex);
-  if Config.Data.Has('bar') then
-    Config.Data.Item['bar'].AsInt := BarCombobox.ItemIndex
+  if Config.Data.Has('bars') then
+    Config.Data.Item['bars'].AsInt := BarCombobox.ItemIndex
   else
-    Config.Data.AddInt('bar', BarCombobox.ItemIndex);
+    Config.Data.AddInt('bars', BarCombobox.ItemIndex);
 
   GiantsFoundryScript.MaxActions := Self.Goals.Actions.Value;
   GiantsFoundryScript.MaxTime    := Self.Goals.Time.Value * ONE_MINUTE;
@@ -2743,10 +2745,32 @@ begin
 
   if MouldListBox.Count = 0 then
   begin
-    GiantsFoundryScript.MouldsList = []; // Set its as empty to use only default moulds
+    GiantsFoundryScript.CurrentTask := ETask(BarCombobox.ItemIndex);
+    GiantsFoundryScript.MouldsListToKeep := []; // Set its as empty to remove all purchaseable moulds
+  end
+  else
+  begin
+    for i := 0 to MouldListBox.Count-1 do
+    begin
+      mouldTxt := MouldListBox.Items.Strings[i];
+      mouldsJSON.AddInt('moulds', MOULD_TYPE.IndexOf(mouldTxt));
+      GiantsFoundryScript.MouldsListToKeep += mouldTxt;
+      GiantsFoundryScript.CurrentTask := ETask(BarCombobox.ItemIndex);
+      //Break;
+    end;
   end;
 
+  for i := 0 to Config.Data.Count-1 do
+  begin
+    if Config.Data.Key[i] = 'moulds' then
+    begin
+      Config.Data.Delete(Config.Data.Item[i]);
+      Break;
+    end;
+  end;
 
+  if (mouldsJSON <> nil) then
+    Config.Data.AddArray('moulds', mouldsJSON);
 
   Config.Save();
 end;
@@ -2783,6 +2807,8 @@ var
   panel: TLazPanel;
   btn: TLazButton;
   banner: TLazImage;
+  i, count: Integer;
+  mouldsJSON: TJSONArray;
 begin
   Config.Setup('scripts' + PATH_SEP + 'godtier-giants-foundry');
 
@@ -2797,7 +2823,11 @@ begin
 
   BarCombobox := TLazComboBox.CreateEx(tab, 'Bar type:', 'Type of metal bar', banner.Left + 40, banner.Bottom + 40, 200);
   BarCombobox.Items.AddStrings(METAL_TYPE);
-  BarCombobox.ItemIndex := 0;
+  if Config.Data.Has('bars') then
+    BarCombobox.ItemIndex := Config.Data.Item['bars'].AsInt
+  else
+    BarCombobox.ItemIndex := 0;
+
 
   MouldCombobox := TLazComboBox.CreateEx(tab, 'Mould Type:', 'Type of mould', BarCombobox.Left, BarCombobox.Bottom + 20, 200);
   MouldCombobox.Items.AddStrings(MOULD_TYPE);
@@ -2812,8 +2842,13 @@ begin
   MouldListBox := TLazListBox.CreateEx(tab, 'Mould List:', 'List of moulds to use', tab.Width - 360, BarCombobox.Top, 300, 140);
   MouldListBox.OnKeyDown := @GiantsFoundryScript.OnKeyDown;
 
-  //if Config.Data.Has('bars') and Config.Data.Has('moulds') then
-  //  FormCheckbox.SetChecked(Config.Data.Item['form_setting'].AsBool)
+  if Config.Data.Has('moulds') then
+  begin
+    mouldsJSON := Config.Data.Item['moulds'];
+    count := mouldsJSON.Count;
+    for i := 0 to count-1 do
+      MouldListBox.Items.Add(MOULD_TYPE[mouldsJSON.Item[i].AsInt]);
+  end;
 
   Self.CreateAntibanTab();
   Self.Run();
