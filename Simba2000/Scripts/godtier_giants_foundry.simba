@@ -216,9 +216,11 @@ const
   TrueBlackColour: Integer = 0;
   GreyColour: Integer = 2763306;
 
+  CursorColours: TIntegerArray = [65536, 10066329, 13421772, 16711422];
+
 function TRSGiantsFoundryRefinement.FindCursor(cursor: TRSRefinementCursor): TBox;
 var
-  tpa, line, blackPoints: TPointArray;
+  tpa, line, cursorPoints: TPointArray;
   atpa: T2DPointArray;
   b, searchBox: TBox;
   x, y: Integer;
@@ -226,26 +228,31 @@ var
 begin
   searchBox := TBox.Create(cursor.BarBounds.X1+1, cursor.BarBounds.Y2-2, cursor.BarBounds.X2-1, cursor.BarBounds.Y2-2);
 
-
+  //writeln(searchBox);
   // Iterate through each pixel in the search box
   for y := searchBox.Y1 to searchBox.Y2 do
     for x := searchBox.X1 to searchBox.X2 do
     begin
       line += [x,y];
       colour := Target.GetColor([x,y]);
-      if colour = BlackColour then
-        blackPoints += Point(x, y);
+      //Writeln(colour);
+      if colour = BlackColour then  //CursorColours.Contains(colour) then
+        cursorPoints += Point(x, y);
     end;
 
-  if blackPoints <> [] then
+  if cursorPoints <> [] then
   begin
-    atpa := blackPoints.Cluster(12, 1);
+    atpa := cursorPoints.Cluster(12, 1);
     for tpa in atpa do
     begin
       b := tpa.Bounds();
-      Result := TBox.Create(b.X1, cursor.BarBounds.Y1, b.X2, cursor.BarBounds.Y2);
+      if b.Width > 5 then // On fixed mode the end bars are thicker which was messing things up
+        Result := TBox.Create(b.X1, cursor.BarBounds.Y1, b.X2, cursor.BarBounds.Y2);
     end;
   end;
+  //Writeln(Result);
+  //if Result = [490, 63, 492, 77] then
+  //  TerminateScript('Error Triggered!');
 end;
 
 // Temperature Specific Functions
@@ -295,8 +302,7 @@ begin
     begin
       line += [x,y];
       colour := Target.GetColor([x,y]);
-
-
+      //Writeln(colour);
       // Check red colours
       if RedColours.Contains(colour) then
         redPoints += Point(x, y)
@@ -317,7 +323,7 @@ begin
   // Process green points
   if greenPoints <> [] then
   begin
-    atpa := greenPoints.Cluster(3, 1);
+    atpa := greenPoints.Cluster(4, 1);
     for tpa in atpa do
     begin
       b := tpa.Bounds();
@@ -336,7 +342,7 @@ begin
   // Process yellow points
   if yellowPoints <> [] then
   begin
-    atpa := yellowPoints.Cluster(3, 1);
+    atpa := yellowPoints.Cluster(4, 1);
     for tpa in atpa do
     begin
       b := tpa.Bounds();
@@ -355,7 +361,7 @@ begin
   // Process red points
   if redPoints <> [] then
   begin
-    atpa := redPoints.Cluster(3, 1);
+    atpa := redPoints.Cluster(4, 1);
     for tpa in atpa do
     begin
       b := tpa.Bounds();
@@ -374,7 +380,7 @@ begin
   // Process grey points
   if greyPoints <> [] then
   begin
-    atpa := greyPoints.Cluster(3, 1);
+    atpa := greyPoints.Cluster(4, 1);
     for tpa in atpa do
     begin
       b := tpa.Bounds();
@@ -635,7 +641,7 @@ begin
   // Calculate percentage
   Result := ((currentX - minX) / barWidth) * 100;
 
-  Writeln(Result);
+  //Writeln(Result);
   // Clamp to 0-100 range
   if Result < 0 then Result := 0
   else if Result > 100 then Result := 100;
@@ -787,6 +793,8 @@ procedure TRSGiantsFoundryRefinement.UpdateTemperatureCursor();
 begin
   Self.TemperatureBar.Cursor.Bounds := Self.FindCursor(Self.TemperatureBar.Cursor);
   Self.TemperatureBar.Cursor.Position := Self.TemperatureBar.Cursor.Bounds.Center;
+  //Writeln(Self.TemperatureBar.Cursor.Bounds);
+  //Writeln(Self.TemperatureBar.Cursor.Position);
 end;
 
 function TRSGiantsFoundryRefinement.FindCurrentTemperature(): TRefineTemperature;
@@ -2024,6 +2032,7 @@ type
     Bar: TRSItem;
     BarBankItem: TRSBankItem;
     Quantity: Integer;
+    MakeIdx: Integer;
   end;
 
   TGiantsFoundryScript = record
@@ -2093,6 +2102,7 @@ begin
     begin
       Self.BarItemOne.Bar := 'Bronze bar';
       Self.BarItemOne.Quantity := 28;
+      Self.BarItemOne.MakeIdx := 0; // Or is it 1 idk LMAO
       Self.BarItemTwo := [];
     end;
 
@@ -2484,12 +2494,6 @@ begin
     Chat.Continue();
   end;
 
-
-
-
-  //Chat.('Yes.');
-
-
   Self.MouldSet := False;
   Self.CrucibleFullBarOne := False;
   Self.CrucibleFullBarTwo := False;
@@ -2631,7 +2635,7 @@ begin
           if (GiantsFoundryRefinement.TemperatureBar.Target.Direction = ETemperatureDirection.HEAT) and (not Self.AtLavaPool) and (GiantsFoundryRefinement.TemperatureBar.Target.ActionsNeeded <> -1) then
             Exit(EGiantsFoundryState.HEATING);
 
-          if (GiantsFoundryRefinement.TemperatureBar.Target.Direction = ETemperatureDirection.COOL) and (not Self.AtWaterfall) and (GiantsFoundryRefinement.TemperatureBar.Target.ActionsNeeded <> -1)  then
+          if (GiantsFoundryRefinement.TemperatureBar.Target.Direction = ETemperatureDirection.COOL) and (not Self.AtWaterfall) and (GiantsFoundryRefinement.TemperatureBar.Target.ActionsNeeded <> -1) then
             Exit(EGiantsFoundryState.COOLING);
         end;
 
