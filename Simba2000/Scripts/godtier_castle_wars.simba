@@ -1,0 +1,303 @@
+{$I WaspLib/osrs.simba}
+
+type
+  ECWState = enum(
+    LOGIN,
+    LEVEL_UP,
+    WAIT_STATE,
+
+    ENTERING_PORTAL,
+    WAITING_FOR_GAME_TO_START,
+    WAITING_FOR_GAME_TO_END,
+
+    CLIMB_SARA_LADDER,
+    CLIMB_SARA_STAIRS,
+
+    CLIMB_ZAMMY_LADDER,
+    CLIMB_ZAMMY_STAIRS,
+    PREVENT_LOGOUT,
+
+    NO_ACTIVITY, MAX_ACTIONS, MAX_TIME, MAX_LEVEL, END_SCRIPT
+  );
+
+  TTemplate = record
+    Actions, MaxTime, MaxActions, MaxLevel: UInt64;
+    FormSetting: Boolean;
+
+    Use_Stairs: Boolean;
+
+    Sara_Waiting_Room, Zammy_Waiting_Room,
+    Sara_Top_Floor, Zammy_Top_Floor,
+    Castle_Wars_Room: TPoint;
+
+    Portal,
+    Sara_Ladder, Sara_Stairs,
+    Zammy_Ladder, Zammy_Stairs: TRSObject;
+
+  end;
+
+function TTemplate.GetReportValues(): TStringArray;
+var
+  actionsStr, sleepInfo: String;
+begin
+  actionsStr := ToStr(Self.Actions);
+  if Self.MaxActions <> 0 then
+    actionsStr += '/' + ToStr(Self.MaxActions);
+
+  if Antiban.Sleeps = [] then
+    sleepInfo := 'No sleep'
+  else
+    sleepInfo := Antiban.TimeUntilSleep(Antiban.Sleeps.First, TIME_SHORT);
+
+  Result := [
+    GetTimeStamp(TIME_SHORT),
+    Logger.TimeRunning.ElapsedFmt(TIME_SHORT),
+    Antiban.TimeRunning.ElapsedFmt(TIME_SHORT),
+    sleepInfo,
+    actionsStr
+  ];
+end;
+
+procedure TTemplate.Init();
+begin
+
+  Map.Setup([Chunk(Box(36,49,38,47), 0), Chunk(Box(36,49,38,47), 1),
+  Chunk(Box(36,49,38,47), 2), Chunk(Box(36,149,38,147), 0)]);
+
+  Self.Use_Stairs := True;
+
+  Self.Castle_Wars_Room := [9752, 38070];
+  Self.Portal := TRSObject.Create(@Map.Walker, [1, 1, 1], [[9746, 38072]], ['Guthix Portal']);
+
+  // All Saradomin Setup
+  Self.Sara_Stairs := TRSObject.Create(@Map.Walker, [1,2,4], [[60900, 38130]], ['Staircase']);
+  Self.Sara_Ladder := TRSObject.Create(@Map.Walker, [0.6, 0.6, 5], [[35316, 38134]], ['Ladder']);
+  Self.Sara_Waiting_Room := [9516, 12478];
+  Self.Sara_Top_Floor := [9328, 12134];
+
+  // All Zamorak Setup
+  Self.Zammy_Stairs := TRSObject.Create(@Map.Walker, [1,2,4], [[60696, 37902]], ['Staircase']);
+  Self.Zammy_Ladder := TRSObject.Create(@Map.Walker, [0.6, 0.6, 5], [[35316, 38134]], ['Ladder']);
+  Self.Zammy_Waiting_Room := [9680, 12338];
+  Self.Zammy_Top_Floor := [9344, 12126];
+
+  //Self.Portal.WalkClick();
+  //ShowOntarget(Self.Zammy_Stairs);
+  //TerminateScript('test');
+
+  Logger.Setup('GodTier Castle Wars');
+  ProgressReport.Setup(
+    'GodTier Castle Wars',
+    [
+      'Script runtime:', 'Botting runtime:', 'Antiban runtime:', 'Next sleep:',
+      'Actions:'
+    ],
+    @Self.GetReportValues
+  );
+
+  Antiban.Zoom.Max := 0;
+  Antiban.Zoom.Max := 50;
+  Antiban.Skills := [ERSSkill.TOTAL,
+  ERSSkill.ATTACK, ERSSkill.STRENGTH, ERSSkill.DEFENCE, ERSSkill.HITPOINTS,
+  ERSSkill.MAGIC, ERSSkill.RANGED, ERSSkill.SLAYER, ERSSkill.SAILING];
+
+  CollectionBox.Setup();
+end;
+
+procedure TTemplate.Use_Sara_Ladder();
+begin
+  if Self.Sara_Ladder.Click() then
+    SleepUntil(Map.Position().InRange(Self.Sara_Stairs.Coordinates.First, 64), 200, 10000);
+
+  Minimap.WaitMoving();
+end;
+
+procedure TTemplate.Use_Sara_Stairs();
+begin
+  if Self.Sara_Stairs.Click() then
+    SleepUntil(not Map.Position().InRange(Self.Sara_Stairs.Coordinates.First, 64), 200, 10000);
+
+  Minimap.WaitMoving();
+end;
+
+procedure TTemplate.Use_Zammy_Ladder();
+begin
+  if Self.Zammy_Ladder.Click() then
+    SleepUntil(Map.Position().InRange(Self.Zammy_Stairs.Coordinates.First, 64), 200, 10000);
+
+  Minimap.WaitMoving();
+end;
+
+procedure TTemplate.Use_Zammy_Stairs();
+begin
+  if Self.Zammy_Stairs.Click() then
+    SleepUntil(not Map.Position().InRange(Self.Zammy_Stairs.Coordinates.First, 64), 200, 10000);
+
+  Minimap.WaitMoving();
+end;
+
+procedure TTemplate.Use_Portal();
+begin
+  if Self.Portal.Click() then
+  begin
+    SleepUntil(not Map.Position().InRange(Self.Castle_Wars_Room, 64), 200, 10000);
+    Self.Actions += 1;
+  end;
+  Minimap.WaitMoving();
+end;
+
+procedure TTemplate.Wait_For_Game();
+begin
+  Writeln('Waiting for game to start/end');
+  Sleep(1000, 2000);
+  Activity.Restart();
+end;
+
+function TTemplate.GetState(): ECWState;
+begin
+  if Activity.IsFinished then
+    Exit(ECWState.NO_ACTIVITY);
+
+  if (Self.MaxActions > 0) and (Self.Actions >= Self.MaxActions) then
+    Exit(ECWState.MAX_ACTIONS);
+
+  if (Self.MaxTime > 0) and (Logger.TimeRunning.Elapsed >= Self.MaxTime) then
+    Exit(ECWState.MAX_TIME);
+
+  if (Self.MaxLevel > 0) and (Stats.GetLevel(ERSSkill.TOTAL) >= Self.MaxLevel) then
+    Exit(ECWState.MAX_LEVEL);
+
+  if not RSClient.IsLoggedIn() then
+    Exit(ECWState.LOGIN);
+
+  if Chat.LeveledUp() then
+    Exit(ECWState.LEVEL_UP);
+
+  if Map.Position().InRange(Self.Castle_Wars_Room, 64) then
+    Exit(ECWState.ENTERING_PORTAL);
+
+  if Map.Position().InRange(Self.Sara_Ladder.Coordinates.First, 64) then
+    Exit(ECWState.CLIMB_SARA_LADDER);
+
+  if Map.Position().InRange(Self.Zammy_Ladder.Coordinates.First, 64) then
+    Exit(ECWState.CLIMB_ZAMMY_LADDER);
+
+  if Self.Use_Stairs then
+  begin
+    if Map.Position().InRange(Self.Sara_Stairs.Coordinates.First, 64) then
+      Exit(ECWState.CLIMB_SARA_STAIRS);
+
+    if Map.Position().InRange(Self.Zammy_Stairs.Coordinates.First, 64) then
+      Exit(ECWState.CLIMB_ZAMMY_STAIRS);
+
+    if Map.Position().InRange(Self.Sara_Top_Floor, 64) or Map.Position().InRange(Self.Zammy_Top_Floor, 64) then
+      Exit(ECWState.WAITING_FOR_GAME_TO_END);
+  end;
+
+  if Map.Position().InRange(Self.Sara_Stairs.Coordinates.First, 64) or Map.Position().InRange(Self.Zammy_Stairs.Coordinates.First, 64) then
+    Exit(ECWState.WAITING_FOR_GAME_TO_END);
+
+  if Map.Position().InRange(Self.Sara_Waiting_Room, 128) or Map.Position().InRange(Self.Zammy_Waiting_Room, 128) then
+    Exit(ECWState.WAITING_FOR_GAME_TO_START);
+
+
+
+  Result := ECWState.WAIT_STATE;
+end;
+
+procedure TTemplate.Run();
+var
+  state: ECWState;
+begin
+  Self.Init();
+
+  repeat
+    state := Self.GetState();
+    Logger.Info(ToStr(state));
+    ProgressReport.Print();
+    WaspClient.SubmitStats();
+
+    case state of
+
+      ECWState.ENTERING_PORTAL: Self.Use_Portal();
+
+      ECWState.CLIMB_SARA_STAIRS: Self.Use_Sara_Stairs();
+      ECWState.CLIMB_SARA_LADDER: Self.Use_Sara_Ladder();
+
+      ECWState.CLIMB_ZAMMY_STAIRS: Self.Use_Zammy_Stairs();
+      ECWState.CLIMB_ZAMMY_LADDER: Self.Use_Zammy_Ladder();
+
+      ECWState.WAITING_FOR_GAME_TO_START: Self.Wait_For_Game();
+      ECWState.WAITING_FOR_GAME_TO_END: Self.Wait_For_Game();
+
+      ECWState.LOGIN: Login.DoLogin();
+      ECWState.LEVEL_UP: Chat.HandleLevelUp();
+      ECWState.WAIT_STATE: Sleep(2000, 4000);
+
+      ECWState.NO_ACTIVITY, ECWState.MAX_ACTIONS,
+      ECWState.MAX_TIME, ECWState.MAX_LEVEL,
+      ECWState.END_SCRIPT: Break;
+    end;
+
+    Antiban.DoAntiban();
+  until False;
+
+  Logger.Info('Thank you for using ' + Logger.Name);
+end;
+
+var
+  Template: TTemplate;
+  TemplateForm: TScriptForm;
+  TemplateConfig: TConfigJSON;
+  FormCheckbox: TLazCheckBox;
+
+procedure TScriptForm.OnStart(sender: TLazObject); override;
+begin
+  inherited;
+
+  Template.FormSetting := FormCheckbox.IsChecked();
+  if TemplateConfig.Data.Has('form_setting') then
+    TemplateConfig.Data.Item['form_setting'].AsBool := Template.FormSetting
+  else
+    TemplateConfig.Data.AddBool('form_setting', Template.FormSetting);
+
+  Template.MaxActions := Self.Goals.Actions.Value;
+  Template.MaxTime    := Self.Goals.Time.Value * ONE_MINUTE;
+  Template.MaxLevel   := Self.Goals.Level.Value;
+
+  TemplateConfig.Save();
+end;
+
+procedure TScriptForm.Init();
+var
+  tab: TLazTabSheet;
+  panel: TLazPanel;
+begin
+  TemplateConfig.Setup('scripts' + PATH_SEP + 'my-script-name');
+
+  Self.Setup('My Script Name', TemplateConfig.Data);
+
+  tab := Self.CreateTab('My Script Name');
+  panel := Self.CreateGoals(tab, True, True, True, EOrientation.HORIZONTAL);
+  panel.Align := ELazAlign.Bottom;
+
+  FormCheckbox := TLazCheckBox.CreateEx(tab, 'My Setting', 'My setting does cool stuff', 20, 220);
+  if TemplateConfig.Data.Has('form_setting') then
+    FormCheckbox.SetChecked(TemplateConfig.Data.Item['form_setting'].AsBool)
+  else
+    FormCheckbox.SetChecked(True);
+
+  Self.CreateAntibanTab();
+  Self.Run();
+end;
+
+begin
+  Map.Setup([Chunk(Box(36,49,38,47), 0), Chunk(Box(36,49,38,47), 1),
+  Chunk(Box(36,49,38,47), 2), Chunk(Box(36,149,38,147), 0)]);
+  Writeln(Map.Position());
+  //TerminateScript('test');
+
+  TemplateForm.Init();
+  Template.Run();
+end.
+
