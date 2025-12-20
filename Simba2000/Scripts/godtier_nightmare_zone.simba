@@ -1,21 +1,10 @@
 {$I WaspLib/osrs.simba}
 
 type
-  ECWState = enum(
+  ETemplateState = enum(
     LOGIN,
     LEVEL_UP,
     WAIT_STATE,
-
-    ENTERING_PORTAL,
-    WAITING_FOR_GAME_TO_START,
-    WAITING_FOR_GAME_TO_END,
-
-    CLIMB_SARA_LADDER,
-    CLIMB_SARA_STAIRS,
-
-    CLIMB_ZAMMY_LADDER,
-    CLIMB_ZAMMY_STAIRS,
-    PREVENT_LOGOUT,
 
     NO_ACTIVITY, MAX_ACTIONS, MAX_TIME, MAX_LEVEL, END_SCRIPT
   );
@@ -23,17 +12,6 @@ type
   TTemplate = record
     Actions, MaxTime, MaxActions, MaxLevel: UInt64;
     FormSetting: Boolean;
-
-    Use_Stairs: Boolean;
-
-    Sara_Waiting_Room, Zammy_Waiting_Room,
-    Sara_Top_Floor, Zammy_Top_Floor,
-    Castle_Wars_Room: TPoint;
-
-    Portal,
-    Sara_Ladder, Sara_Stairs,
-    Zammy_Ladder, Zammy_Stairs: TRSObject;
-
   end;
 
 function TTemplate.GetReportValues(): TStringArray;
@@ -60,34 +38,9 @@ end;
 
 procedure TTemplate.Init();
 begin
-
-  Map.Setup([Chunk(Box(36,49,38,47), 0), Chunk(Box(36,49,38,47), 1),
-  Chunk(Box(36,49,38,47), 2), Chunk(Box(36,149,38,147), 0)]);
-
-  Self.Use_Stairs := True;
-
-  Self.Castle_Wars_Room := [9752, 38070];
-  Self.Portal := TRSObject.Create(@Map.Walker, [1, 1, 1], [[9746, 38072]], ['Guthix Portal']);
-
-  // All Saradomin Setup
-  Self.Sara_Stairs := TRSObject.Create(@Map.Walker, [1,2,4], [[60900, 38130]], ['Staircase']);
-  Self.Sara_Ladder := TRSObject.Create(@Map.Walker, [0.6, 0.6, 5], [[35316, 38134]], ['Ladder']);
-  Self.Sara_Waiting_Room := [9516, 12478];
-  Self.Sara_Top_Floor := [9328, 12134];
-
-  // All Zamorak Setup
-  Self.Zammy_Stairs := TRSObject.Create(@Map.Walker, [1,2,4], [[60696, 37902]], ['Staircase']);
-  Self.Zammy_Ladder := TRSObject.Create(@Map.Walker, [0.6, 0.6, 5], [[35080, 37898]], ['Ladder']);
-  Self.Zammy_Waiting_Room := [9680, 12338];
-  Self.Zammy_Top_Floor := [9344, 12126];
-
-  //Self.Portal.WalkClick();
-  //ShowOntarget(Self.Zammy_Ladder);
-  //TerminateScript('test');
-
-  Logger.Setup('GodTier Castle Wars');
+  Logger.Setup('Template');
   ProgressReport.Setup(
-    'GodTier Castle Wars',
+    'Template',
     [
       'Script runtime:', 'Botting runtime:', 'Antiban runtime:', 'Next sleep:',
       'Actions:'
@@ -95,119 +48,41 @@ begin
     @Self.GetReportValues
   );
 
+  Map.Setup([ERSChunk.VARROCK]);
+
   Antiban.Zoom.Max := 0;
   Antiban.Zoom.Max := 50;
-  Antiban.Skills := [ERSSkill.TOTAL,
-  ERSSkill.ATTACK, ERSSkill.STRENGTH, ERSSkill.DEFENCE, ERSSkill.HITPOINTS,
-  ERSSkill.MAGIC, ERSSkill.RANGED, ERSSkill.SLAYER, ERSSkill.SAILING];
+  Antiban.Skills := [ERSSkill.TOTAL];
 
   CollectionBox.Setup();
 end;
 
-procedure TTemplate.Use_Sara_Ladder();
-begin
-  if Self.Sara_Ladder.Click() then
-    SleepUntil(Map.Position().InRange(Self.Sara_Stairs.Coordinates.First, 64), 200, 10000);
-
-  Minimap.WaitMoving();
-end;
-
-procedure TTemplate.Use_Sara_Stairs();
-begin
-  if Self.Sara_Stairs.Click() then
-    SleepUntil(not Map.Position().InRange(Self.Sara_Stairs.Coordinates.First, 64), 200, 10000);
-
-  Minimap.WaitMoving();
-end;
-
-procedure TTemplate.Use_Zammy_Ladder();
-begin
-  if Self.Zammy_Ladder.Click() then
-    SleepUntil(Map.Position().InRange(Self.Zammy_Stairs.Coordinates.First, 64), 200, 10000);
-
-  Minimap.WaitMoving();
-end;
-
-procedure TTemplate.Use_Zammy_Stairs();
-begin
-  if Self.Zammy_Stairs.Click() then
-    SleepUntil(not Map.Position().InRange(Self.Zammy_Stairs.Coordinates.First, 64), 200, 10000);
-
-  Minimap.WaitMoving();
-end;
-
-procedure TTemplate.Use_Portal();
-begin
-  if Self.Portal.Click() then
-  begin
-    SleepUntil(not Map.Position().InRange(Self.Castle_Wars_Room, 64), 200, 10000);
-    Self.Actions += 1;
-  end;
-  Minimap.WaitMoving();
-end;
-
-procedure TTemplate.Wait_For_Game();
-begin
-  Writeln('Waiting for game to start/end');
-  Sleep(1000, 2000);
-  Activity.Restart();
-end;
-
-function TTemplate.GetState(): ECWState;
+function TTemplate.GetState(): ETemplateState;
 begin
   if Activity.IsFinished then
-    Exit(ECWState.NO_ACTIVITY);
+    Exit(ETemplateState.NO_ACTIVITY);
 
   if (Self.MaxActions > 0) and (Self.Actions >= Self.MaxActions) then
-    Exit(ECWState.MAX_ACTIONS);
+    Exit(ETemplateState.MAX_ACTIONS);
 
   if (Self.MaxTime > 0) and (Logger.TimeRunning.Elapsed >= Self.MaxTime) then
-    Exit(ECWState.MAX_TIME);
+    Exit(ETemplateState.MAX_TIME);
 
   if (Self.MaxLevel > 0) and (Stats.GetLevel(ERSSkill.TOTAL) >= Self.MaxLevel) then
-    Exit(ECWState.MAX_LEVEL);
+    Exit(ETemplateState.MAX_LEVEL);
 
   if not RSClient.IsLoggedIn() then
-    Exit(ECWState.LOGIN);
+    Exit(ETemplateState.LOGIN);
 
   if Chat.LeveledUp() then
-    Exit(ECWState.LEVEL_UP);
+    Exit(ETemplateState.LEVEL_UP);
 
-  if Map.Position().InRange(Self.Castle_Wars_Room, 64) then
-    Exit(ECWState.ENTERING_PORTAL);
-
-  if Map.Position().InRange(Self.Sara_Ladder.Coordinates.First, 64) then
-    Exit(ECWState.CLIMB_SARA_LADDER);
-
-  if Map.Position().InRange(Self.Zammy_Ladder.Coordinates.First, 64) then
-    Exit(ECWState.CLIMB_ZAMMY_LADDER);
-
-  if Self.Use_Stairs then
-  begin
-    if Map.Position().InRange(Self.Sara_Stairs.Coordinates.First, 64) then
-      Exit(ECWState.CLIMB_SARA_STAIRS);
-
-    if Map.Position().InRange(Self.Zammy_Stairs.Coordinates.First, 64) then
-      Exit(ECWState.CLIMB_ZAMMY_STAIRS);
-
-    if Map.Position().InRange(Self.Sara_Top_Floor, 64) or Map.Position().InRange(Self.Zammy_Top_Floor, 64) then
-      Exit(ECWState.WAITING_FOR_GAME_TO_END);
-  end;
-
-  if Map.Position().InRange(Self.Sara_Stairs.Coordinates.First, 64) or Map.Position().InRange(Self.Zammy_Stairs.Coordinates.First, 64) then
-    Exit(ECWState.WAITING_FOR_GAME_TO_END);
-
-  if Map.Position().InRange(Self.Sara_Waiting_Room, 128) or Map.Position().InRange(Self.Zammy_Waiting_Room, 128) then
-    Exit(ECWState.WAITING_FOR_GAME_TO_START);
-
-
-
-  Result := ECWState.WAIT_STATE;
+  Result := ETemplateState.WAIT_STATE;
 end;
 
 procedure TTemplate.Run();
 var
-  state: ECWState;
+  state: ETemplateState;
 begin
   Self.Init();
 
@@ -218,25 +93,13 @@ begin
     WaspClient.SubmitStats();
 
     case state of
+      ETemplateState.LOGIN: Login.DoLogin();
+      ETemplateState.LEVEL_UP: Chat.HandleLevelUp();
+      ETemplateState.WAIT_STATE: Sleep(2000, 4000);
 
-      ECWState.ENTERING_PORTAL: Self.Use_Portal();
-
-      ECWState.CLIMB_SARA_STAIRS: Self.Use_Sara_Stairs();
-      ECWState.CLIMB_SARA_LADDER: Self.Use_Sara_Ladder();
-
-      ECWState.CLIMB_ZAMMY_STAIRS: Self.Use_Zammy_Stairs();
-      ECWState.CLIMB_ZAMMY_LADDER: Self.Use_Zammy_Ladder();
-
-      ECWState.WAITING_FOR_GAME_TO_START: Self.Wait_For_Game();
-      ECWState.WAITING_FOR_GAME_TO_END: Self.Wait_For_Game();
-
-      ECWState.LOGIN: Login.DoLogin();
-      ECWState.LEVEL_UP: Chat.HandleLevelUp();
-      ECWState.WAIT_STATE: Sleep(2000, 4000);
-
-      ECWState.NO_ACTIVITY, ECWState.MAX_ACTIONS,
-      ECWState.MAX_TIME, ECWState.MAX_LEVEL,
-      ECWState.END_SCRIPT: Break;
+      ETemplateState.NO_ACTIVITY, ETemplateState.MAX_ACTIONS,
+      ETemplateState.MAX_TIME, ETemplateState.MAX_LEVEL,
+      ETemplateState.END_SCRIPT: Break;
     end;
 
     Antiban.DoAntiban();
@@ -292,20 +155,8 @@ begin
 end;
 
 begin
-  Map.Setup([Chunk(Box(36,49,38,47), 0), Chunk(Box(36,49,38,47), 1),
-  Chunk(Box(36,49,38,47), 2), Chunk(Box(36,149,38,147), 0)]);
-  //Writeln(Map.Position());
-  //Writeln(Chat.GetTitle().Equals('There''s a free space, do you want to join? '));
-  //writeln(Chat.GetOptionsString());
-  //Chat.Select('Yes please!');
-  (*
-  There's a free space, do you want to join?
-  Yes please!
-  No thanks.
-  *)
-  //TerminateScript('test');
-
   TemplateForm.Init();
+
+  WriteLn 'HELLO';
   Template.Run();
 end.
-
