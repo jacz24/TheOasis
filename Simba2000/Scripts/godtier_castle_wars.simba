@@ -77,12 +77,12 @@ begin
 
   // All Zamorak Setup
   Self.Zammy_Stairs := TRSObject.Create(@Map.Walker, [1,2,4], [[60696, 37902]], ['Staircase']);
-  Self.Zammy_Ladder := TRSObject.Create(@Map.Walker, [0.6, 0.6, 5], [[35316, 38134]], ['Ladder']);
+  Self.Zammy_Ladder := TRSObject.Create(@Map.Walker, [0.6, 0.6, 5], [[35080, 37898]], ['Ladder']);
   Self.Zammy_Waiting_Room := [9680, 12338];
   Self.Zammy_Top_Floor := [9344, 12126];
 
   //Self.Portal.WalkClick();
-  //ShowOntarget(Self.Zammy_Stairs);
+  //ShowOntarget(Self.Zammy_Ladder);
   //TerminateScript('test');
 
   Logger.Setup('GodTier Castle Wars');
@@ -294,7 +294,15 @@ end;
 begin
   Map.Setup([Chunk(Box(36,49,38,47), 0), Chunk(Box(36,49,38,47), 1),
   Chunk(Box(36,49,38,47), 2), Chunk(Box(36,149,38,147), 0)]);
-  Writeln(Map.Position());
+  //Writeln(Map.Position());
+  //Writeln(Chat.GetTitle().Equals('There''s a free space, do you want to join? '));
+  //writeln(Chat.GetOptionsString());
+  //Chat.Select('Yes please!');
+  (*
+  There's a free space, do you want to join?
+  Yes please!
+  No thanks.
+  *)
   //TerminateScript('test');
 
   TemplateForm.Init();
