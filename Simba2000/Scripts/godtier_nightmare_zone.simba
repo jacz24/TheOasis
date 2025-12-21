@@ -1,20 +1,49 @@
 {$I WaspLib/osrs.simba}
 
 type
-  ETemplateState = enum(
+  ENMZState = enum( 
+    NONE,
     LOGIN,
     LEVEL_UP,
     WAIT_STATE,
 
     NO_ACTIVITY, MAX_ACTIONS, MAX_TIME, MAX_LEVEL, END_SCRIPT
   );
+  
+  EPotion = enum(RANGE, MAGE, OVER, ABSORB);
+  EPowerUp = enum(RECURRENT, ZAPPER, SURGE);//, ULTIMATE);
 
-  TTemplate = record
-    Actions, MaxTime, MaxActions, MaxLevel: UInt64;
-    FormSetting: Boolean;
+
+  TPotion = record
+    Barrel: TRSObject;
+    Potions: TRSItemArray;
+    TotalQuantity, Quantity: Integer;
   end;
 
-function TTemplate.GetReportValues(): TStringArray;
+  TPowerUp = record
+    PowerUp: TRSObject;  
+  end;
+
+  TNMZ = record
+    State: ENMZState;
+    Actions, MaxTime, MaxActions, MaxLevel: UInt64;
+    FormSetting: Boolean;
+
+    Potions: array [EPotion] of TPotion;
+    PowerUps: array [EPowerUp] of TPowerUp;
+    RewardChest, DreamPotion, Coffer: TRSObject;
+    
+    DominicOnion: TRSEntity;
+    SpecWeapon, DamageItem: TRSItem;
+
+    BarrelFails: Integer;
+
+    DreamMiddleTile, RandomDreamMiddleTile: TPoint;
+  end;
+
+
+
+function TNMZ.GetReportValues(): TStringArray;
 var
   actionsStr, sleepInfo: String;
 begin
@@ -36,11 +65,51 @@ begin
   ];
 end;
 
-procedure TTemplate.Init();
+procedure TNMZ.SetupObjects();
 begin
-  Logger.Setup('Template');
+  Writeln('Setting Up Objects');
+  Self.Potions[EPotion.RANGE].Barrel := TRSObject.Create(ObjectsJSON.GetByID(26277));//TRSObject.Create(@Map.Walker, [1,1,1],  [[10444, 37982]]);
+  Self.Potions[EPotion.MAGE].Barrel := TRSObject.Create(ObjectsJSON.GetByID(26278));
+  Self.Potions[EPotion.OVER].Barrel := TRSObject.Create(ObjectsJSON.GetByID(26279));
+  Self.Potions[EPotion.ABSORB].Barrel := TRSObject.Create(ObjectsJSON.GetByID(26280));
+
+  Self.RewardChest := TRSObject.Create(ObjectsJSON.GetByID(26273));
+  Self.Coffer := TRSObject.Create(ObjectsJSON.GetByName('Dominic''s coffer', 1).Item[0]);
+
+  Self.DreamPotion := TRSObject.Create(@Map.Walker, [0.8, 0.8, 3], [[10420, 37962]], ['Potion']);
+
+  // SETUP Powerups
+
+end;
+
+procedure TNMZ.SetupPotions();
+var
+  potion: EPotion;
+  dose: Integer;
+  potionNames: array[EPotion] of String;
+begin
+  // Map enum to base potion names
+  potionNames[EPotion.RANGE] := 'Super ranging';
+  potionNames[EPotion.MAGE] := 'Super magic potion';
+  potionNames[EPotion.OVER] := 'Overload';
+  potionNames[EPotion.ABSORB] := 'Absorption';
+
+  for potion := Low(EPotion) to High(EPotion) do
+  begin
+    SetLength(Self.Potions[potion].Potions, 4);
+    for dose := 1 to 4 do
+    begin 
+      Self.Potions[potion].Potions[dose - 1] := potionNames[potion] + ' (' + IntToStr(dose) + ')';
+    end;
+  end;
+end;
+
+
+procedure TNMZ.Init();
+begin
+  Logger.Setup('GodTier Nightmare Zone');
   ProgressReport.Setup(
-    'Template',
+    'GodTier Nightmare Zone',
     [
       'Script runtime:', 'Botting runtime:', 'Antiban runtime:', 'Next sleep:',
       'Actions:'
@@ -48,41 +117,134 @@ begin
     @Self.GetReportValues
   );
 
-  Map.Setup([ERSChunk.VARROCK]);
-
-  Antiban.Zoom.Max := 0;
+  Map.Setup([Chunk(Box(39,49,41,47), 0), Chunk(Box(34,74,36,72), 0)]);
+  Antiban.Zoom.Min := 0;
   Antiban.Zoom.Max := 50;
-  Antiban.Skills := [ERSSkill.TOTAL];
+  Antiban.Skills := [ERSSkill.TOTAL,ERSSkill.ATTACK, ERSSkill.STRENGTH,
+   ERSSkill.DEFENCE, ERSSkill.HITPOINTS,
+  ERSSkill.MAGIC, ERSSkill.RANGED, ERSSkill.SLAYER];
 
-  CollectionBox.Setup();
+  Self.SetupObjects();
+  Self.SetupPotions();
+
+  Self.DreamMiddleTile := [9096, 31638];
+  //ShowOnTarget(Self.Potions[EPotion.RANGE].Barrel);
+  //ShowOnTarget(Self.Potions[EPotion.ABSORB].Barrel);
+  //WriteLn(Self.Potions[EPotion.ABSORB].Barrel.UpText);
+  //ShowOnTarget(Self.DreamPotion);
+  Writeln(Self.Potions[EPotion.OVER].Potions);
+  writeln(Self.InDream());
+  WriteLn(Map.Position());
+  TerminateScript('test');
 end;
 
-function TTemplate.GetState(): ETemplateState;
+// In Dream 
+function TNMZ.HasPotion(potion: TPotion): Boolean;
 begin
+  
+end;
+
+function TNMZ.DrinkPotion(potion: TPotion): Boolean;
+begin
+  
+end;
+
+function TNMZ.FoundPowerUp(): Boolean;
+begin
+  
+end;
+
+function TNMZ.UsePowerUP(): Boolean;
+begin
+  
+end;
+
+function TNMZ.FlickPrayer(): Boolean;
+begin
+  
+end;
+
+function TNMZ.WalkToMiddle(): Boolean;
+begin
+  
+end;
+
+function TNMZ.InDream(): Boolean;
+begin
+  if Map.Position().InRange(Self.DreamMiddleTile, 1000) then
+    Exit(True);
+end;
+
+// Outside Dream
+function TNMZ.WithdrawPotion(potion: EPotion): Boolean;
+begin
+  if not Self.Potions[potion].Barrel.WalkInteract(['Take']) then
+    Exit;
+
+  Minimap.WaitMoving();
+  Result := Chat.WaitQuery('How many doses', False, 5000, -1);
+
+  if Result then
+  begin
+    //Biometrics.Sleep(1000, 2500);
+    Self.BarrelFails := 0;
+  end
+  else
+    Self.BarrelFails += 1;
+end;
+
+function TNMZ.GetCommonState(): ENMZState;
+begin
+  Result := ENMZState.NONE;
+
   if Activity.IsFinished then
-    Exit(ETemplateState.NO_ACTIVITY);
+    Exit(ENMZState.NO_ACTIVITY);
 
   if (Self.MaxActions > 0) and (Self.Actions >= Self.MaxActions) then
-    Exit(ETemplateState.MAX_ACTIONS);
+    Exit(ENMZState.MAX_ACTIONS);
 
   if (Self.MaxTime > 0) and (Logger.TimeRunning.Elapsed >= Self.MaxTime) then
-    Exit(ETemplateState.MAX_TIME);
+    Exit(ENMZState.MAX_TIME);
 
   if (Self.MaxLevel > 0) and (Stats.GetLevel(ERSSkill.TOTAL) >= Self.MaxLevel) then
-    Exit(ETemplateState.MAX_LEVEL);
+    Exit(ENMZState.MAX_LEVEL);
 
   if not RSClient.IsLoggedIn() then
-    Exit(ETemplateState.LOGIN);
+    Exit(ENMZState.LOGIN);
 
   if Chat.LeveledUp() then
-    Exit(ETemplateState.LEVEL_UP);
-
-  Result := ETemplateState.WAIT_STATE;
+    Exit(ENMZState.LEVEL_UP);
 end;
 
-procedure TTemplate.Run();
+function TNMZ.GetDreamState(): ENMZState;
+begin
+  
+end;
+
+function TNMZ.GetAwakeState(): ENMZState;
+begin
+  
+
+
+  
+  Result := ENMZState.WAIT_STATE;
+end;
+
+function TNMZ.GetState(): ENMZState;
+begin
+  if Self.InDream() then
+    Exit(Self.GetDreamState());
+  
+  Result := Self.GetCommonState();
+    if Result <> ENMZState.NONE then
+      Exit;
+  
+  Result := Self.GetAwakeState();
+end;
+
+procedure TNMZ.Run();
 var
-  state: ETemplateState;
+  state: ENMZState;
 begin
   Self.Init();
 
@@ -93,13 +255,13 @@ begin
     WaspClient.SubmitStats();
 
     case state of
-      ETemplateState.LOGIN: Login.DoLogin();
-      ETemplateState.LEVEL_UP: Chat.HandleLevelUp();
-      ETemplateState.WAIT_STATE: Sleep(2000, 4000);
+      ENMZState.LOGIN: Login.DoLogin();
+      ENMZState.LEVEL_UP: Chat.HandleLevelUp();
+      ENMZState.WAIT_STATE: Sleep(2000, 4000);
 
-      ETemplateState.NO_ACTIVITY, ETemplateState.MAX_ACTIONS,
-      ETemplateState.MAX_TIME, ETemplateState.MAX_LEVEL,
-      ETemplateState.END_SCRIPT: Break;
+      ENMZState.NO_ACTIVITY, ENMZState.MAX_ACTIONS,
+      ENMZState.MAX_TIME, ENMZState.MAX_LEVEL,
+      ENMZState.END_SCRIPT: Break;
     end;
 
     Antiban.DoAntiban();
@@ -109,26 +271,26 @@ begin
 end;
 
 var
-  Template: TTemplate;
-  TemplateForm: TScriptForm;
-  TemplateConfig: TConfigJSON;
+  NMZ: TNMZ;
+  NMZForm: TScriptForm;
+  NMZConfig: TConfigJSON;
   FormCheckbox: TLazCheckBox;
 
 procedure TScriptForm.OnStart(sender: TLazObject); override;
 begin
   inherited;
 
-  Template.FormSetting := FormCheckbox.IsChecked();
-  if TemplateConfig.Data.Has('form_setting') then
-    TemplateConfig.Data.Item['form_setting'].AsBool := Template.FormSetting
+  NMZ.FormSetting := FormCheckbox.IsChecked();
+  if NMZConfig.Data.Has('form_setting') then
+    NMZConfig.Data.Item['form_setting'].AsBool := NMZ.FormSetting
   else
-    TemplateConfig.Data.AddBool('form_setting', Template.FormSetting);
+    NMZConfig.Data.AddBool('form_setting', NMZ.FormSetting);
 
-  Template.MaxActions := Self.Goals.Actions.Value;
-  Template.MaxTime    := Self.Goals.Time.Value * ONE_MINUTE;
-  Template.MaxLevel   := Self.Goals.Level.Value;
+  NMZ.MaxActions := Self.Goals.Actions.Value;
+  NMZ.MaxTime    := Self.Goals.Time.Value * ONE_MINUTE;
+  NMZ.MaxLevel   := Self.Goals.Level.Value;
 
-  TemplateConfig.Save();
+  NMZConfig.Save();
 end;
 
 procedure TScriptForm.Init();
@@ -136,17 +298,17 @@ var
   tab: TLazTabSheet;
   panel: TLazPanel;
 begin
-  TemplateConfig.Setup('scripts' + PATH_SEP + 'my-script-name');
+  NMZConfig.Setup('scripts' + PATH_SEP + 'my-script-name');
 
-  Self.Setup('My Script Name', TemplateConfig.Data);
+  Self.Setup('My Script Name', NMZConfig.Data);
 
   tab := Self.CreateTab('My Script Name');
   panel := Self.CreateGoals(tab, True, True, True, EOrientation.HORIZONTAL);
   panel.Align := ELazAlign.Bottom;
 
   FormCheckbox := TLazCheckBox.CreateEx(tab, 'My Setting', 'My setting does cool stuff', 20, 220);
-  if TemplateConfig.Data.Has('form_setting') then
-    FormCheckbox.SetChecked(TemplateConfig.Data.Item['form_setting'].AsBool)
+  if NMZConfig.Data.Has('form_setting') then
+    FormCheckbox.SetChecked(NMZConfig.Data.Item['form_setting'].AsBool)
   else
     FormCheckbox.SetChecked(True);
 
@@ -155,8 +317,9 @@ begin
 end;
 
 begin
-  TemplateForm.Init();
+  //TerminateScript('test');
+  //NMZForm.Init();
 
   WriteLn 'HELLO';
-  Template.Run();
+  NMZ.Run();
 end.
