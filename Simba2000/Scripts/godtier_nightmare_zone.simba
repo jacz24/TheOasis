@@ -1,17 +1,53 @@
 {$I WaspLib/osrs.simba}
 
 type
-  ENMZState = enum( 
+  // NMZ Strategy - user selects in form
+  ENMZStrategy = enum(
+    ABSORPTION_OVERLOAD,    // Use overloads + absorptions
+    ABSORPTION_ROCKCAKE,    // Use absorptions + rock cake/locator to stay at 1 HP
+    PRAYER_FLICKING         // Use protection prayers
+  );
+
+  // Attack style determines which boost potion to use
+  EAttackStyle = enum(
+    STYLE_MELEE,    // No boost potion (melee uses overload)
+    STYLE_RANGED,   // Use super ranging potions
+    STYLE_MAGIC     // Use super magic potions
+  );
+
+  ENMZState = enum(
     NONE,
     LOGIN,
     LEVEL_UP,
     WAIT_STATE,
 
+    // Dream states
+    DRINK_OVERLOAD,
+    DRINK_ABSORPTION,
+    DRINK_RANGING,
+    DRINK_MAGIC,
+    USE_ROCK_CAKE,
+    USE_POWERUP,
+    USE_SPECIAL,
+    FLICK_PRAYER,
+    WALK_TO_MIDDLE,
+
+    // Awake states (lobby)
+    WITHDRAW_OVERLOAD,
+    WITHDRAW_ABSORPTION,
+    WITHDRAW_RANGING,
+    WITHDRAW_MAGIC,
+    DRINK_DREAM_POTION,
+    TALK_TO_DOMINIC,
+    OPEN_COFFER,
+    UNLOCK_COFFER,
+    START_NMZ,
+
     NO_ACTIVITY, MAX_ACTIONS, MAX_TIME, MAX_LEVEL, END_SCRIPT
   );
-  
+
   EPotion = enum(RANGE, MAGE, OVER, ABSORB);
-  EPowerUp = enum(RECURRENT, ZAPPER, SURGE);//, ULTIMATE);
+  EPowerUp = enum(RECURRENT, ZAPPER, SURGE);
 
 
   TPotion = record
@@ -21,31 +57,57 @@ type
   end;
 
   TPowerUp = record
-    PowerUp: TRSObject;  
+    PowerUp: TRSObject;
   end;
 
   TNMZ = record
     State: ENMZState;
     Actions, MaxTime, MaxActions, MaxLevel: UInt64;
-    FormSetting: Boolean;
+    Strategy: ENMZStrategy;
+    AttackStyle: EAttackStyle;
 
     Potions: array [EPotion] of TPotion;
     PowerUps: array [EPowerUp] of TPowerUp;
     RewardChest, DreamPotion, Coffer: TRSObject;
-    
+
     DominicOnion: TRSEntity;
-    SpecWeapon, DamageItem: TRSItem;
+    SpecWeapon: TRSItem;
+
+    // Damage items for absorption strategy
+    RockCake: TRSItemArray;
+    LocatorOrb: TRSItemArray;
+
+    // Potion dose amounts (configurable via form)
+    OverloadDoses: Integer;
+    AbsorptionDoses: Integer;
+    BoostDoses: Integer;  // Ranging or Magic doses based on AttackStyle
+
+    // Thresholds
+    OverloadHPThreshold: Integer;
+    AbsorptionThreshold: Integer;
+    PowerSurgeActive: Boolean;
+    PowerSurgeTimer: TCountDown;
+    AbsorptionTimer: TCountDown;  // Timer to avoid spamming absorptions
+    BoostTimer: TCountDown;       // Timer for boost potion duration
+    Boosted: Boolean;             // Whether we're currently boosted
 
     BarrelFails: Integer;
+
+    // Coffer Flags
+    CofferOpen: Boolean;
 
     DreamMiddleTile, RandomDreamMiddleTile: TPoint;
   end;
 
 
 
+const
+  ROCK_CAKE_ITEMS: TRSItemArray = ['Dwarven rock cake', 'Dwarven rock cake_7510'];
+  LOCATOR_ORB_ITEMS: TRSItemArray = ['Locator orb'];
+
 function TNMZ.GetReportValues(): TStringArray;
 var
-  actionsStr, sleepInfo: String;
+  actionsStr, sleepInfo, strategyStr, styleStr: String;
 begin
   actionsStr := ToStr(Self.Actions);
   if Self.MaxActions <> 0 then
@@ -56,19 +118,32 @@ begin
   else
     sleepInfo := Antiban.TimeUntilSleep(Antiban.Sleeps.First, TIME_SHORT);
 
+  case Self.Strategy of
+    ENMZStrategy.ABSORPTION_OVERLOAD: strategyStr := 'Absorb+Overload';
+    ENMZStrategy.ABSORPTION_ROCKCAKE: strategyStr := 'Absorb+RockCake';
+    ENMZStrategy.PRAYER_FLICKING: strategyStr := 'Prayer Flick';
+  end;
+
+  case Self.AttackStyle of
+    EAttackStyle.STYLE_MELEE: styleStr := 'Melee';
+    EAttackStyle.STYLE_RANGED: styleStr := 'Ranged';
+    EAttackStyle.STYLE_MAGIC: styleStr := 'Magic';
+  end;
+
   Result := [
     GetTimeStamp(TIME_SHORT),
     Logger.TimeRunning.ElapsedFmt(TIME_SHORT),
     Antiban.TimeRunning.ElapsedFmt(TIME_SHORT),
     sleepInfo,
-    actionsStr
+    actionsStr,
+    strategyStr + ' (' + styleStr + ')'
   ];
 end;
 
 procedure TNMZ.SetupObjects();
 begin
   Writeln('Setting Up Objects');
-  Self.Potions[EPotion.RANGE].Barrel := TRSObject.Create(ObjectsJSON.GetByID(26277));//TRSObject.Create(@Map.Walker, [1,1,1],  [[10444, 37982]]);
+  Self.Potions[EPotion.RANGE].Barrel := TRSObject.Create(ObjectsJSON.GetByID(26277));
   Self.Potions[EPotion.MAGE].Barrel := TRSObject.Create(ObjectsJSON.GetByID(26278));
   Self.Potions[EPotion.OVER].Barrel := TRSObject.Create(ObjectsJSON.GetByID(26279));
   Self.Potions[EPotion.ABSORB].Barrel := TRSObject.Create(ObjectsJSON.GetByID(26280));
@@ -78,7 +153,19 @@ begin
 
   Self.DreamPotion := TRSObject.Create(@Map.Walker, [0.8, 0.8, 3], [[10420, 37962]], ['Potion']);
 
-  // SETUP Powerups
+  // Setup power-ups with color finders for detection in dream arena
+  // Recurrent Damage - red/orange glow
+  //Self.PowerUps[EPowerUp.RECURRENT].PowerUp := TRSObject.Create(@Map.Walker, [0.5, 0.5, 1], [Self.DreamMiddleTile], ['Recurrent damage']);
+  Self.PowerUps[EPowerUp.RECURRENT].PowerUp.Finder.Colors += [$3D56CA, 0.798, EColorSpace.HSL, [2.021, 0.541, 0.439]];//[[$4660B4, 3.854, EColorSpace.HSL, [1.459, 0.425, 1.117]]];  // Red
+  Self.PowerUps[EPowerUp.RECURRENT].PowerUp.UpText := ['Recurrent damage'];
+  // Zapper - purple glow
+  //Self.PowerUps[EPowerUp.ZAPPER].PowerUp := TRSObject.Create(@Map.Walker, [0.5, 0.5, 1], [Self.DreamMiddleTile], ['Zapper']);
+  Self.PowerUps[EPowerUp.ZAPPER].PowerUp.Finder.Colors += [[$B334C0, 0.730, EColorSpace.HSL, [1.451, 0.772, 0.779]]];//[[$953CB1, 5.587, EColorSpace.HSL, [0.856, 0.585, 1.560]]];  // Blue
+  Self.PowerUps[EPowerUp.ZAPPER].PowerUp.UpText := ['Zapper'];
+  // Power Surge - yellow glow
+  //Self.PowerUps[EPowerUp.SURGE].PowerUp := TRSObject.Create(@Map.Walker, [0.5, 0.5, 1], [Self.DreamMiddleTile], ['Power surge']);
+  //Self.PowerUps[EPowerUp.SURGE].PowerUp.Finder.Colors += [[$5EC9CE, 1.226, EColorSpace.HSL, [2.294, 0.226, 0.481]]];  // Yellow
+  Self.PowerUps[EPowerUp.SURGE].PowerUp.UpText := ['Power surge'];
 
 end;
 
@@ -98,10 +185,14 @@ begin
   begin
     SetLength(Self.Potions[potion].Potions, 4);
     for dose := 1 to 4 do
-    begin 
+    begin
       Self.Potions[potion].Potions[dose - 1] := potionNames[potion] + ' (' + IntToStr(dose) + ')';
     end;
   end;
+
+  // Setup damage items
+  Self.RockCake := ROCK_CAKE_ITEMS;
+  Self.LocatorOrb := LOCATOR_ORB_ITEMS;
 end;
 
 
@@ -112,61 +203,351 @@ begin
     'GodTier Nightmare Zone',
     [
       'Script runtime:', 'Botting runtime:', 'Antiban runtime:', 'Next sleep:',
-      'Actions:'
+      'Actions:', 'Strategy:'
     ],
     @Self.GetReportValues
   );
 
-  Map.Setup([Chunk(Box(39,49,41,47), 0), Chunk(Box(34,74,36,72), 0)]);
+  Map.Setup([Chunk(Box(38,50,42,47), 0), Chunk(Box(34,74,36,72), 0)]);
+
   Antiban.Zoom.Min := 0;
-  Antiban.Zoom.Max := 50;
+  Antiban.Zoom.Max := 20;
   Antiban.Skills := [ERSSkill.TOTAL,ERSSkill.ATTACK, ERSSkill.STRENGTH,
    ERSSkill.DEFENCE, ERSSkill.HITPOINTS,
   ERSSkill.MAGIC, ERSSkill.RANGED, ERSSkill.SLAYER];
 
+  // Set default thresholds
+  Self.OverloadHPThreshold := 51;
+  Self.AbsorptionThreshold := 100;
+  Self.PowerSurgeActive := False;
+  Self.DreamMiddleTile := [9096, 31638];
+
   Self.SetupObjects();
   Self.SetupPotions();
 
-  Self.DreamMiddleTile := [9096, 31638];
-  //ShowOnTarget(Self.Potions[EPotion.RANGE].Barrel);
   //ShowOnTarget(Self.Potions[EPotion.ABSORB].Barrel);
-  //WriteLn(Self.Potions[EPotion.ABSORB].Barrel.UpText);
-  //ShowOnTarget(Self.DreamPotion);
-  Writeln(Self.Potions[EPotion.OVER].Potions);
-  writeln(Self.InDream());
-  WriteLn(Map.Position());
-  TerminateScript('test');
+  //Self.StartNMZ();
+  //Writeln(Self.InDream());
+  writeln(Self.GetAbsorptionPoints());
+  //TerminateScript('test');
 end;
 
-// In Dream 
-function TNMZ.HasPotion(potion: TPotion): Boolean;
+var
+  NMZ: TNMZ;
+
+function TRSLobbyScreen.EnterGame(): Boolean; override;
 begin
-  
+  Result := inherited;
+  NMZ.CofferOpen := False;
 end;
 
-function TNMZ.DrinkPotion(potion: TPotion): Boolean;
+// ============================================================================
+// Potion Functions
+// ============================================================================
+
+function TNMZ.HasPotion(potion: EPotion): Boolean;
 begin
-  
+  Result := Inventory.Items.ContainsAny(Self.Potions[potion].Potions);
 end;
 
-function TNMZ.FoundPowerUp(): Boolean;
+function TNMZ.GetAbsorptionPoints(): Integer;
+var
+  b: TBox;
 begin
-  
+  case RSClient.Mode of
+    ERSMode.FIXED: b := [10, 57, 63, 76];
+    ERSMode.RESIZABLE, ERSMode.MODERN_COMPACT,
+    ERSMode.MODERN_WIDE: b := [10, 53, 63, 72];
+  end;
+  Result := OCR.RecognizeNumber(b, RSFonts.QUILL, [RSFonts.WHITE, RSFonts.BLACK], 0);
 end;
 
-function TNMZ.UsePowerUP(): Boolean;
+function TNMZ.NeedAbsorption(): Boolean;
+var
+  points: Integer;
 begin
-  
+  if not Self.HasPotion(EPotion.ABSORB) then
+    Exit(False);
+
+  points := Self.GetAbsorptionPoints();
+
+  // Drink absorption when points drop below threshold (default 100)
+  Result := points < Self.AbsorptionThreshold;
 end;
+
+function TNMZ.DrinkAbsorptions(): Boolean;
+var
+  slot, drinks, i: Integer;
+  item: TRSItem;
+begin
+  if not Inventory.Open() then
+    Exit(False);
+
+  // Drink a random number of absorption potions (2-5)
+  drinks := Random(2, 5);
+  Logger.Info('Drinking ' + ToStr(drinks) + ' absorption potions');
+
+  for i := 1 to drinks do
+  begin
+    if not Self.HasPotion(EPotion.ABSORB) then
+      Break;
+
+    for item in Self.Potions[EPotion.ABSORB].Potions do
+    begin
+      if Inventory.Items.Find(item, slot) then
+      begin
+        Inventory.Items.Interact(slot, 'Drink');
+        if SleepUntil(not Inventory.Items.Contains(item) or
+                      Inventory.Items.ContainsAny(Self.Potions[EPotion.ABSORB].Potions), 100, 2000) then
+        begin
+          Self.Actions += 1;
+          Result := True;
+        end;
+        Break;  // Move to next drink
+      end;
+    end;
+
+    // Small delay between drinks for realism
+    Sleep(100, 300);
+  end;
+
+  if Result then
+    Activity.Restart();
+end;
+
+function TNMZ.DrinkPotion(potion: EPotion): Boolean;
+var
+  slot: Integer;
+  item: TRSItem;
+begin
+  if not Inventory.Open() then
+    Exit;
+
+  for item in Self.Potions[potion].Potions do
+  begin
+    if Inventory.Items.Find(item, slot) then
+    begin
+      Inventory.Items.Interact(slot, 'Drink');
+      Result := SleepUntil(not Inventory.Items.Contains(item) or
+                           Inventory.Items.ContainsAny(Self.Potions[potion].Potions), 100, 2000);
+      if Result then
+      begin
+        Self.Actions += 1;
+        Activity.Restart();
+
+        // Start boost timer for ranging/magic potions (7 minutes)
+        if potion in [EPotion.RANGE, EPotion.MAGE] then
+        begin
+          Self.BoostTimer.Start(420000);  // 7 minutes
+          Self.Boosted := True;
+        end;
+
+        // Overload has 5 minute duration
+        if potion = EPotion.OVER then
+        begin
+          Self.BoostTimer.Start(300000);  // 5 minutes
+          Self.Boosted := True;
+        end;
+      end;
+      Exit;
+    end;
+  end;
+end;
+
+function TNMZ.NeedBoost(): Boolean;
+begin
+  // Check if we have boost potions based on attack style
+  case Self.AttackStyle of
+    EAttackStyle.STYLE_RANGED:
+      if not Self.HasPotion(EPotion.RANGE) then
+        Exit(False);
+
+    EAttackStyle.STYLE_MAGIC:
+      if not Self.HasPotion(EPotion.MAGE) then
+        Exit(False);
+
+    EAttackStyle.STYLE_MELEE:
+      Exit(False);  // Melee uses overload, no separate boost
+  end;
+
+  // Check if boost timer has expired
+  if Self.BoostTimer.IsFinished then
+    Self.Boosted := False;
+
+  Result := not Self.Boosted;
+end;
+
+// ============================================================================
+// Rock Cake / Locator Orb Functions
+// ============================================================================
+
+function TNMZ.HasDamageItem(): Boolean;
+begin
+  Result := Inventory.Items.ContainsAny(Self.RockCake) or
+            Inventory.Items.ContainsAny(Self.LocatorOrb);
+end;
+
+function TNMZ.UseDamageItem(): Boolean;
+var
+  slot: Integer;
+  item: TRSItem;
+  currentHP: Integer;
+begin
+  if not Inventory.Open() then
+    Exit;
+
+  currentHP := Minimap.GetHPLevel();
+
+  // Try locator orb first (faster)
+  for item in Self.LocatorOrb do
+  begin
+    if Inventory.Items.Find(item, slot) then
+    begin
+      Inventory.Items.Interact(slot, 'Feel');
+      Result := SleepUntil(Minimap.GetHPLevel() < currentHP, 100, 1500);
+      if Result then Activity.Restart();
+      Exit;
+    end;
+  end;
+
+  // Fall back to rock cake
+  for item in Self.RockCake do
+  begin
+    if Inventory.Items.Find(item, slot) then
+    begin
+      Inventory.Items.Interact(slot, 'Guzzle');
+      Result := SleepUntil(Minimap.GetHPLevel() < currentHP, 100, 1500);
+      if Result then Activity.Restart();
+      Exit;
+    end;
+  end;
+end;
+
+// ============================================================================
+// Power-Up Functions
+// ============================================================================
+
+function TNMZ.FoundPowerUp(out powerUp: EPowerUp): Boolean;
+var
+  p: EPowerUp;
+  tpa: TPointArray;
+  atpa: T2DPointArray;
+  b: TBox;
+begin
+  for p := Low(EPowerUp) to High(EPowerUp) do
+  begin
+    //writeln('find powerup');
+    if Self.PowerUps[p].PowerUp.Finder.Find(atpa) then
+    begin
+      
+      // Cluster the found points to filter out noise
+      //Writeln(atpa);
+      atpa := atpa.Merge.Cluster(9);
+      //ShowOnTarget(atpa);
+      
+      for tpa in atpa do
+      begin
+        b := tpa.Bounds();
+        
+        if b.Area <= 24 then
+          Continue;
+
+        // Filter out small pixel groups - power-ups should be larger
+        writeln(b.Area);
+
+        Writeln('Found powerup');
+        ShowOnTarget(b);
+        powerUp := p;
+        Exit(True);
+      end;
+    end;
+  end;
+end;
+
+function TNMZ.UsePowerUp(): Boolean;
+var
+  p: EPowerUp;
+begin
+  if not Self.FoundPowerUp(p) then
+    Exit;
+
+  //Result := Self.PowerUps[p].PowerUp.WalkClick();
+
+  if Result then
+  begin
+    Minimap.WaitMoving();
+    Activity.Restart();
+
+    // Track power surge for special attacks
+    if p = EPowerUp.SURGE then
+    begin
+      Self.PowerSurgeActive := True;
+      Self.PowerSurgeTimer.Start(45000); // Power surge lasts 45 seconds
+    end;
+  end;
+end;
+
+// ============================================================================
+// Special Attack Function
+// ============================================================================
+
+function TNMZ.UseSpecialAttack(): Boolean;
+begin
+  // Only use special during power surge
+  if not Self.PowerSurgeActive then
+    Exit;
+
+  // Check if power surge has expired
+  if Self.PowerSurgeTimer.IsFinished then
+  begin
+    Self.PowerSurgeActive := False;
+    Exit;
+  end;
+
+  // Check if we have enough special energy and enable it
+  if Minimap.HasSpecial() and (Minimap.GetSpecLevel() >= 25) then
+  begin
+    Result := Minimap.EnableSpecial(25);
+    if Result then Activity.Restart();
+  end;
+end;
+
+// ============================================================================
+// Prayer Functions
+// ============================================================================
 
 function TNMZ.FlickPrayer(): Boolean;
+var
+  prayers: TRSPrayerSet;
 begin
-  
+  if not Prayer.Open() then
+    Exit;
+
+  // Toggle protection prayers - can be expanded based on what bosses are active
+  prayers := [ERSPrayer.PROTECT_FROM_MELEE];
+
+  if Prayer.IsActive(prayers) then
+    Result := Prayer.Deactivate(prayers)
+  else
+    Result := Prayer.Activate(prayers);
+
+  if Result then Activity.Restart();
 end;
 
+// ============================================================================
+// Movement Functions
+// ============================================================================
+
 function TNMZ.WalkToMiddle(): Boolean;
+var
+  randomOffset: TPoint;
 begin
-  
+  // Add some randomness to avoid standing in exact same spot
+  randomOffset := [Random(-20, 20), Random(-20, 20)];
+  Self.RandomDreamMiddleTile := Self.DreamMiddleTile + randomOffset;
+
+  Result := Map.Walker.WebWalk(Self.RandomDreamMiddleTile, 15, 0.2);
+  if Result then Activity.Restart();
 end;
 
 function TNMZ.InDream(): Boolean;
@@ -175,22 +556,138 @@ begin
     Exit(True);
 end;
 
-// Outside Dream
-function TNMZ.WithdrawPotion(potion: EPotion): Boolean;
+// ============================================================================
+// Lobby/Awake Functions
+// ============================================================================
+
+function TNMZ.WithdrawPotion(potion: EPotion; amount: Integer): Boolean;
+var
+  invCount: Integer;
 begin
+  if amount <= 0 then
+    Exit(True);  // No doses needed, skip
+
+  invCount := Length(Inventory.Items.DiscoverAll());
+
+  if invCount >= 28 then
+  begin
+    Logger.Error('Inventory is full, cannot withdraw more potions.');
+    Exit(False);
+  end;
+
   if not Self.Potions[potion].Barrel.WalkInteract(['Take']) then
     Exit;
 
   Minimap.WaitMoving();
-  Result := Chat.WaitQuery('How many doses', False, 5000, -1);
+
+  if not Chat.WaitQuery('How many doses', False, 5000, -1) then
+  begin
+    Self.BarrelFails += 1;
+    Exit(False);
+  end;
+
+  // Answer the query with the configured amount
+  Chat.AnswerQuery('How many', ToStr(amount), 2000, 100);
+  Result := SleepUntil(invCount <> Length(Inventory.Items.DiscoverAll()), 100, 3000);
 
   if Result then
   begin
-    //Biometrics.Sleep(1000, 2500);
     Self.BarrelFails := 0;
+    Activity.Restart();
   end
   else
     Self.BarrelFails += 1;
+end;
+
+function TNMZ.DrinkDreamPotion(): Boolean;
+begin
+  if not Self.DreamPotion.WalkInteract(['Drink']) then
+    Exit;
+
+  Minimap.WaitMoving();
+
+  // Wait for dream to load (position changes to dream area)
+  Result := SleepUntil(Self.InDream(), 500, 15000);
+
+  if Result then
+  begin
+    Activity.Restart();
+    Logger.Info('Entered the dream!');
+  end;
+end;
+
+function TNMZ.OpenCoffer(): Boolean;
+var
+  cofferLocked: Boolean;
+begin
+  // First check if coffer is locked by hovering and checking uptext
+  if not Self.Coffer.WalkHover() then
+    Exit(False);
+
+  cofferLocked := MainScreen.IsUpText('Unlock');
+
+  if not cofferLocked then
+  begin
+    // Coffer is already unlocked/accessible
+    Self.CofferOpen := True;
+    Logger.Info('Coffer is already unlocked');
+    Exit(True);
+  end;
+
+  // Coffer is locked, need to click to unlock
+  Logger.Info('Coffer is locked, unlocking...');
+
+  if not Self.Coffer.WalkClick() then
+    Exit(False);
+
+  Minimap.WaitMoving();
+  Result := True;
+end;
+function TNMZ.UnlockCoffer(): Boolean;
+begin
+  // Wait for bank pin interface
+  if BankPin.WaitOpen(10000) then
+  begin
+    Logger.Info('Entering bank pin...');
+    if BankPin.Enter(Profiles.GetPin()) then
+    begin
+      Self.CofferOpen := True;
+      Activity.Restart();
+      Result := True;
+    end;
+  end
+  else
+  begin
+    // No bank pin needed, coffer opened directly
+    Self.CofferOpen := True;
+    Activity.Restart();
+    Result := True;
+  end;
+end;
+
+function TNMZ.StartNMZ(): Boolean;
+var
+  tpa: TPointArray;
+begin
+  // Find the green "Continue" button on the NMZ interface
+  tpa := Target.FindColor($00FF00, 0, MSInterface.Bounds);
+  if tpa = [] then
+    Exit(False);
+
+  // Move to the button and click
+  Mouse.Move(tpa.Bounds().Expand(10));
+
+  if MainScreen.IsUpText('Continue', True, 0.85, 1500) then
+  begin
+    Mouse.Click(EMouseButton.LEFT);
+    Result := SleepUntil(Self.InDream(), 200, 10000);
+
+    if Result then
+    begin
+      Activity.Restart();
+      Logger.Info('Entered the Nightmare Zone dream!');
+    end;
+  end;
 end;
 
 function TNMZ.GetCommonState(): ENMZState;
@@ -217,28 +714,150 @@ begin
 end;
 
 function TNMZ.GetDreamState(): ENMZState;
+var
+  currentHP: Integer;
+  powerUp: EPowerUp;
 begin
-  
+  Result := Self.GetCommonState();
+  if Result <> ENMZState.NONE then
+    Exit;
+
+  currentHP := Minimap.GetHPLevel();
+  // Check for power-ups first (highest priority)
+  if Self.FoundPowerUp(powerUp) then
+    Exit(ENMZState.USE_POWERUP);
+
+  // Use special attack during power surge
+  if Self.PowerSurgeActive and not Self.PowerSurgeTimer.IsFinished then
+  begin
+    if Minimap.HasSpecial() and (Minimap.GetSpecLevel() >= 25) and not Minimap.SpecialEnabled() then
+      Exit(ENMZState.USE_SPECIAL);
+  end
+  else
+    Self.PowerSurgeActive := False;
+
+  // Strategy-specific states
+  case Self.Strategy of
+    ENMZStrategy.ABSORPTION_OVERLOAD:
+    begin
+      // Drink overload when HP is above threshold
+      if (currentHP >= Self.OverloadHPThreshold) and Self.HasPotion(EPotion.OVER) then
+        Exit(ENMZState.DRINK_OVERLOAD);
+
+      // Drink absorption when points drop below threshold
+      if Self.NeedAbsorption() then
+        Exit(ENMZState.DRINK_ABSORPTION);
+    end;
+
+    ENMZStrategy.ABSORPTION_ROCKCAKE:
+    begin
+      // Keep HP at 1 for maximum absorption efficiency
+      if (currentHP > 1) and Self.HasDamageItem() then
+        Exit(ENMZState.USE_ROCK_CAKE);
+
+      // Drink absorption when points drop below threshold
+      if Self.NeedAbsorption() then
+        Exit(ENMZState.DRINK_ABSORPTION);
+    end;
+
+    ENMZStrategy.PRAYER_FLICKING:
+    begin
+      // Flick prayers
+      Exit(ENMZState.FLICK_PRAYER);
+    end;
+  end;
+
+  // Boost potions based on attack style - only drink when boost has expired
+  if Self.NeedBoost() then
+  begin
+    case Self.AttackStyle of
+      EAttackStyle.STYLE_RANGED:
+        Exit(ENMZState.DRINK_RANGING);
+
+      EAttackStyle.STYLE_MAGIC:
+        Exit(ENMZState.DRINK_MAGIC);
+    end;
+  end;
+
+  // Walk to middle if too far
+  if not Map.Position().InRange(Self.DreamMiddleTile, 100) then
+    Exit(ENMZState.WALK_TO_MIDDLE);
+
+  Result := ENMZState.WAIT_STATE;
 end;
 
 function TNMZ.GetAwakeState(): ENMZState;
 begin
-  
+  Result := Self.GetCommonState();
+  if Result <> ENMZState.NONE then
+    Exit;
 
-
+  // Check if we need to open the coffer
+  if Self.CofferOpen = False then
+    Exit(ENMZState.OPEN_COFFER);
   
-  Result := ENMZState.WAIT_STATE;
+  if MSInterface.IsOpen() then
+  begin
+    if BankPin.IsOpen() then
+      Exit(ENMZState.UNLOCK_COFFER);
+    
+    Exit(ENMZState.START_NMZ);
+  end;
+  
+  // Check if we need to withdraw potions based on configured doses
+  case Self.Strategy of
+    ENMZStrategy.ABSORPTION_OVERLOAD:
+    begin
+      // Need overloads if configured
+      if (Self.OverloadDoses > 0) and not Self.HasPotion(EPotion.OVER) then
+        Exit(ENMZState.WITHDRAW_OVERLOAD);
+
+      // Need absorptions if configured
+      if (Self.AbsorptionDoses > 0) and not Self.HasPotion(EPotion.ABSORB) then
+        Exit(ENMZState.WITHDRAW_ABSORPTION);
+    end;
+
+    ENMZStrategy.ABSORPTION_ROCKCAKE:
+    begin
+      // Need absorptions if configured
+      if (Self.AbsorptionDoses > 0) and not Self.HasPotion(EPotion.ABSORB) then
+        Exit(ENMZState.WITHDRAW_ABSORPTION);
+    end;
+
+    ENMZStrategy.PRAYER_FLICKING:
+    begin
+      // Prayer strategy may not need potions
+    end;
+  end;
+
+  // Boost potions based on attack style
+  if Self.BoostDoses > 0 then
+  begin
+    case Self.AttackStyle of
+      EAttackStyle.STYLE_RANGED:
+        if not Self.HasPotion(EPotion.RANGE) then
+          Exit(ENMZState.WITHDRAW_RANGING);
+
+      EAttackStyle.STYLE_MAGIC:
+        if not Self.HasPotion(EPotion.MAGE) then
+          Exit(ENMZState.WITHDRAW_MAGIC);
+
+      // STYLE_MELEE doesn't need extra boost (uses overload)
+    end;
+  end;
+  // If we have all potions, drink dream potion to enter
+  Exit(ENMZState.DRINK_DREAM_POTION);
 end;
 
 function TNMZ.GetState(): ENMZState;
 begin
   if Self.InDream() then
     Exit(Self.GetDreamState());
-  
+
   Result := Self.GetCommonState();
     if Result <> ENMZState.NONE then
       Exit;
-  
+
   Result := Self.GetAwakeState();
 end;
 
@@ -257,7 +876,28 @@ begin
     case state of
       ENMZState.LOGIN: Login.DoLogin();
       ENMZState.LEVEL_UP: Chat.HandleLevelUp();
-      ENMZState.WAIT_STATE: Sleep(2000, 4000);
+
+      // Dream states
+      ENMZState.DRINK_OVERLOAD: Self.DrinkPotion(EPotion.OVER);
+      ENMZState.DRINK_ABSORPTION: Self.DrinkAbsorptions();
+      ENMZState.DRINK_RANGING: Self.DrinkPotion(EPotion.RANGE);
+      ENMZState.DRINK_MAGIC: Self.DrinkPotion(EPotion.MAGE);
+      ENMZState.USE_ROCK_CAKE: Self.UseDamageItem();
+      ENMZState.USE_POWERUP: Self.UsePowerUp();
+      ENMZState.USE_SPECIAL: Self.UseSpecialAttack();
+      ENMZState.FLICK_PRAYER: Self.FlickPrayer();
+      ENMZState.WALK_TO_MIDDLE: Self.WalkToMiddle();
+
+      // Awake/Lobby states
+      ENMZState.OPEN_COFFER: Self.OpenCoffer();
+      ENMZState.UNLOCK_COFFER: Self.UnlockCoffer();
+      ENMZState.WITHDRAW_OVERLOAD: Self.WithdrawPotion(EPotion.OVER, Self.OverloadDoses);
+      ENMZState.WITHDRAW_ABSORPTION: Self.WithdrawPotion(EPotion.ABSORB, Self.AbsorptionDoses);
+      ENMZState.WITHDRAW_RANGING: Self.WithdrawPotion(EPotion.RANGE, Self.BoostDoses);
+      ENMZState.WITHDRAW_MAGIC: Self.WithdrawPotion(EPotion.MAGE, Self.BoostDoses);
+      ENMZState.DRINK_DREAM_POTION: Self.DrinkDreamPotion();
+      ENMZState.START_NMZ: Self.StartNMZ();
+      ENMZState.WAIT_STATE: Sleep(500, 1000);
 
       ENMZState.NO_ACTIVITY, ENMZState.MAX_ACTIONS,
       ENMZState.MAX_TIME, ENMZState.MAX_LEVEL,
@@ -271,20 +911,52 @@ begin
 end;
 
 var
-  NMZ: TNMZ;
   NMZForm: TScriptForm;
   NMZConfig: TConfigJSON;
-  FormCheckbox: TLazCheckBox;
+  StrategyComboBox: TLazComboBox;
+  AttackStyleComboBox: TLazComboBox;
+  OverloadDosesSpinEdit: TLazSpinEdit;
+  AbsorptionDosesSpinEdit: TLazSpinEdit;
+  BoostDosesSpinEdit: TLazSpinEdit;
 
 procedure TScriptForm.OnStart(sender: TLazObject); override;
 begin
   inherited;
 
-  NMZ.FormSetting := FormCheckbox.IsChecked();
-  if NMZConfig.Data.Has('form_setting') then
-    NMZConfig.Data.Item['form_setting'].AsBool := NMZ.FormSetting
+  // Get strategy from combobox
+  NMZ.Strategy := ENMZStrategy(StrategyComboBox.ItemIndex);
+  NMZ.AttackStyle := EAttackStyle(AttackStyleComboBox.ItemIndex);
+
+  // Get potion doses
+  NMZ.OverloadDoses := OverloadDosesSpinEdit.Value;
+  NMZ.AbsorptionDoses := AbsorptionDosesSpinEdit.Value;
+  NMZ.BoostDoses := BoostDosesSpinEdit.Value;
+
+  // Save to config
+  if NMZConfig.Data.Has('strategy') then
+    NMZConfig.Data.Item['strategy'].AsInt := Ord(NMZ.Strategy)
   else
-    NMZConfig.Data.AddBool('form_setting', NMZ.FormSetting);
+    NMZConfig.Data.AddInt('strategy', Ord(NMZ.Strategy));
+
+  if NMZConfig.Data.Has('attackStyle') then
+    NMZConfig.Data.Item['attackStyle'].AsInt := Ord(NMZ.AttackStyle)
+  else
+    NMZConfig.Data.AddInt('attackStyle', Ord(NMZ.AttackStyle));
+
+  if NMZConfig.Data.Has('overloadDoses') then
+    NMZConfig.Data.Item['overloadDoses'].AsInt := NMZ.OverloadDoses
+  else
+    NMZConfig.Data.AddInt('overloadDoses', NMZ.OverloadDoses);
+
+  if NMZConfig.Data.Has('absorptionDoses') then
+    NMZConfig.Data.Item['absorptionDoses'].AsInt := NMZ.AbsorptionDoses
+  else
+    NMZConfig.Data.AddInt('absorptionDoses', NMZ.AbsorptionDoses);
+
+  if NMZConfig.Data.Has('boostDoses') then
+    NMZConfig.Data.Item['boostDoses'].AsInt := NMZ.BoostDoses
+  else
+    NMZConfig.Data.AddInt('boostDoses', NMZ.BoostDoses);
 
   NMZ.MaxActions := Self.Goals.Actions.Value;
   NMZ.MaxTime    := Self.Goals.Time.Value * ONE_MINUTE;
@@ -297,29 +969,76 @@ procedure TScriptForm.Init();
 var
   tab: TLazTabSheet;
   panel: TLazPanel;
+  savedStrategy, savedAttackStyle: Integer;
+  savedOverloadDoses, savedAbsorptionDoses, savedBoostDoses: Integer;
 begin
-  NMZConfig.Setup('scripts' + PATH_SEP + 'my-script-name');
+  NMZConfig.Setup('scripts' + PATH_SEP + 'godtier-nmz');
 
-  Self.Setup('My Script Name', NMZConfig.Data);
+  Self.Setup('GodTier Nightmare Zone', NMZConfig.Data);
 
-  tab := Self.CreateTab('My Script Name');
+  tab := Self.CreateTab('NMZ Settings');
   panel := Self.CreateGoals(tab, True, True, True, EOrientation.HORIZONTAL);
   panel.Align := ELazAlign.Bottom;
 
-  FormCheckbox := TLazCheckBox.CreateEx(tab, 'My Setting', 'My setting does cool stuff', 20, 220);
-  if NMZConfig.Data.Has('form_setting') then
-    FormCheckbox.SetChecked(NMZConfig.Data.Item['form_setting'].AsBool)
+  // Strategy selection
+  StrategyComboBox := TLazComboBox.CreateEx(tab, 'NMZ Strategy:', 'Type of strategy to use', 20, 20, 200);
+  StrategyComboBox.Items.AddStrings(['Absorption + Overload', 'Absorption + Rock Cake', 'Prayer Flicking']);
+
+  // Attack style selection
+  AttackStyleComboBox := TLazComboBox.CreateEx(tab, 'Attack Style:', 'Determines boost potion', 20, 70, 200);
+  AttackStyleComboBox.Items.AddStrings(['Melee (Overload only)', 'Ranged (Super Ranging)', 'Magic (Super Magic)']);
+
+  // Potion dose amounts
+  OverloadDosesSpinEdit := TLazSpinEdit.CreateEx(tab, 'Overload Doses:', 'Number of overload doses to withdraw', 20, 120, 100);
+  OverloadDosesSpinEdit.MinValue := 0;
+  OverloadDosesSpinEdit.MaxValue := 28;
+
+  AbsorptionDosesSpinEdit := TLazSpinEdit.CreateEx(tab, 'Absorption Doses:', 'Number of absorption doses to withdraw', 20, 170, 100);
+  AbsorptionDosesSpinEdit.MinValue := 0;
+  AbsorptionDosesSpinEdit.MaxValue := 100;
+
+  BoostDosesSpinEdit := TLazSpinEdit.CreateEx(tab, 'Boost Doses:', 'Number of ranging/magic doses (based on style)', 20, 220, 100);
+  BoostDosesSpinEdit.MinValue := 0;
+  BoostDosesSpinEdit.MaxValue := 28;
+
+  // Load saved values
+  if NMZConfig.Data.Has('strategy') then
+    savedStrategy := NMZConfig.Data.Item['strategy'].AsInt
   else
-    FormCheckbox.SetChecked(True);
+    savedStrategy := 0;
+
+  if NMZConfig.Data.Has('attackStyle') then
+    savedAttackStyle := NMZConfig.Data.Item['attackStyle'].AsInt
+  else
+    savedAttackStyle := 0;
+
+  if NMZConfig.Data.Has('overloadDoses') then
+    savedOverloadDoses := NMZConfig.Data.Item['overloadDoses'].AsInt
+  else
+    savedOverloadDoses := 8;  // Default: 8 doses (2 potions)
+
+  if NMZConfig.Data.Has('absorptionDoses') then
+    savedAbsorptionDoses := NMZConfig.Data.Item['absorptionDoses'].AsInt
+  else
+    savedAbsorptionDoses := 80;  // Default: 80 doses (20 potions)
+
+  if NMZConfig.Data.Has('boostDoses') then
+    savedBoostDoses := NMZConfig.Data.Item['boostDoses'].AsInt
+  else
+    savedBoostDoses := 0;  // Default: no boost potion
+
+  StrategyComboBox.ItemIndex := savedStrategy;
+  AttackStyleComboBox.ItemIndex := savedAttackStyle;
+  OverloadDosesSpinEdit.Value := savedOverloadDoses;
+  AbsorptionDosesSpinEdit.Value := savedAbsorptionDoses;
+  BoostDosesSpinEdit.Value := savedBoostDoses;
 
   Self.CreateAntibanTab();
   Self.Run();
 end;
 
 begin
-  //TerminateScript('test');
-  //NMZForm.Init();
-
-  WriteLn 'HELLO';
+  NMZForm.Init();
   NMZ.Run();
 end.
+
