@@ -54,7 +54,7 @@ end;
 type
   EChompyState = (LOGIN, FIX_CHAT, WAIT_STATE, FILL_TOAD,
                   FILL_BELLOWS, PLACE_TOAD, CLICK_CHOMPY,
-                  HANDLE_OUT_OF_CYCLE, RETURN_TO_SWAMP, END_SCRIPT);
+                  HANDLE_OUT_OF_CYCLE, RETURN_TO_SWAMP, DROP_RAW_CHOMPY, END_SCRIPT);
 
   TChompyHunter = record
     Chompy, Toad: TRSEntity;
@@ -127,23 +127,29 @@ begin
   Self.Chompy.Finder.Colors += [$809372, 1.196, EColorSpace.HSV, [2.177, 0.546, 0.278]]; // gray/blue/tail feathers
   Self.Chompy.Finder.Colors += [$65B1DF, 1.978, EColorSpace.HSV, [2.024, 0.382, 0.596]]; // beak ish
   *)
-  
+
   Self.Chompy.Finder.ColorClusters += [
   [$95BEBF, 0.805, EColorSpace.HSV, [2.428, 0.379, 0.194]],
   [$809372, 1.196, EColorSpace.HSV, [2.177, 0.546, 0.278]],
   64
   ];
-  //ShowOnTarget(Self.Chompy);  W
-  //Writeln(Map.Position());
-  //TerminateScript();
+
   // will find toads we placed on ground
   // And idea I have is to somehow filter moving minimap dots and exclude those mainscreen coords?
   // Maybe not worth
-  Self.Toad := TRSEntity.Create(@Map.Walker, [1.0,1.0,1.0], 40, [[9568,38250]], ['Swamp toad'], [ERSMinimapDot.NPC]);
+  Self.Toad := TRSEntity.Create(@Map.Walker, [3,3,1.5], 40, [[9568,38250]], ['Swamp toad'], [ERSMinimapDot.NPC]);
+
   Self.Toad.Finder.Colors += [$47A88C, 0.494, EColorSpace.HSV, [1.196, 1.196, 0.610]];
   Self.Toad.Finder.Colors += [$3E927B, 0.586, EColorSpace.HSV, [1.371, 1.371, 0.259]];
   Self.Toad.Finder.Colors += [$307260, 0.598, EColorSpace.HSV, [1.218, 1.218, 0.565]];
   Self.Toad.Finder.Colors += [$4AAE92, 0.538, EColorSpace.HSV, [1.138, 1.138, 0.726]];
+
+  Self.Toad.Finder.Transformer.Distance := 9;
+  Self.Toad.Finder.Transformer.LongSide.Min := 10;
+  Self.Toad.Finder.Transformer.LongSide.Max := 35;
+  Self.Toad.Finder.Transformer.ShortSide.Min := 10;
+  Self.Toad.Finder.Transformer.ShortSide.Max := 30;
+  
 
   Self.Bubbles := TRSObject.Create(@Map.Walker, [0.8, 0.8, 4.09], [
     // pls no more minimap offsetting o.o, these should be all the 'safe' bubbles to click coord wise.
@@ -229,7 +235,7 @@ begin
     Sleep(400, 800);
 
     if Self.ChompyExists() then Exit(False);
-
+    ShowOnTarget(Self.Toad);
     toadCount := Inventory.Items.Count('Bloated toad');
     if Self.Toad.Click(True, 6) then
     begin
@@ -342,7 +348,7 @@ begin
 
     if msg.Contains('not your chompy') then
     begin
-      WriteLn("Someone else's chompy - hopping...");
+      WriteLn('Someone else''s chompy - hopping...');
       WorldSwitcher.Next();
       Exit;
     end;
@@ -471,6 +477,12 @@ begin
   if (Self.TotalActions >= Self.MaxActions) or (Self.TimeRunning.Elapsed > Self.MaxTime) then
     Exit(EChompyState.END_SCRIPT);
 
+  if not Map.Position().InRange(Self.SwampMiddleTile, 70) then
+    Exit(EChompyState.RETURN_TO_SWAMP);
+
+  if Inventory.Items.Contains('Raw chompy') then
+    Exit(EChompyState.DROP_RAW_CHOMPY);
+
   if Self.FillingBellows then
   begin
     Self.FillingBellows := Inventory.Items.Contains('Ogre bellows');
@@ -483,9 +495,8 @@ begin
   if Self.FindChompy() then Exit(EChompyState.CLICK_CHOMPY);
   if Inventory.Items.Contains('Bloated toad') then Exit(EChompyState.PLACE_TOAD);
   if Inventory.Items.ContainsAny(Self.OgreBellows) then Exit(EChompyState.FILL_TOAD);
-  
-  if not Map.Position().InRange(Self.SwampMiddleTile, 70) then
-    Exit(EChompyState.RETURN_TO_SWAMP);
+
+
 
   Exit(EChompyState.FILL_BELLOWS);
 end;
@@ -512,6 +523,7 @@ begin
       EChompyState.PLACE_TOAD: Self.PlaceToad();
       EChompyState.CLICK_CHOMPY: Self.ClickChompy();
       EChompyState.RETURN_TO_SWAMP: Self.ReturnToSwamp();
+      EChompyState.DROP_RAW_CHOMPY: Inventory.Drop(['Raw chompy']);
       EChompyState.HANDLE_OUT_OF_CYCLE:
         begin
           // rotate cam to see if we can find the bird on mainscreen
