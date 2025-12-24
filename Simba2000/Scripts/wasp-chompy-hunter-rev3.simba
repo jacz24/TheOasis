@@ -453,7 +453,7 @@ end;
 
 function TChompyHunter.ReturnToSwamp(): Boolean;
 begin
-  Result := Map.Walker.WebWalk(Self.Midd, 15, 0.2);
+  Result := Map.Walker.WebWalk(Self.SwampMiddleTile, 15, 0.2);
   if Result then Activity.Restart();
 end;
 
@@ -471,9 +471,6 @@ begin
   if (Self.TotalActions >= Self.MaxActions) or (Self.TimeRunning.Elapsed > Self.MaxTime) then
     Exit(EChompyState.END_SCRIPT);
 
-  if not Map.Position().InRange(Self.SwampMiddleTile, 70) then
-    Exit(EChompyState.RETURN_TO_SWAMP);
-
   if Self.FillingBellows then
   begin
     Self.FillingBellows := Inventory.Items.Contains('Ogre bellows');
@@ -487,7 +484,8 @@ begin
   if Inventory.Items.Contains('Bloated toad') then Exit(EChompyState.PLACE_TOAD);
   if Inventory.Items.ContainsAny(Self.OgreBellows) then Exit(EChompyState.FILL_TOAD);
   
-  
+  if not Map.Position().InRange(Self.SwampMiddleTile, 70) then
+    Exit(EChompyState.RETURN_TO_SWAMP);
 
   Exit(EChompyState.FILL_BELLOWS);
 end;
