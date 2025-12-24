@@ -690,6 +690,15 @@ begin
   end;
 end;
 
+function TNMZ.TalkToDominic(): Boolean;
+begin
+  if Self.DominicOnion.WalkInteract(['Dream']) then
+  begin
+    Minimap.WaitMoving();
+    Result := SleepUntil(Chat.GetTitle().Contains('dream would'), 400, 4000);
+  end;
+end;
+
 function TNMZ.GetCommonState(): ENMZState;
 begin
   Result := ENMZState.NONE;

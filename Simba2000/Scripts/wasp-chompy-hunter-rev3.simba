@@ -1,0 +1,571 @@
+{$I WaspLib/osrs.simba}
+
+// ================ //
+// Credits: pauwelz //
+// ================ //
+
+function ModeFromBiometric(base, spread: Double; biometric: EBiometric): Double;
+begin
+  Result := base + spread * Biometrics.GetProbability(biometric);
+end;
+
+procedure SetupMouseForMove(fromP, toP: TPoint);
+var
+  dist: Double;
+  baseGrav, baseWind, baseSpeed: Double;
+begin
+  dist := Distance(fromP, toP);
+  baseGrav  := ModeFromBiometric(8.0, 4.0, EBiometric.MOUSE_GRAVITY);
+  baseWind  := ModeFromBiometric(2.5, 4.0, EBiometric.MOUSE_WIND);
+  baseSpeed := ModeFromBiometric(8.0, 4.0, EBiometric.MOUSE_SPEED);
+
+  case Round(dist) of
+    0..120: begin
+      Mouse.Gravity := Biometrics.RandomModeDouble(baseGrav * 0.95, 6.0, 12.0);
+      Mouse.Wind    := Biometrics.RandomModeDouble(baseWind * 0.7, 0.8, 4.0);
+      Mouse.Speed   := Biometrics.RandomModeDouble(baseSpeed * 1.10, 9.0, 14.0);
+    end;
+    121..350: begin
+      Mouse.Gravity := Biometrics.RandomModeDouble(baseGrav, 6.5, 12.5);
+      Mouse.Wind    := Biometrics.RandomModeDouble(baseWind, 1.5, 6.0);
+      Mouse.Speed   := Biometrics.RandomModeDouble(baseSpeed, 8.0, 13.0);
+    end;
+    351..800: begin
+      Mouse.Gravity := Biometrics.RandomModeDouble(baseGrav * 1.05, 7.0, 13.0);
+      Mouse.Wind    := Biometrics.RandomModeDouble(baseWind * 1.25, 2.0, 8.0);
+      Mouse.Speed   := Biometrics.RandomModeDouble(baseSpeed * 0.97, 7.5, 12.0);
+    end;
+    else begin
+      Mouse.Gravity := Biometrics.RandomModeDouble(baseGrav * 1.10, 7.0, 14.0);
+      Mouse.Wind    := Biometrics.RandomModeDouble(baseWind * 1.40, 3.0, 10.0);
+      Mouse.Speed   := Biometrics.RandomModeDouble(baseSpeed * 0.95, 7.0, 11.5);
+    end;
+  end;
+end;
+
+procedure TMouse.Move(destination: TPoint); override;
+begin
+  SetupMouseForMove(Mouse.Position, destination);
+  inherited;
+end;
+
+// =================================================================================================== //
+
+type
+  EChompyState = (LOGIN, FIX_CHAT, WAIT_STATE, FILL_TOAD,
+                  FILL_BELLOWS, PLACE_TOAD, CLICK_CHOMPY,
+                  HANDLE_OUT_OF_CYCLE, END_SCRIPT);
+
+  TChompyHunter = record
+    Chompy, Toad: TRSEntity;
+    Bubbles: TRSObject;
+    OgreBellows: TRSItemArray;
+    FillingBellows: Boolean;
+    MaxActions, TotalActions: Int32;
+    MaxTime: Int64;
+    TimeRunning: TStopwatch;
+    ChompyArrowColor: TColorTolerance;
+    ClickedTiles: TPointArray;
+  end;
+
+function TChompyHunter.GetReportValues(): TStringArray;
+var
+  sleepInfo, actionsStr: String;
+begin
+  if Antiban.Sleeps = [] then sleepInfo := 'No sleep'
+  else sleepInfo := Antiban.TimeUntilSleep(Antiban.Sleeps.First, TIME_SHORT);
+
+  actionsStr := ToStr(Self.TotalActions);
+  if Self.MaxActions <> 0 then actionsStr += '/' + ToStr(Self.MaxActions);
+
+  Result := [GetTimeStamp(TIME_SHORT), Logger.TimeRunning.ElapsedFmt(TIME_SHORT),
+             Antiban.TimeRunning.ElapsedFmt(TIME_SHORT), sleepInfo, actionsStr];
+end;
+
+// true if yellow arrow indcator found on minimap sets arrowPoint
+function TChompyHunter.FindArrowOnMinimap(out arrowPoint: TPoint): Boolean;
+var
+  tpa: TPointArray;
+begin
+  tpa := Target.FindColor(Self.ChompyArrowColor, Minimap.Bounds);
+  Result := Length(tpa) > 0;
+  if Result then arrowPoint := tpa.Mean();
+end;
+
+// true if chompy detected on mainscreen OR minimap arrow
+function TChompyHunter.ChompyExists(): Boolean;
+var
+  pts: T2DPointArray;
+  arrowPt: TPoint;
+begin
+  Result := Self.Chompy.Find(pts) or Self.FindArrowOnMinimap(arrowPt);
+end;
+
+procedure TChompyHunter.Init(maxActions: UInt32; maxTime: UInt64);
+begin
+  Logger.Setup('WASP-CHOMPY-HUNTER');
+  ProgressReport.Setup('WASP-CHOMPY-HUNTER',
+    ['Timestamp:', 'Script runtime:', 'Antiban runtime:', 'Next sleep:', 'Chompies killed:'],
+    @Self.GetReportValues);
+
+  Self.MaxActions := maxActions;
+  Self.MaxTime := maxTime;
+  Self.TotalActions := 0;
+  Self.TimeRunning.Start();
+
+  ItemFinder.Similarity := 0.9999;
+  Map.Setup([Chunk(Box(36,48,38,47), 0)]);
+
+  Self.ChompyArrowColor := [$59F4FC, 1.159, EColorSpace.HSV, [0.958, 0.057, 1.986]];
+
+  Self.Chompy := TRSEntity.Create(@Map.Walker, [1.5,1.5,1.5], 70, [[9576,38242]], ['Chompy bird'], [ERSMinimapDot.NPC]);
+  Self.Chompy.Finder.Colors += [$95BEBF, 0.805, EColorSpace.HSV, [2.428, 0.379, 0.194]]; // feathers white/tan/gray
+  Self.Chompy.Finder.Colors += [$809372, 1.196, EColorSpace.HSV, [2.177, 0.546, 0.278]]; // gray/blue/tail feathers
+  Self.Chompy.Finder.Colors += [$65B1DF, 1.978, EColorSpace.HSV, [2.024, 0.382, 0.596]]; // beak ish
+
+  // will find toads we placed on ground
+  // And idea I have is to somehow filter moving minimap dots and exclude those mainscreen coords?
+  // Maybe not worth
+  Self.Toad := TRSEntity.Create(@Map.Walker, [1.0,1.0,1.0], 40, [[9568,38250]], ['Swamp toad'], [ERSMinimapDot.NPC]);
+  Self.Toad.Finder.Colors += [$47A88C, 0.494, EColorSpace.HSV, [1.196, 1.196, 0.610]];
+  Self.Toad.Finder.Colors += [$3E927B, 0.586, EColorSpace.HSV, [1.371, 1.371, 0.259]];
+  Self.Toad.Finder.Colors += [$307260, 0.598, EColorSpace.HSV, [1.218, 1.218, 0.565]];
+  Self.Toad.Finder.Colors += [$4AAE92, 0.538, EColorSpace.HSV, [1.138, 1.138, 0.726]];
+
+  Self.Bubbles := TRSObject.Create(@Map.Walker, [0.8, 0.8, 4.09], [
+    // pls no more minimap offsetting o.o, these should be all the 'safe' bubbles to click coord wise.
+    Point(9368, 38190), Point(9568, 38218), Point(9568, 38214), Point(9572, 38234),
+    Point(9572, 38226), Point(9572, 38210), Point(9576, 38210), Point(9580, 38250),
+    Point(9580, 38246), Point(9584, 38242), Point(9584, 38230), Point(9588, 38234),
+    Point(9592, 38222), Point(9596, 38266), Point(9596, 38226), Point(9600, 38266),
+    Point(9600, 38254), Point(9604, 38262), Point(9604, 38258), Point(9656, 38298)
+  ], ['Swamp bubbles']);
+  Self.Bubbles.Finder.Colors += [$57663F, 1.326, EColorSpace.HSV, [0.5, 1.5, 1.0]];
+
+  Self.OgreBellows := ['Ogre bellows (3)', 'Ogre bellows (2)', 'Ogre bellows (1)'];
+  Self.ClickedTiles := [];
+
+  Antiban.Zoom.Min := 0;
+  Antiban.Zoom.Max := 30;
+  Antiban.Skills := [ERSSkill.RANGED, ERSSkill.TOTAL];
+
+  AddOnTerminate(@RSClient.EnableRealInput);
+  AddOnPause(@RSClient.EnableRealInput);
+  AddOnResume(@RSClient.DisableRealInput);
+  RSClient.DisableRealInput();
+  Activity.Restart();
+end;
+
+function TChompyHunter.FillBellows(): Boolean;
+begin
+  while Inventory.Items.Contains('Ogre bellows') do
+  begin
+    if not Self.Bubbles.WalkClick() then Break;
+    Minimap.WaitMoving();
+    SleepUntil(not Minimap.HasFlag and Chat.GetMessage(7).Contains('collect some gas'), 300, 5000);
+    Result := SleepUntil(not Inventory.Items.Contains('Ogre bellows'), 100, 60000);
+  end;
+  if Result then Activity.Restart();
+end;
+
+function TChompyHunter.MoveAround(): Boolean;
+var
+  SwampTPA, ValidTPA, MMDots: TPointArray;
+  P, MSPoint, Center: TPoint;
+  X, Y, Radius, toadCount, attempts, i: Int32;
+  tooClose: Boolean;
+begin
+  for attempts := 1 to 5 do
+  begin
+    if Self.ChompyExists() then Exit(False);
+
+    Center := Minimap.Center;
+    Radius := Random(10, 20);
+    ValidTPA := [];
+
+    for X := Center.X - Radius to Center.X + Radius do
+      for Y := Center.Y - Radius to Center.Y + Radius do
+        if Point(X, Y).DistanceTo(Center) < Radius then
+          ValidTPA += Point(X, Y);
+
+    SwampTPA := Target.FindColor($8A9B61, 0, Minimap.Bounds);
+    MMDots := Minimap.GetDots(ERSMinimapDot.NPC).Offset([2,2]).Grow(4);
+    ValidTPA := ValidTPA.Difference(SwampTPA + MMDots);
+
+    // filter previously clicked tiles so we don't walk into bushes/pools repeatedly
+    for X := High(ValidTPA) downto 0 do
+    begin
+      tooClose := False;
+      for i := 0 to High(Self.ClickedTiles) do
+        if ValidTPA[X].DistanceTo(Self.ClickedTiles[i]) < 8 then begin tooClose := True; Break; end;
+      if tooClose then Delete(ValidTPA, X, 1);
+    end;
+
+    if Length(ValidTPA) = 0 then begin Self.ClickedTiles := []; Continue; end;
+
+    P := ValidTPA.Random();
+    MSPoint := Minimap.Point2MS(P);
+    if not MainScreen.Bounds.Contains(MSPoint) then Continue;
+
+    Mouse.Move(MSPoint);
+    if not MainScreen.UpText.Contains('walk here', False) then Continue;
+
+    Self.ClickedTiles += P;
+    Mouse.Click(EMouseButton.LEFT);
+    Minimap.WaitMoving();
+    Sleep(400, 800);
+
+    if Self.ChompyExists() then Exit(False);
+
+    toadCount := Inventory.Items.Count('Bloated toad');
+    if Self.Toad.Click(True, 6) then
+    begin
+      Minimap.WaitMoving();
+      if SleepUntil(toadCount < Inventory.Items.Count('Bloated toad'), 300, 8000) then
+      begin
+        Activity.Restart();
+        Exit(True);
+      end;
+    end;
+    Sleep(600, 1000);
+  end;
+  Result := False;
+end;
+
+function TChompyHunter.PlaceToad(): Boolean;
+var
+  Placed: Boolean;
+begin
+  Self.ClickedTiles := [];
+
+  while Inventory.Items.Contains('Bloated toad') do
+  begin
+    if Self.ChompyExists() then Exit(False);
+
+    if Inventory.Items.Click('Bloated toad') then
+    begin
+      Placed := SleepUntil(Chat.GetMessage(7).Contains('toad bait'), 100, 1600);
+      Sleep(1200, 1600);
+
+      if not Placed then
+      begin
+        if Self.MoveAround() then Continue
+        else if Self.ChompyExists() then Exit(False);
+        Sleep(800, 1200);
+      end;
+    end
+    else Break;
+  end;
+  Result := True;
+end;
+
+function TChompyHunter.FillToad(): Boolean;
+var
+  toadCount: Int32;
+begin
+  if Self.ChompyExists() then Exit(False);
+
+  // uncomment to debug color / detection
+  // ShowOnTarget(Self.Toad);
+
+  toadCount := Inventory.Items.Count('Bloated toad');
+  if Self.Toad.Click(True, 6) then
+  begin
+    Minimap.WaitMoving();
+    Result := SleepUntil(toadCount < Inventory.Items.Count('Bloated toad'), 300, 8000);
+    Sleep(850, 1450);
+  end;
+
+  if Result then
+  begin
+    Activity.Restart();
+    if not Self.ChompyExists() then Self.PlaceToad();
+    Sleep(850, 1450);
+  end;
+end;
+
+function TChompyHunter.GetKillMessageCount(): Int32;
+var
+  i: Int32;
+  msg: String;
+begin
+  for i := 0 to 7 do
+  begin
+    msg := Chat.GetMessage(i);
+
+    if msg.Contains('notch on your bow') then
+    begin
+      Result += 1;
+      Continue;
+    end;
+
+    if msg.Contains('Bird to shoot') then
+    begin
+      WriteLn("Someone else's chompy - hopping...");
+      WorldSwitcher.Next();
+      Exit;
+    end;
+    if msg.Contains('no ammo') then
+      TerminateScript('Out of arrows :C');
+    if msg.Contains("like you're being followed") then
+      TerminateScript("You just got the pet :O!!!");
+  end;
+end;
+
+function TChompyHunter.GetPluckMessageCount(): Int32;
+var
+  i: Int32;
+  msg: String;
+begin
+  for i := 0 to 7 do
+  begin
+    msg := Chat.GetMessage(i);
+
+    if msg.Contains('start plucking') then
+    begin
+      Result += 1;
+      Continue;
+    end;
+
+    if msg.Contains('not your chompy') then
+    begin
+      WriteLn("Someone else's chompy - hopping...");
+      WorldSwitcher.Next();
+      Exit;
+    end;
+  end;
+end;
+
+function TChompyHunter.ClickChompy(): Boolean;
+var
+  featherCount, killMsgCount, pluckMsgCount: Int32;
+  isPluck: Boolean;
+  splats: TRSHitSplatArray;
+begin
+  featherCount  := Inventory.Items.ReadStack('Feather');
+  killMsgCount  := Self.GetKillMessageCount();
+  pluckMsgCount := Self.GetPluckMessageCount();
+
+  // uncomment to debug color / detection
+  //ShowOnTarget(Self.Chompy);
+
+  if not Self.Chompy.Hover() then
+    Exit(False);
+
+  isPluck := MainScreen.UpText.Contains('Pluck');
+  Mouse.Click(EMouseButton.LEFT);
+  Minimap.WaitMoving();
+
+  if isPluck then
+  begin
+    Sleep(1250, 1650);
+    Result := SleepUntil(
+      (Inventory.Items.ReadStack('Feather') > featherCount)
+      or (Self.GetPluckMessageCount() > pluckMsgCount), 1500, 8000);
+
+    if Result then
+      Sleep(450,850);
+      Activity.Restart();
+
+    Exit;
+  end;
+
+  // ============= //
+  // ATTACK  CLICK //
+  // ============= //
+
+  // #1 Sleep / Check splats or message increase
+  if not SleepUntil(
+    TRSHitsplat.Find(splats)
+    or (Self.GetKillMessageCount() > killMsgCount), 800, Random(4300, 4700)) then
+    Exit(False);
+
+  // chat check (schizo)
+  if Self.GetKillMessageCount() > killMsgCount then
+  begin
+    Result := True;
+    Self.TotalActions += 1;
+    Activity.Restart();
+    Exit;
+  end;
+
+  // #2 Attempt to detect chat or hitsplat
+  repeat
+    if Self.GetKillMessageCount() > killMsgCount then
+    begin
+      Result := True;
+      Break;
+    end;
+  until not SleepUntil(
+    TRSHitsplat.Find(splats)
+    or (Self.GetKillMessageCount() > killMsgCount), 800, Random(4300, 4700));
+
+  if Result then
+  begin
+    Self.TotalActions += 1;
+    Activity.Restart();
+  end;
+end;
+
+function TChompyHunter.FindChompy(): Boolean;
+var
+  a: Double;
+  pts: T2DPointArray;
+  attempts: Int32;
+  rotateCamera: Boolean;
+begin
+  rotateCamera := Random(100) < Random(5, 30);
+
+  for attempts := 1 to 3 do
+  begin
+    writeln(Self.Chompy.GetBoundsArray());
+    if Self.Chompy.Find(pts) then Exit(True);
+
+    if rotateCamera and (attempts < 3) then
+    begin
+      a := Minimap.CompassRadians + Random(0.3, 0.8) * PI;
+      if a >= 2*PI then a -= 2*PI;
+      Minimap.CompassRadians := a;
+      Sleep(500, 800);
+      rotateCamera := False;
+    end;
+  end;
+  Result := False;
+end;
+
+function TChompyHunter.FixChat(): Boolean;
+begin
+    Chat.Tabs.Open(ERSChatTab.GAME);
+    Self.Toad.Hover(['Inflate'], 1);
+end;
+
+function TChompyHunter.GetState(): EChompyState;
+var
+  arrowPt: TPoint;
+  pts: T2DPointArray;
+begin
+  if not RSClient.IsLoggedIn() then
+  Exit(EChompyState.LOGIN);
+
+  if not Chat.Tabs.IsActive(ERSChatTab.GAME) then
+  Exit(EChompyState.FIX_CHAT);
+
+  if (Self.TotalActions >= Self.MaxActions) or (Self.TimeRunning.Elapsed > Self.MaxTime) then
+    Exit(EChompyState.END_SCRIPT);
+
+  if Self.FillingBellows then
+  begin
+    Self.FillingBellows := Inventory.Items.Contains('Ogre bellows');
+    Exit(EChompyState.WAIT_STATE);
+  end;
+
+  if Self.FindArrowOnMinimap(arrowPt) and not Self.Chompy.Find(pts) then
+    Exit(EChompyState.HANDLE_OUT_OF_CYCLE);
+
+  if Self.FindChompy() then Exit(EChompyState.CLICK_CHOMPY);
+  if Inventory.Items.Contains('Bloated toad') then Exit(EChompyState.PLACE_TOAD);
+  if Inventory.Items.ContainsAny(Self.OgreBellows) then Exit(EChompyState.FILL_TOAD);
+
+  Exit(EChompyState.FILL_BELLOWS);
+end;
+
+procedure TChompyHunter.Run(maxActions: UInt32; maxTime: UInt64);
+var
+  state: EChompyState;
+  arrowPt, clickPt: TPoint;
+begin
+  Self.Init(maxActions, maxTime);
+
+  repeat
+    state := Self.GetState();
+    Logger.Info(ToStr(state));
+    ProgressReport.Print();
+    WaspClient.SubmitStats();
+
+    case state of
+      EChompyState.LOGIN: Login.DoLogin();
+      EChompyState.FIX_CHAT: Self.FixChat();
+      EChompyState.WAIT_STATE: Sleep(1200, 2400);
+      EChompyState.FILL_TOAD: Self.FillToad();
+      EChompyState.FILL_BELLOWS: Self.FillBellows();
+      EChompyState.PLACE_TOAD: Self.PlaceToad();
+      EChompyState.CLICK_CHOMPY: Self.ClickChompy();
+      EChompyState.HANDLE_OUT_OF_CYCLE:
+        begin
+          // rotate cam to see if we can find the bird on mainscreen
+          Minimap.CompassRadians := Minimap.CompassRadians + Random(-0.5, 0.5) * PI;
+          Sleep(300, 500);
+
+          if Self.FindChompy() then
+          begin
+            Self.ClickChompy();
+          end
+          else if Self.FindArrowOnMinimap(arrowPt) then
+          begin
+            clickPt := [arrowPt.X + Random(-5, 5), arrowPt.Y + Random(-5, 5)];
+            if not Minimap.Contains(clickPt) then clickPt := arrowPt;
+            Mouse.Move(clickPt);
+            Mouse.Click(EMouseButton.LEFT);
+            if Minimap.WaitFlag(1000) then Minimap.WaitMoving();
+            Sleep(300, 500);
+            if Self.FindChompy() then Self.ClickChompy();
+          end;
+        end;
+      EChompyState.END_SCRIPT: Exit;
+    end;
+
+    Antiban.DoAntiban();
+    Sleep(350, 885);
+  until False;
+
+  Logger.Info('Thank you for using ' + Logger.Name);
+end;
+
+var
+  ChompyHunter: TChompyHunter;
+  Form: TScriptForm;
+  ChompyConfig: TConfigJSON;
+
+procedure TScriptForm.OnStart(sender: TLazObject); override;
+begin
+  inherited;
+  ChompyHunter.MaxActions := Self.Goals.Actions.Value;
+  ChompyHunter.MaxTime := Self.Goals.Time.Value * ONE_MINUTE;
+  ChompyConfig.Save();
+end;
+
+procedure TScriptForm.Init();
+var
+  tab: TLazTabSheet;
+  panel: TLazPanel;
+begin
+  ChompyConfig.Setup('scripts' + PATH_SEP + 'chompy-hunter');
+  Self.Setup('Wasp Chompy Hunter', ChompyConfig.Data);
+  tab := Self.CreateTab('Hunter');
+
+  panel := Self.CreateGoals(tab, True, True, False, EOrientation.HORIZONTAL);
+  panel.Align := ELazAlign.Bottom;
+
+  if ChompyConfig.Data.Has('max_actions') then
+    Self.Goals.Actions.Value := ChompyConfig.Data.Item['max_actions'].AsInt
+  else begin
+    Self.Goals.Actions.Value := 100;
+    ChompyConfig.Data.AddInt('max_actions', 100);
+  end;
+
+  if ChompyConfig.Data.Has('max_time') then
+    Self.Goals.Time.Value := ChompyConfig.Data.Item['max_time'].AsInt
+  else begin
+    Self.Goals.Time.Value := 120;
+    ChompyConfig.Data.AddInt('max_time', 120);
+  end;
+
+  Self.CreateAntibanTab();
+  Self.Run();
+end;
+
+begin
+  Form.Init();
+  ChompyHunter.Run(Form.Goals.Actions.Value, Form.Goals.Time.Value * ONE_MINUTE);
+end.
+

@@ -15,14 +15,12 @@ type
 
     CLIMB_ZAMMY_LADDER,
     CLIMB_ZAMMY_STAIRS,
-    PREVENT_LOGOUT,
 
     NO_ACTIVITY, MAX_ACTIONS, MAX_TIME, MAX_LEVEL, END_SCRIPT
   );
 
-  TTemplate = record
+  TCastleWars = record
     Actions, MaxTime, MaxActions, MaxLevel: UInt64;
-    FormSetting: Boolean;
 
     Use_Stairs: Boolean;
 
@@ -34,9 +32,11 @@ type
     Sara_Ladder, Sara_Stairs,
     Zammy_Ladder, Zammy_Stairs: TRSObject;
 
+    AFKTimer: TCountDown;
+
   end;
 
-function TTemplate.GetReportValues(): TStringArray;
+function TCastleWars.GetReportValues(): TStringArray;
 var
   actionsStr, sleepInfo: String;
 begin
@@ -58,13 +58,13 @@ begin
   ];
 end;
 
-procedure TTemplate.Init();
+procedure TCastleWars.Init();
 begin
 
   Map.Setup([Chunk(Box(36,49,38,47), 0), Chunk(Box(36,49,38,47), 1),
   Chunk(Box(36,49,38,47), 2), Chunk(Box(36,149,38,147), 0)]);
 
-  Self.Use_Stairs := True;
+  //Self.Use_Stairs := True;
 
   Self.Castle_Wars_Room := [9752, 38070];
   Self.Portal := TRSObject.Create(@Map.Walker, [1, 1, 1], [[9746, 38072]], ['Guthix Portal']);
@@ -96,15 +96,18 @@ begin
   );
 
   Antiban.Zoom.Max := 0;
-  Antiban.Zoom.Max := 50;
+  Antiban.Zoom.Min := 20;
   Antiban.Skills := [ERSSkill.TOTAL,
   ERSSkill.ATTACK, ERSSkill.STRENGTH, ERSSkill.DEFENCE, ERSSkill.HITPOINTS,
   ERSSkill.MAGIC, ERSSkill.RANGED, ERSSkill.SLAYER, ERSSkill.SAILING];
 
-  CollectionBox.Setup();
+  Antiban.RandomChatTab
+  TerminateScript();
+  // Initialize anti-logout timer (starts finished so first check triggers action)
+  Self.AFKTimer.Start(Random(180000, 240000));
 end;
 
-procedure TTemplate.Use_Sara_Ladder();
+procedure TCastleWars.Use_Sara_Ladder();
 begin
   if Self.Sara_Ladder.Click() then
     SleepUntil(Map.Position().InRange(Self.Sara_Stairs.Coordinates.First, 64), 200, 10000);
@@ -112,7 +115,7 @@ begin
   Minimap.WaitMoving();
 end;
 
-procedure TTemplate.Use_Sara_Stairs();
+procedure TCastleWars.Use_Sara_Stairs();
 begin
   if Self.Sara_Stairs.Click() then
     SleepUntil(not Map.Position().InRange(Self.Sara_Stairs.Coordinates.First, 64), 200, 10000);
@@ -120,7 +123,7 @@ begin
   Minimap.WaitMoving();
 end;
 
-procedure TTemplate.Use_Zammy_Ladder();
+procedure TCastleWars.Use_Zammy_Ladder();
 begin
   if Self.Zammy_Ladder.Click() then
     SleepUntil(Map.Position().InRange(Self.Zammy_Stairs.Coordinates.First, 64), 200, 10000);
@@ -128,7 +131,7 @@ begin
   Minimap.WaitMoving();
 end;
 
-procedure TTemplate.Use_Zammy_Stairs();
+procedure TCastleWars.Use_Zammy_Stairs();
 begin
   if Self.Zammy_Stairs.Click() then
     SleepUntil(not Map.Position().InRange(Self.Zammy_Stairs.Coordinates.First, 64), 200, 10000);
@@ -136,7 +139,7 @@ begin
   Minimap.WaitMoving();
 end;
 
-procedure TTemplate.Use_Portal();
+procedure TCastleWars.Use_Portal();
 begin
   if Self.Portal.Click() then
   begin
@@ -146,14 +149,32 @@ begin
   Minimap.WaitMoving();
 end;
 
-procedure TTemplate.Wait_For_Game();
+procedure TCastleWars.Wait_For_Game();
 begin
-  Writeln('Waiting for game to start/end');
+  Logger.Info('Waiting for game to start/end');
+
+  // Check if we need to do anti-logout action
+  if Self.AFKTimer.IsFinished then
+  begin
+    Logger.Info('Performing anti-logout action');
+
+    // Do a random anti-logout action
+    case Random(0, 3) of
+      0: Antiban.RandomChatTask();
+      1: Antiban.RandomRightClick();
+      2: Antiban.LargeCameraRotation();
+      3: Antiban.RandomGameTabTask();
+    end;
+
+    // Restart timer with random 3-4 minute interval
+    Self.AFKTimer.Start(Random(180000, 240000));
+  end;
+
   Sleep(1000, 2000);
   Activity.Restart();
 end;
 
-function TTemplate.GetState(): ECWState;
+function TCastleWars.GetState(): ECWState;
 begin
   if Activity.IsFinished then
     Exit(ECWState.NO_ACTIVITY);
@@ -205,7 +226,7 @@ begin
   Result := ECWState.WAIT_STATE;
 end;
 
-procedure TTemplate.Run();
+procedure TCastleWars.Run();
 var
   state: ECWState;
 begin
@@ -246,26 +267,26 @@ begin
 end;
 
 var
-  Template: TTemplate;
-  TemplateForm: TScriptForm;
-  TemplateConfig: TConfigJSON;
-  FormCheckbox: TLazCheckBox;
+  CastleWars: TCastleWars;
+  CastleWarsForm: TScriptForm;
+  CastleWarsConfig: TConfigJSON;
+  UseStairsCheckBox: TLazCheckBox;
 
 procedure TScriptForm.OnStart(sender: TLazObject); override;
 begin
   inherited;
 
-  Template.FormSetting := FormCheckbox.IsChecked();
-  if TemplateConfig.Data.Has('form_setting') then
-    TemplateConfig.Data.Item['form_setting'].AsBool := Template.FormSetting
+  CastleWars.Use_Stairs := UseStairsCheckBox.IsChecked();
+  if CastleWarsConfig.Data.Has('use_stairs') then
+    CastleWarsConfig.Data.Item['use_stairs'].AsBool := CastleWars.Use_Stairs
   else
-    TemplateConfig.Data.AddBool('form_setting', Template.FormSetting);
+    CastleWarsConfig.Data.AddBool('use_stairs', CastleWars.Use_Stairs);
 
-  Template.MaxActions := Self.Goals.Actions.Value;
-  Template.MaxTime    := Self.Goals.Time.Value * ONE_MINUTE;
-  Template.MaxLevel   := Self.Goals.Level.Value;
+  CastleWars.MaxActions := Self.Goals.Actions.Value;
+  CastleWars.MaxTime    := Self.Goals.Time.Value * ONE_MINUTE;
+  CastleWars.MaxLevel   := Self.Goals.Level.Value;
 
-  TemplateConfig.Save();
+  CastleWarsConfig.Save();
 end;
 
 procedure TScriptForm.Init();
@@ -273,39 +294,31 @@ var
   tab: TLazTabSheet;
   panel: TLazPanel;
 begin
-  TemplateConfig.Setup('scripts' + PATH_SEP + 'my-script-name');
+  CastleWarsConfig.Setup('scripts' + PATH_SEP + 'godtier-cw');
 
-  Self.Setup('My Script Name', TemplateConfig.Data);
+  Self.Setup('GodTier Castle Wars', CastleWarsConfig.Data);
 
-  tab := Self.CreateTab('My Script Name');
+  tab := Self.CreateTab('Castle Wars Settings');
   panel := Self.CreateGoals(tab, True, True, True, EOrientation.HORIZONTAL);
   panel.Align := ELazAlign.Bottom;
 
-  FormCheckbox := TLazCheckBox.CreateEx(tab, 'My Setting', 'My setting does cool stuff', 20, 220);
-  if TemplateConfig.Data.Has('form_setting') then
-    FormCheckbox.SetChecked(TemplateConfig.Data.Item['form_setting'].AsBool)
+
+
+  UseStairsCheckBox := TLazCheckBox.CreateEx(tab, 'Run Up Stairs', 'Use Stairs', 20, 220);
+  if CastleWarsConfig.Data.Has('use_stairs') then
+    UseStairsCheckBox.SetChecked(CastleWarsConfig.Data.Item['use_stairs'].AsBool)
   else
-    FormCheckbox.SetChecked(True);
+    UseStairsCheckBox.SetChecked(True);
 
   Self.CreateAntibanTab();
   Self.Run();
 end;
 
 begin
-  Map.Setup([Chunk(Box(36,49,38,47), 0), Chunk(Box(36,49,38,47), 1),
-  Chunk(Box(36,49,38,47), 2), Chunk(Box(36,149,38,147), 0)]);
-  //Writeln(Map.Position());
-  //Writeln(Chat.GetTitle().Equals('There''s a free space, do you want to join? '));
-  //writeln(Chat.GetOptionsString());
-  //Chat.Select('Yes please!');
-  (*
-  There's a free space, do you want to join?
-  Yes please!
-  No thanks.
-  *)
-  //TerminateScript('test');
+  //Map.Setup([Chunk(Box(36,49,38,47), 0), Chunk(Box(36,49,38,47), 1),
+  //Chunk(Box(36,49,38,47), 2), Chunk(Box(36,149,38,147), 0)]);
 
-  TemplateForm.Init();
-  Template.Run();
+  CastleWarsForm.Init();
+  CastleWars.Run();
 end.
 
