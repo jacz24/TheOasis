@@ -54,7 +54,7 @@ end;
 type
   EChompyState = (LOGIN, FIX_CHAT, WAIT_STATE, FILL_TOAD,
                   FILL_BELLOWS, PLACE_TOAD, CLICK_CHOMPY,
-                  HANDLE_OUT_OF_CYCLE, END_SCRIPT);
+                  HANDLE_OUT_OF_CYCLE, RETURN_TO_SWAMP, END_SCRIPT);
 
   TChompyHunter = record
     Chompy, Toad: TRSEntity;
@@ -66,6 +66,7 @@ type
     TimeRunning: TStopwatch;
     ChompyArrowColor: TColorTolerance;
     ClickedTiles: TPointArray;
+    SwampMiddleTile: TPoint;
   end;
 
 function TChompyHunter.GetReportValues(): TStringArray;
@@ -114,15 +115,27 @@ begin
   Self.TimeRunning.Start();
 
   ItemFinder.Similarity := 0.9999;
-  Map.Setup([Chunk(Box(36,48,38,47), 0)]);
+  Map.Setup([Chunk(Box(36,48,38,46), 0)]);
+
+  Self.SwampMiddleTile := [9580, 38234];
 
   Self.ChompyArrowColor := [$59F4FC, 1.159, EColorSpace.HSV, [0.958, 0.057, 1.986]];
 
-  Self.Chompy := TRSEntity.Create(@Map.Walker, [1.5,1.5,1.5], 70, [[9576,38242]], ['Chompy bird'], [ERSMinimapDot.NPC]);
+  Self.Chompy := TRSEntity.Create(@Map.Walker, [0.8,0.8,0.8], 70, [[9576,38242]], ['Chompy bird'], [ERSMinimapDot.NPC]);
+  (*
   Self.Chompy.Finder.Colors += [$95BEBF, 0.805, EColorSpace.HSV, [2.428, 0.379, 0.194]]; // feathers white/tan/gray
   Self.Chompy.Finder.Colors += [$809372, 1.196, EColorSpace.HSV, [2.177, 0.546, 0.278]]; // gray/blue/tail feathers
   Self.Chompy.Finder.Colors += [$65B1DF, 1.978, EColorSpace.HSV, [2.024, 0.382, 0.596]]; // beak ish
-
+  *)
+  
+  Self.Chompy.Finder.ColorClusters += [
+  [$95BEBF, 0.805, EColorSpace.HSV, [2.428, 0.379, 0.194]],
+  [$809372, 1.196, EColorSpace.HSV, [2.177, 0.546, 0.278]],
+  64
+  ];
+  //ShowOnTarget(Self.Chompy);  W
+  //Writeln(Map.Position());
+  //TerminateScript();
   // will find toads we placed on ground
   // And idea I have is to somehow filter moving minimap dots and exclude those mainscreen coords?
   // Maybe not worth
@@ -149,10 +162,10 @@ begin
   Antiban.Zoom.Max := 30;
   Antiban.Skills := [ERSSkill.RANGED, ERSSkill.TOTAL];
 
-  AddOnTerminate(@RSClient.EnableRealInput);
-  AddOnPause(@RSClient.EnableRealInput);
-  AddOnResume(@RSClient.DisableRealInput);
-  RSClient.DisableRealInput();
+  //AddOnTerminate(@RSClient.EnableRealInput);
+  //AddOnPause(@RSClient.EnableRealInput);
+  //AddOnResume(@RSClient.DisableRealInput);
+  //RSClient.DisableRealInput();
   Activity.Restart();
 end;
 
@@ -418,7 +431,6 @@ begin
 
   for attempts := 1 to 3 do
   begin
-    writeln(Self.Chompy.GetBoundsArray());
     if Self.Chompy.Find(pts) then Exit(True);
 
     if rotateCamera and (attempts < 3) then
@@ -439,6 +451,12 @@ begin
     Self.Toad.Hover(['Inflate'], 1);
 end;
 
+function TChompyHunter.ReturnToSwamp(): Boolean;
+begin
+  Result := Map.Walker.WebWalk(Self.Midd, 15, 0.2);
+  if Result then Activity.Restart();
+end;
+
 function TChompyHunter.GetState(): EChompyState;
 var
   arrowPt: TPoint;
@@ -453,6 +471,9 @@ begin
   if (Self.TotalActions >= Self.MaxActions) or (Self.TimeRunning.Elapsed > Self.MaxTime) then
     Exit(EChompyState.END_SCRIPT);
 
+  if not Map.Position().InRange(Self.SwampMiddleTile, 70) then
+    Exit(EChompyState.RETURN_TO_SWAMP);
+
   if Self.FillingBellows then
   begin
     Self.FillingBellows := Inventory.Items.Contains('Ogre bellows');
@@ -465,6 +486,8 @@ begin
   if Self.FindChompy() then Exit(EChompyState.CLICK_CHOMPY);
   if Inventory.Items.Contains('Bloated toad') then Exit(EChompyState.PLACE_TOAD);
   if Inventory.Items.ContainsAny(Self.OgreBellows) then Exit(EChompyState.FILL_TOAD);
+  
+  
 
   Exit(EChompyState.FILL_BELLOWS);
 end;
@@ -490,6 +513,7 @@ begin
       EChompyState.FILL_BELLOWS: Self.FillBellows();
       EChompyState.PLACE_TOAD: Self.PlaceToad();
       EChompyState.CLICK_CHOMPY: Self.ClickChompy();
+      EChompyState.RETURN_TO_SWAMP: Self.ReturnToSwamp();
       EChompyState.HANDLE_OUT_OF_CYCLE:
         begin
           // rotate cam to see if we can find the bird on mainscreen
