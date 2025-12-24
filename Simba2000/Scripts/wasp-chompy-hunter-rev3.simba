@@ -121,7 +121,7 @@ begin
 
   Self.ChompyArrowColor := [$59F4FC, 1.159, EColorSpace.HSV, [0.958, 0.057, 1.986]];
 
-  Self.Chompy := TRSEntity.Create(@Map.Walker, [0.8,0.8,0.8], 70, [[9576,38242]], ['Chompy bird'], [ERSMinimapDot.NPC]);
+  Self.Chompy := TRSEntity.Create(@Map.Walker, [1.5,1.5,1.5], 70, [[9576,38242]], ['Chompy bird'], [ERSMinimapDot.NPC]);
   (*
   Self.Chompy.Finder.Colors += [$95BEBF, 0.805, EColorSpace.HSV, [2.428, 0.379, 0.194]]; // feathers white/tan/gray
   Self.Chompy.Finder.Colors += [$809372, 1.196, EColorSpace.HSV, [2.177, 0.546, 0.278]]; // gray/blue/tail feathers
@@ -235,7 +235,9 @@ begin
     Sleep(400, 800);
 
     if Self.ChompyExists() then Exit(False);
-    ShowOnTarget(Self.Toad);
+    
+    // To debug Finding Toads
+    //ShowOnTarget(Self.Toad);
     toadCount := Inventory.Items.Count('Bloated toad');
     if Self.Toad.Click(True, 6) then
     begin
@@ -320,13 +322,13 @@ begin
 
     if msg.Contains('Bird to shoot') then
     begin
-      WriteLn("Someone else's chompy - hopping...");
+      WriteLn('Someone else''s chompy - hopping...');
       WorldSwitcher.Next();
       Exit;
     end;
     if msg.Contains('no ammo') then
       TerminateScript('Out of arrows :C');
-    if msg.Contains("like you're being followed") then
+    if msg.Contains('like you''re being followed') then
       TerminateScript("You just got the pet :O!!!");
   end;
 end;
@@ -495,8 +497,6 @@ begin
   if Self.FindChompy() then Exit(EChompyState.CLICK_CHOMPY);
   if Inventory.Items.Contains('Bloated toad') then Exit(EChompyState.PLACE_TOAD);
   if Inventory.Items.ContainsAny(Self.OgreBellows) then Exit(EChompyState.FILL_TOAD);
-
-
 
   Exit(EChompyState.FILL_BELLOWS);
 end;
