@@ -168,10 +168,10 @@ begin
   Antiban.Zoom.Max := 30;
   Antiban.Skills := [ERSSkill.RANGED, ERSSkill.TOTAL];
 
-  //AddOnTerminate(@RSClient.EnableRealInput);
-  //AddOnPause(@RSClient.EnableRealInput);
-  //AddOnResume(@RSClient.DisableRealInput);
-  //RSClient.DisableRealInput();
+  AddOnTerminate(@RSClient.EnableRealInput);
+  AddOnPause(@RSClient.EnableRealInput);
+  AddOnResume(@RSClient.DisableRealInput);
+  RSClient.DisableRealInput();
   Activity.Restart();
 end;
 
@@ -329,7 +329,7 @@ begin
     if msg.Contains('no ammo') then
       TerminateScript('Out of arrows :C');
     if msg.Contains('like you''re being followed') then
-      TerminateScript("You just got the pet :O!!!");
+      TerminateScript('You just got the pet :O!!!');
   end;
 end;
 
