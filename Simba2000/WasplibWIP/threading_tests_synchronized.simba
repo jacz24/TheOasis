@@ -1,0 +1,135 @@
+{$INCLUDE_ONCE WaspLib/osrs.simba}
+{$INCLUDE_ONCE WaspLib/utils/threading.simba}
+
+const
+  MAP_CHUNK := ERSChunk.FALADOR;
+  MAX_ITERATIONS := 60;  // Run for ~60 seconds then clean exit
+
+var
+  Manager: TThreadManager;
+  MapLock: TLock;
+  SharedMapPos: TPoint;
+  LoopCount: Integer;
+  IsRunning: Boolean;
+  IsCleanedUp: Boolean;  // Prevent double cleanup
+
+// Callback when any task completes
+procedure OnTaskComplete(const TaskName: String; Success: Boolean);
+begin
+  if not Success then
+    WriteLn('[Callback] Task "' + TaskName + '" failed!');
+end;
+
+// Callback when any task throws an exception
+procedure OnTaskException(const TaskName, Error: String);
+begin
+  WriteLn('[Exception] Task "' + TaskName + '": ' + Error);
+end;
+
+procedure DrawToCanvas();
+var
+  localPos: TPoint;
+begin
+  if not IsRunning then Exit;  // Early exit if shutting down
+
+  // Safely read map position
+  MapLock.Enter();
+  try
+    localPos := Map.Position;
+    SharedMapPos := localPos;
+  finally
+    MapLock.Leave();
+  end;
+
+  // Canvas drawing (doesn't need lock - only this thread writes to canvas)
+  RSClient.Canvas.Clear();
+  RSClient.Canvas.DrawColor := Colors.WHITE;
+  RSClient.Canvas.DrawText('Time: ' + ToStr(Logger.TimeRunning.Elapsed), Point(40, 40));
+  RSClient.Canvas.DrawText('MapPos: ' + ToStr(localPos), Point(40, 60));
+  RSClient.Canvas.DrawText('Loop Count: ' + ToStr(LoopCount) + '/' + ToStr(MAX_ITERATIONS), Point(40, 80));
+  RSClient.Canvas.DrawText('Status: Running', Point(40, 100));
+end;
+
+// Called by AddOnTerminate - guaranteed to run on script termination
+procedure OnTerminate();
+begin
+  // Prevent double cleanup
+  if IsCleanedUp then Exit;
+  IsCleanedUp := True;
+
+  WriteLn('');
+  WriteLn('=== OnTerminate Called ===');
+  IsRunning := False;
+
+  // Pause scheduled task first
+  WriteLn('1. Pausing scheduled tasks...');
+  if Manager.IsSetup then
+    Manager.PauseTask('DebugOverlay');
+  Sleep(100);  // Give time for current execution to finish
+
+  // Clear canvas
+  WriteLn('2. Clearing canvas...');
+  RSClient.Canvas.Clear();
+
+  // Free manager (handles thread pool shutdown internally)
+  WriteLn('3. Freeing thread manager...');
+  if Manager.IsSetup then
+  begin
+    WriteLn('   - Pool stats: ' + Manager.Stats());
+    Manager.Free();
+  end;
+
+  // Free lock
+  WriteLn('4. Freeing lock...');
+  if Assigned(MapLock) then
+    MapLock.Free();
+
+  WriteLn('=== Cleanup Complete ===');
+end;
+
+begin
+  Logger.Setup('ThreadTesting - Synchronized');
+  Map.Setup([MAP_CHUNK]);
+
+  // Initialize state
+  IsRunning := True;
+  IsCleanedUp := False;
+  LoopCount := 0;
+
+  // Initialize synchronization primitives
+  MapLock := TLock.Create();
+
+  // Register termination handler BEFORE starting threads
+  // This ensures cleanup runs even if user clicks Stop or script crashes
+  AddOnTerminate(@OnTerminate);
+
+  // Setup manager with callbacks
+  Manager.SetCompletionHandler(@OnTaskComplete);
+  Manager.SetExceptionHandler(@OnTaskException);
+  Manager.Init(2, EDebugLevel.INFO);
+
+  // Schedule the canvas update to run every 20ms
+  Manager.Schedule('DebugOverlay', @DrawToCanvas, 20);
+
+  RSClient.EnableRealInput();
+
+  WriteLn('Starting main loop (will run ' + ToStr(MAX_ITERATIONS) + ' iterations)...');
+  WriteLn('Press STOP to test graceful termination.');
+  WriteLn('');
+
+  repeat
+    // Main loop - log position every second
+    MapLock.Enter();
+    try
+      Logger.Info(ToStr(LoopCount) + ' - ' + ToStr(SharedMapPos));
+    finally
+      MapLock.Leave();
+    end;
+
+    Inc(LoopCount);
+    Sleep(1000);
+  until (LoopCount >= MAX_ITERATIONS) or (not IsRunning);
+
+  WriteLn('Script finished normally.');
+  // OnTerminate will be called automatically after this
+end.

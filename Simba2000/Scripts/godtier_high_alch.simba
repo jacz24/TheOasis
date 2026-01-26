@@ -1,0 +1,447 @@
+{$I WaspLib/osrs.simba}
+
+type
+  EAlchState = enum(
+    NONE,
+    LOGIN,
+    LEVEL_UP,
+    WAIT_STATE,
+
+    // Alching states
+    CAST_ALCH,
+    CLICK_ITEM,
+    WAIT_ALCH,
+
+    // Banking states
+    OPEN_BANK,
+    CLOSE_BANK,
+    DEPOSIT_COINS,
+    WITHDRAW_ITEMS,
+    WITHDRAW_RUNES,
+
+    NO_ACTIVITY, MAX_ACTIONS, MAX_TIME, MAX_LEVEL, OUT_OF_ITEMS, OUT_OF_RUNES, END_SCRIPT
+  );
+
+  EAlchMethod = enum(
+    METHOD_NO_BANK,    // Alch until out of items, then stop
+    METHOD_BANK        // Bank for more items when done
+  );
+
+  THighAlch = record
+    State: EAlchState;
+    Actions, MaxTime, MaxActions, MaxLevel: UInt64;
+
+    Method: EAlchMethod;
+    AlchItem: TRSItem;
+    NatureRuneCount: Integer;
+
+    AlchTimer: TCountDown;  // Prevent spam clicking
+  end;
+
+const
+  ALCH_COOLDOWN = 3000;  // ~3 seconds between alchs (game tick limited)
+
+function THighAlch.GetReportValues(): TStringArray;
+var
+  actionsStr, sleepInfo, methodStr: String;
+begin
+  actionsStr := ToStr(Self.Actions);
+  if Self.MaxActions <> 0 then
+    actionsStr += '/' + ToStr(Self.MaxActions);
+
+  if Antiban.Sleeps = [] then
+    sleepInfo := 'No sleep'
+  else
+    sleepInfo := Antiban.TimeUntilSleep(Antiban.Sleeps.First, TIME_SHORT);
+
+  case Self.Method of
+    EAlchMethod.METHOD_NO_BANK: methodStr := 'No Banking';
+    EAlchMethod.METHOD_BANK: methodStr := 'Banking';
+  end;
+
+  Result := [
+    GetTimeStamp(TIME_SHORT),
+    Logger.TimeRunning.ElapsedFmt(TIME_SHORT),
+    Antiban.TimeRunning.ElapsedFmt(TIME_SHORT),
+    sleepInfo,
+    actionsStr,
+    methodStr
+  ];
+end;
+
+procedure THighAlch.Init();
+begin
+  // Map setup for banking if needed
+  Map.Setup([ERSChunk.VARROCK]);
+
+  Logger.Setup('GodTier High Alch');
+  ProgressReport.Setup(
+    'GodTier High Alch',
+    [
+      'Script runtime:', 'Botting runtime:', 'Antiban runtime:', 'Next sleep:',
+      'Alchs:', 'Method:'
+    ],
+    @Self.GetReportValues
+  );
+
+  Antiban.Zoom.Min := 0;
+  Antiban.Zoom.Max := 30;
+  Antiban.Skills := [ERSSkill.TOTAL, ERSSkill.MAGIC];
+
+  // Initialize alch timer as finished so first alch happens immediately
+  Self.AlchTimer.Start(0);
+end;
+
+// ============================================================================
+// Utility Functions
+// ============================================================================
+
+function THighAlch.HasAlchItem(): Boolean;
+begin
+  Result := Inventory.Items.Contains(Self.AlchItem);
+end;
+
+function THighAlch.CountAlchItem(): Integer;
+begin
+  Result := Inventory.Items.Count(Self.AlchItem);
+end;
+
+function THighAlch.HasNatureRunes(): Boolean;
+begin
+  Result := Inventory.Items.Contains('Nature rune');
+end;
+
+function THighAlch.CountNatureRunes(): Integer;
+begin
+  Result := Inventory.Items.Count('Nature rune');
+end;
+
+function THighAlch.CanAlch(): Boolean;
+begin
+  Result := Magic.CanActivate(ERSSpell.HIGH_LEVEL_ALCHEMY);
+end;
+
+function THighAlch.IsAlchSelected(): Boolean;
+begin
+  Result := Magic.IsSelected(ERSSpell.HIGH_LEVEL_ALCHEMY);
+end;
+
+function THighAlch.AlchReady(): Boolean;
+begin
+  Result := Self.AlchTimer.IsFinished();
+end;
+
+// ============================================================================
+// Action Functions
+// ============================================================================
+
+function THighAlch.CastAlch(): Boolean;
+begin
+  if not Self.CanAlch() then
+  begin
+    Logger.Warn('Cannot cast High Level Alchemy - check runes/level');
+    Exit(False);
+  end;
+
+  Result := Magic.CastSpell(ERSSpell.HIGH_LEVEL_ALCHEMY);
+
+  if Result then
+    Activity.Restart();
+end;
+
+function THighAlch.ClickItem(): Boolean;
+var
+  slot: Integer;
+begin
+  // Make sure inventory is open (alch spell opens it)
+  if not Inventory.IsOpen() then
+  begin
+    if not Inventory.Open() then
+      Exit(False);
+  end;
+
+  // Find the item to alch
+  if not Inventory.Items.Find(Self.AlchItem, slot) then
+  begin
+    Logger.Warn('Could not find alch item in inventory');
+    Exit(False);
+  end;
+
+  // Click the item
+  Result := Inventory.Items.Interact(slot);
+
+  if Result then
+  begin
+    Self.Actions += 1;
+    Self.AlchTimer.Start(ALCH_COOLDOWN + Random(-200, 400));
+    Activity.Restart();
+  end;
+end;
+
+function THighAlch.WaitAlch(): Boolean;
+begin
+  // Wait for alch animation to complete
+  Sleep(Random(100, 300));
+  Result := True;
+end;
+
+function THighAlch.OpenBank(): Boolean;
+begin
+  Result := Bank.Open();
+  if Result then
+    Activity.Restart();
+end;
+
+function THighAlch.CloseBank(): Boolean;
+begin
+  Result := Bank.Close();
+  if Result then
+    Activity.Restart();
+end;
+
+function THighAlch.DepositCoins(): Boolean;
+begin
+  if not Bank.IsOpen() then
+    Exit(False);
+
+  // Deposit coins from alching
+  if Inventory.Items.Contains('Coins') then
+    Bank.Deposit('Coins');
+
+  Result := True;
+  Activity.Restart();
+end;
+
+function THighAlch.WithdrawAlchItems(): Boolean;
+begin
+  if not Bank.IsOpen() then
+    Exit(False);
+
+  // Withdraw alch items - fill inventory
+  Result := Bank.Withdraw(Self.AlchItem.ToBankItem(QUANTITY_ALL));
+
+  if Result then
+    Activity.Restart();
+end;
+
+function THighAlch.WithdrawNatureRunes(): Boolean;
+begin
+  if not Bank.IsOpen() then
+    Exit(False);
+
+  // Withdraw nature runes if we don't have any
+  if not Self.HasNatureRunes() then
+    Result := Bank.Withdraw(TRSItem('Nature rune').ToBankItem(QUANTITY_ALL))
+  else
+    Result := True;
+
+  if Result then
+    Activity.Restart();
+end;
+
+// ============================================================================
+// State Machine
+// ============================================================================
+
+function THighAlch.GetCommonState(): EAlchState;
+begin
+  Result := EAlchState.NONE;
+
+  if Activity.IsFinished then
+    Exit(EAlchState.NO_ACTIVITY);
+
+  if (Self.MaxActions > 0) and (Self.Actions >= Self.MaxActions) then
+    Exit(EAlchState.MAX_ACTIONS);
+
+  if (Self.MaxTime > 0) and (Logger.TimeRunning.Elapsed >= Self.MaxTime) then
+    Exit(EAlchState.MAX_TIME);
+
+  if (Self.MaxLevel > 0) and (Stats.GetLevel(ERSSkill.MAGIC) >= Self.MaxLevel) then
+    Exit(EAlchState.MAX_LEVEL);
+
+  if not RSClient.IsLoggedIn() then
+    Exit(EAlchState.LOGIN);
+
+  if Chat.LeveledUp() then
+    Exit(EAlchState.LEVEL_UP);
+end;
+
+function THighAlch.GetState(): EAlchState;
+begin
+  Result := Self.GetCommonState();
+  if Result <> EAlchState.NONE then
+    Exit;
+
+  // Check if we have items to alch
+  if not Self.HasAlchItem() then
+  begin
+    if Self.Method = EAlchMethod.METHOD_BANK then
+    begin
+      if Bank.IsOpen() then
+      begin
+        if Inventory.Items.Contains('Coins') then
+          Exit(EAlchState.DEPOSIT_COINS);
+        if not Self.HasNatureRunes() then
+          Exit(EAlchState.WITHDRAW_RUNES);
+        Exit(EAlchState.WITHDRAW_ITEMS);
+      end
+      else
+        Exit(EAlchState.OPEN_BANK);
+    end
+    else
+      Exit(EAlchState.OUT_OF_ITEMS);
+  end;
+
+  // Check if we have nature runes
+  if not Self.CanAlch() then
+  begin
+    if Self.Method = EAlchMethod.METHOD_BANK then
+    begin
+      if Bank.IsOpen() then
+        Exit(EAlchState.WITHDRAW_RUNES)
+      else
+        Exit(EAlchState.OPEN_BANK);
+    end
+    else
+      Exit(EAlchState.OUT_OF_RUNES);
+  end;
+
+  // Close bank if open
+  if Bank.IsOpen() then
+    Exit(EAlchState.CLOSE_BANK);
+
+  // Check if alch is on cooldown
+  if not Self.AlchReady() then
+    Exit(EAlchState.WAIT_ALCH);
+
+  // Check if alch spell is selected
+  if Self.IsAlchSelected() then
+    Exit(EAlchState.CLICK_ITEM);
+
+  // Need to cast alch
+  Exit(EAlchState.CAST_ALCH);
+end;
+
+procedure THighAlch.Run();
+var
+  state: EAlchState;
+begin
+  Self.Init();
+
+  repeat
+    state := Self.GetState();
+    Logger.Info(ToStr(state));
+    ProgressReport.Print();
+    WaspClient.SubmitStats();
+
+    case state of
+      EAlchState.LOGIN: Login.DoLogin();
+      EAlchState.LEVEL_UP: Chat.HandleLevelUp();
+
+      // Alching actions
+      EAlchState.CAST_ALCH: Self.CastAlch();
+      EAlchState.CLICK_ITEM: Self.ClickItem();
+      EAlchState.WAIT_ALCH: Sleep(100, 200);
+
+      // Banking
+      EAlchState.OPEN_BANK: Self.OpenBank();
+      EAlchState.CLOSE_BANK: Self.CloseBank();
+      EAlchState.DEPOSIT_COINS: Self.DepositCoins();
+      EAlchState.WITHDRAW_ITEMS: Self.WithdrawAlchItems();
+      EAlchState.WITHDRAW_RUNES: Self.WithdrawNatureRunes();
+
+      EAlchState.WAIT_STATE: Sleep(500, 1000);
+
+      EAlchState.NO_ACTIVITY, EAlchState.MAX_ACTIONS,
+      EAlchState.MAX_TIME, EAlchState.MAX_LEVEL,
+      EAlchState.OUT_OF_ITEMS, EAlchState.OUT_OF_RUNES,
+      EAlchState.END_SCRIPT: Break;
+    end;
+
+    Antiban.DoAntiban();
+  until False;
+
+  Logger.Info('Thank you for using ' + Logger.Name);
+end;
+
+// ============================================================================
+// Form / GUI
+// ============================================================================
+
+var
+  HighAlch: THighAlch;
+  AlchForm: TScriptForm;
+  AlchConfig: TConfigJSON;
+  AlchItemEdit: TLazEdit;
+  MethodComboBox: TLazComboBox;
+
+procedure TScriptForm.OnStart(sender: TLazObject); override;
+begin
+  inherited;
+
+  // Get settings from form
+  HighAlch.AlchItem := AlchItemEdit.Text;
+  HighAlch.Method := EAlchMethod(MethodComboBox.ItemIndex);
+
+  // Save to config
+  if AlchConfig.Data.Has('alchItem') then
+    AlchConfig.Data.Item['alchItem'].AsString := AlchItemEdit.Text
+  else
+    AlchConfig.Data.AddString('alchItem', AlchItemEdit.Text);
+
+  if AlchConfig.Data.Has('method') then
+    AlchConfig.Data.Item['method'].AsInt := Ord(HighAlch.Method)
+  else
+    AlchConfig.Data.AddInt('method', Ord(HighAlch.Method));
+
+  HighAlch.MaxActions := Self.Goals.Actions.Value;
+  HighAlch.MaxTime    := Self.Goals.Time.Value * ONE_MINUTE;
+  HighAlch.MaxLevel   := Self.Goals.Level.Value;
+
+  AlchConfig.Save();
+end;
+
+procedure TScriptForm.Init();
+var
+  tab: TLazTabSheet;
+  panel: TLazPanel;
+  savedAlchItem: String;
+  savedMethod: Integer;
+begin
+  AlchConfig.Setup('scripts' + PATH_SEP + 'godtier-alch');
+
+  Self.Setup('GodTier High Alch', AlchConfig.Data);
+
+  tab := Self.CreateTab('High Alch Settings');
+  panel := Self.CreateGoals(tab, True, True, True, EOrientation.HORIZONTAL);
+  panel.Align := ELazAlign.Bottom;
+
+  // Item to alch
+  AlchItemEdit := TLazEdit.CreateEx(tab, 'Item to Alch:', 'Enter the exact item name', 20, 20, 200);
+
+  // Method selection
+  MethodComboBox := TLazComboBox.CreateEx(tab, 'Method:', 'Bank for more items or stop when done', 20, 70, 200);
+  MethodComboBox.Items.AddStrings(['No Banking (stop when done)', 'Bank for more items']);
+
+  // Load saved values
+  if AlchConfig.Data.Has('alchItem') then
+    savedAlchItem := AlchConfig.Data.Item['alchItem'].AsString
+  else
+    savedAlchItem := 'Yew longbow';
+
+  if AlchConfig.Data.Has('method') then
+    savedMethod := AlchConfig.Data.Item['method'].AsInt
+  else
+    savedMethod := 0;
+
+  AlchItemEdit.Text := savedAlchItem;
+  MethodComboBox.ItemIndex := savedMethod;
+
+  Self.CreateAntibanTab();
+  Self.Run();
+end;
+
+begin
+  AlchForm.Init();
+  HighAlch.Run();
+end.

@@ -1,0 +1,619 @@
+{$I WaspLib/osrs.simba}
+
+type
+  EWCState = enum(
+    NONE,
+    LOGIN,
+    LEVEL_UP,
+    WAIT_STATE,
+
+    // Woodcutting states
+    CHOP_TREE,
+    DROP_LOGS,
+    BANK_LOGS,
+    WALK_TO_TREES,
+    WALK_TO_BANK,
+
+    // Utility states
+    USE_SPECIAL,
+    HANDLE_BIRD_NEST,
+    OPEN_BANK,
+    CLOSE_BANK,
+    DEPOSIT_ITEMS,
+
+    NO_ACTIVITY, MAX_ACTIONS, MAX_TIME, MAX_LEVEL, END_SCRIPT
+  );
+
+  ETreeType = enum(
+    TREE_REGULAR,
+    TREE_OAK,
+    TREE_WILLOW,
+    TREE_MAPLE,
+    TREE_YEW,
+    TREE_MAGIC,
+    TREE_REDWOOD,
+    TREE_TEAK,
+    TREE_MAHOGANY
+  );
+
+  EWCMethod = enum(
+    METHOD_BANK,      // Bank logs
+    METHOD_DROP       // Drop logs (power-chop)
+  );
+
+  EWCLocation = enum(
+    LOC_VARROCK,      // Varrock area
+    LOC_DRAYNOR,      // Draynor Village (willows)
+    LOC_SEERS,        // Seers Village (maples)
+    LOC_LUMBRIDGE,    // Lumbridge
+    LOC_FALADOR,      // Falador
+    LOC_EDGEVILLE,    // Edgeville
+    LOC_CUSTOM        // Custom coordinates
+  );
+
+  TWoodcutting = record
+    State: EWCState;
+    Actions, MaxTime, MaxActions, MaxLevel: UInt64;
+
+    TreeType: ETreeType;
+    Method: EWCMethod;
+    Location: EWCLocation;
+    UseSpecialAttack: Boolean;
+
+    Tree: TRSObject;
+    TreeTile: TPoint;
+    BankTile: TPoint;
+
+    LogItems: TRSItemArray;
+    NestItems: TRSItemArray;
+    AxeItems: TRSItemArray;
+
+    SpecialThreshold: Integer;  // Use special at this % (usually 100)
+  end;
+
+const
+  LOG_ITEMS: TRSItemArray = [
+    'Logs', 'Oak logs', 'Willow logs', 'Maple logs',
+    'Yew logs', 'Magic logs', 'Redwood logs',
+    'Teak logs', 'Mahogany logs'
+  ];
+
+  NEST_ITEMS: TRSItemArray = [
+    'Bird nest', 'Clue nest (easy)', 'Clue nest (medium)',
+    'Clue nest (hard)', 'Clue nest (elite)'
+  ];
+
+  AXE_ITEMS: TRSItemArray = [
+    'Bronze axe', 'Iron axe', 'Steel axe', 'Black axe',
+    'Mithril axe', 'Adamant axe', 'Rune axe',
+    'Dragon axe', 'Infernal axe', 'Crystal axe',
+    'Dragon axe (or)', '3rd age axe'
+  ];
+
+  TREE_NAMES: array[ETreeType] of String = [
+    'Tree', 'Oak', 'Willow', 'Maple',
+    'Yew', 'Magic tree', 'Redwood',
+    'Teak', 'Mahogany'
+  ];
+
+  TREE_LOG_MAP: array[ETreeType] of String = [
+    'Logs', 'Oak logs', 'Willow logs', 'Maple logs',
+    'Yew logs', 'Magic logs', 'Redwood logs',
+    'Teak logs', 'Mahogany logs'
+  ];
+
+function TWoodcutting.GetReportValues(): TStringArray;
+var
+  actionsStr, sleepInfo, methodStr, treeStr: String;
+begin
+  actionsStr := ToStr(Self.Actions);
+  if Self.MaxActions <> 0 then
+    actionsStr += '/' + ToStr(Self.MaxActions);
+
+  if Antiban.Sleeps = [] then
+    sleepInfo := 'No sleep'
+  else
+    sleepInfo := Antiban.TimeUntilSleep(Antiban.Sleeps.First, TIME_SHORT);
+
+  case Self.Method of
+    EWCMethod.METHOD_BANK: methodStr := 'Banking';
+    EWCMethod.METHOD_DROP: methodStr := 'Dropping';
+  end;
+
+  treeStr := TREE_NAMES[Self.TreeType];
+
+  Result := [
+    GetTimeStamp(TIME_SHORT),
+    Logger.TimeRunning.ElapsedFmt(TIME_SHORT),
+    Antiban.TimeRunning.ElapsedFmt(TIME_SHORT),
+    sleepInfo,
+    actionsStr,
+    treeStr + ' (' + methodStr + ')'
+  ];
+end;
+
+procedure TWoodcutting.SetupTree();
+begin
+  // Set log items based on tree type
+  Self.LogItems := [TREE_LOG_MAP[Self.TreeType]];
+  Self.NestItems := NEST_ITEMS;
+  Self.AxeItems := AXE_ITEMS;
+
+  // Create tree object with walker, size, coordinates, and uptext
+  Self.Tree := TRSObject.Create(
+    @Map.Walker,
+    [2, 2, 4],  // Tree size (width, depth, height)
+    [Self.TreeTile],
+    [TREE_NAMES[Self.TreeType]]
+  );
+end;
+
+procedure TWoodcutting.Init();
+begin
+  // Setup map based on location
+  case Self.Location of
+    EWCLocation.LOC_VARROCK:   Map.Setup([ERSChunk.VARROCK]);
+    EWCLocation.LOC_DRAYNOR:   Map.Setup([ERSChunk.DRAYNOR_VILLAGE]);
+    EWCLocation.LOC_SEERS:     Map.Setup([ERSChunk.SEERS_VILLAGE]);
+    EWCLocation.LOC_LUMBRIDGE: Map.Setup([ERSChunk.LUMBRIDGE]);
+    EWCLocation.LOC_FALADOR:   Map.Setup([ERSChunk.FALADOR]);
+    EWCLocation.LOC_EDGEVILLE: Map.Setup([ERSChunk.EDGEVILLE]);
+    EWCLocation.LOC_CUSTOM:    Map.Setup([ERSChunk.VARROCK]); // Default, uses custom tiles
+  end;
+
+  Logger.Setup('GodTier Woodcutting');
+  ProgressReport.Setup(
+    'GodTier Woodcutting',
+    [
+      'Script runtime:', 'Botting runtime:', 'Antiban runtime:', 'Next sleep:',
+      'Actions:', 'Method:'
+    ],
+    @Self.GetReportValues
+  );
+
+  // Default settings
+  Self.SpecialThreshold := 100;
+  Self.UseSpecialAttack := True;
+
+  Antiban.Zoom.Min := 0;
+  Antiban.Zoom.Max := 30;
+  Antiban.Skills := [ERSSkill.TOTAL, ERSSkill.WOODCUTTING];
+
+  Self.SetupTree();
+end;
+
+// ============================================================================
+// Utility Functions
+// ============================================================================
+
+function TWoodcutting.HasLogs(): Boolean;
+begin
+  Result := Inventory.Items.ContainsAny(Self.LogItems);
+end;
+
+function TWoodcutting.HasBirdNest(): Boolean;
+begin
+  Result := Inventory.Items.ContainsAny(Self.NestItems);
+end;
+
+function TWoodcutting.HasAxe(): Boolean;
+begin
+  // Check inventory and equipment
+  Result := Inventory.Items.ContainsAny(Self.AxeItems) or
+            Equipment.Items.ContainsAny(Self.AxeItems);
+end;
+
+function TWoodcutting.IsChopping(): Boolean;
+begin
+  // Check if player is animating (chopping)
+  Result := Minimap.IsPlayerMoving() = False and
+            MainScreen.IsUpText(TREE_NAMES[Self.TreeType]) = False;
+  // Could also check player animation
+end;
+
+function TWoodcutting.InventoryFull(): Boolean;
+begin
+  Result := Inventory.IsFull();
+end;
+
+function TWoodcutting.AtTrees(): Boolean;
+begin
+  Result := Map.Position().InRange(Self.TreeTile, 50);
+end;
+
+function TWoodcutting.AtBank(): Boolean;
+begin
+  Result := Map.Position().InRange(Self.BankTile, 30);
+end;
+
+// ============================================================================
+// Action Functions
+// ============================================================================
+
+function TWoodcutting.ChopTree(): Boolean;
+begin
+  if not Self.Tree.WalkClick() then
+    Exit(False);
+
+  Minimap.WaitMoving();
+
+  // Wait until we start chopping or tree is gone
+  Result := SleepUntil(Inventory.IsFull() or Self.HasLogs(), 500, 30000);
+
+  if Result then
+  begin
+    Self.Actions += 1;
+    Activity.Restart();
+  end;
+end;
+
+function TWoodcutting.DropLogs(): Boolean;
+begin
+  if not Inventory.Open() then
+    Exit(False);
+
+  if Inventory.ShiftDrop(Self.LogItems, Inventory.RandomPattern()) then
+    Result := True;
+
+  if Result then
+    Activity.Restart();
+end;
+
+function TWoodcutting.HandleBirdNest(): Boolean;
+var
+  slot: Integer;
+  item: TRSItem;
+begin
+  if not Inventory.Open() then
+    Exit(False);
+
+  for item in Self.NestItems do
+  begin
+    if Inventory.Items.Find(item, slot) then
+    begin
+      // Just click to pick up the nest (it auto-collects)
+      Logger.Info('Found bird nest!');
+      Result := True;
+      Activity.Restart();
+      Exit;
+    end;
+  end;
+end;
+
+function TWoodcutting.UseSpecial(): Boolean;
+begin
+  if not Minimap.HasSpecial() then
+    Exit(False);
+
+  if Minimap.GetSpecLevel() >= Self.SpecialThreshold then
+  begin
+    Result := Minimap.EnableSpecial(Self.SpecialThreshold);
+    if Result then
+      Activity.Restart();
+  end;
+end;
+
+function TWoodcutting.WalkToTrees(): Boolean;
+begin
+  Result := Map.Walker.WebWalk(Self.TreeTile, 20, 0.2);
+  if Result then
+    Activity.Restart();
+end;
+
+function TWoodcutting.WalkToBank(): Boolean;
+begin
+  Result := Map.Walker.WebWalk(Self.BankTile, 10, 0.2);
+  if Result then
+    Activity.Restart();
+end;
+
+function TWoodcutting.OpenBank(): Boolean;
+begin
+  Result := Bank.Open();
+  if Result then
+    Activity.Restart();
+end;
+
+function TWoodcutting.DepositLogs(): Boolean;
+var
+  item: TRSItem;
+begin
+  if not Bank.IsOpen() then
+    Exit(False);
+
+  // Deposit all logs
+  for item in Self.LogItems do
+    if Inventory.Items.Contains(item) then
+      Bank.Deposit(item);
+
+  // Also deposit nests if any
+  for item in Self.NestItems do
+    if Inventory.Items.Contains(item) then
+      Bank.Deposit(item);
+
+  Result := not Inventory.Items.ContainsAny(Self.LogItems);
+
+  if Result then
+    Activity.Restart();
+end;
+
+function TWoodcutting.CloseBank(): Boolean;
+begin
+  Result := Bank.Close();
+  if Result then
+    Activity.Restart();
+end;
+
+// ============================================================================
+// State Machine
+// ============================================================================
+
+function TWoodcutting.GetCommonState(): EWCState;
+begin
+  Result := EWCState.NONE;
+
+  if Activity.IsFinished then
+    Exit(EWCState.NO_ACTIVITY);
+
+  if (Self.MaxActions > 0) and (Self.Actions >= Self.MaxActions) then
+    Exit(EWCState.MAX_ACTIONS);
+
+  if (Self.MaxTime > 0) and (Logger.TimeRunning.Elapsed >= Self.MaxTime) then
+    Exit(EWCState.MAX_TIME);
+
+  if (Self.MaxLevel > 0) and (Stats.GetLevel(ERSSkill.WOODCUTTING) >= Self.MaxLevel) then
+    Exit(EWCState.MAX_LEVEL);
+
+  if not RSClient.IsLoggedIn() then
+    Exit(EWCState.LOGIN);
+
+  if Chat.LeveledUp() then
+    Exit(EWCState.LEVEL_UP);
+end;
+
+function TWoodcutting.GetState(): EWCState;
+begin
+  Result := Self.GetCommonState();
+  if Result <> EWCState.NONE then
+    Exit;
+
+  // Handle bird nests first (high priority)
+  if Self.HasBirdNest() then
+    Exit(EWCState.HANDLE_BIRD_NEST);
+
+  // Use special attack if available
+  if Self.UseSpecialAttack and Minimap.HasSpecial() then
+  begin
+    if Minimap.GetSpecLevel() >= Self.SpecialThreshold then
+      Exit(EWCState.USE_SPECIAL);
+  end;
+
+  // Handle banking method
+  if Self.Method = EWCMethod.METHOD_BANK then
+  begin
+    if Bank.IsOpen() then
+    begin
+      if Self.HasLogs() then
+        Exit(EWCState.DEPOSIT_ITEMS)
+      else
+        Exit(EWCState.CLOSE_BANK);
+    end;
+
+    if Self.InventoryFull() then
+    begin
+      if Self.AtBank() then
+        Exit(EWCState.OPEN_BANK)
+      else
+        Exit(EWCState.WALK_TO_BANK);
+    end;
+
+    if not Self.AtTrees() then
+      Exit(EWCState.WALK_TO_TREES);
+
+    Exit(EWCState.CHOP_TREE);
+  end;
+
+  // Handle dropping method (power-chop)
+  if Self.Method = EWCMethod.METHOD_DROP then
+  begin
+    if Self.InventoryFull() then
+      Exit(EWCState.DROP_LOGS);
+
+    if not Self.AtTrees() then
+      Exit(EWCState.WALK_TO_TREES);
+
+    Exit(EWCState.CHOP_TREE);
+  end;
+
+  Result := EWCState.WAIT_STATE;
+end;
+
+procedure TWoodcutting.Run();
+var
+  state: EWCState;
+begin
+  Self.Init();
+
+  repeat
+    state := Self.GetState();
+    Logger.Info(ToStr(state));
+    ProgressReport.Print();
+    WaspClient.SubmitStats();
+
+    case state of
+      EWCState.LOGIN: Login.DoLogin();
+      EWCState.LEVEL_UP: Chat.HandleLevelUp();
+
+      // Woodcutting actions
+      EWCState.CHOP_TREE: Self.ChopTree();
+      EWCState.DROP_LOGS: Self.DropLogs();
+      EWCState.HANDLE_BIRD_NEST: Self.HandleBirdNest();
+      EWCState.USE_SPECIAL: Self.UseSpecial();
+
+      // Movement
+      EWCState.WALK_TO_TREES: Self.WalkToTrees();
+      EWCState.WALK_TO_BANK: Self.WalkToBank();
+
+      // Banking
+      EWCState.OPEN_BANK: Self.OpenBank();
+      EWCState.DEPOSIT_ITEMS: Self.DepositLogs();
+      EWCState.CLOSE_BANK: Self.CloseBank();
+
+      EWCState.WAIT_STATE: Sleep(500, 1000);
+
+      EWCState.NO_ACTIVITY, EWCState.MAX_ACTIONS,
+      EWCState.MAX_TIME, EWCState.MAX_LEVEL,
+      EWCState.END_SCRIPT: Break;
+    end;
+
+    Antiban.DoAntiban();
+  until False;
+
+  Logger.Info('Thank you for using ' + Logger.Name);
+end;
+
+// ============================================================================
+// Form / GUI
+// ============================================================================
+
+var
+  WC: TWoodcutting;
+  WCForm: TScriptForm;
+  WCConfig: TConfigJSON;
+  TreeTypeComboBox: TLazComboBox;
+  MethodComboBox: TLazComboBox;
+  LocationComboBox: TLazComboBox;
+  UseSpecialCheckBox: TLazCheckBox;
+  TreeXSpinEdit, TreeYSpinEdit: TLazSpinEdit;
+  BankXSpinEdit, BankYSpinEdit: TLazSpinEdit;
+
+procedure TScriptForm.OnStart(sender: TLazObject); override;
+begin
+  inherited;
+
+  // Get settings from form
+  WC.TreeType := ETreeType(TreeTypeComboBox.ItemIndex);
+  WC.Method := EWCMethod(MethodComboBox.ItemIndex);
+  WC.Location := EWCLocation(LocationComboBox.ItemIndex);
+  WC.UseSpecialAttack := UseSpecialCheckBox.IsChecked();
+
+  // Get coordinates
+  WC.TreeTile := [TreeXSpinEdit.Value, TreeYSpinEdit.Value];
+  WC.BankTile := [BankXSpinEdit.Value, BankYSpinEdit.Value];
+
+  // Save to config
+  if WCConfig.Data.Has('treeType') then
+    WCConfig.Data.Item['treeType'].AsInt := Ord(WC.TreeType)
+  else
+    WCConfig.Data.AddInt('treeType', Ord(WC.TreeType));
+
+  if WCConfig.Data.Has('method') then
+    WCConfig.Data.Item['method'].AsInt := Ord(WC.Method)
+  else
+    WCConfig.Data.AddInt('method', Ord(WC.Method));
+
+  if WCConfig.Data.Has('location') then
+    WCConfig.Data.Item['location'].AsInt := Ord(WC.Location)
+  else
+    WCConfig.Data.AddInt('location', Ord(WC.Location));
+
+  if WCConfig.Data.Has('useSpecial') then
+    WCConfig.Data.Item['useSpecial'].AsBool := WC.UseSpecialAttack
+  else
+    WCConfig.Data.AddBool('useSpecial', WC.UseSpecialAttack);
+
+  WC.MaxActions := Self.Goals.Actions.Value;
+  WC.MaxTime    := Self.Goals.Time.Value * ONE_MINUTE;
+  WC.MaxLevel   := Self.Goals.Level.Value;
+
+  WCConfig.Save();
+end;
+
+procedure TScriptForm.Init();
+var
+  tab: TLazTabSheet;
+  panel: TLazPanel;
+  savedTreeType, savedMethod, savedLocation: Integer;
+  savedUseSpecial: Boolean;
+begin
+  WCConfig.Setup('scripts' + PATH_SEP + 'godtier-wc');
+
+  Self.Setup('GodTier Woodcutting', WCConfig.Data);
+
+  tab := Self.CreateTab('Woodcutting Settings');
+  panel := Self.CreateGoals(tab, True, True, True, EOrientation.HORIZONTAL);
+  panel.Align := ELazAlign.Bottom;
+
+  // Location selection
+  LocationComboBox := TLazComboBox.CreateEx(tab, 'Location:', 'Map location for trees', 20, 20, 200);
+  LocationComboBox.Items.AddStrings([
+    'Varrock', 'Draynor Village', 'Seers Village',
+    'Lumbridge', 'Falador', 'Edgeville', 'Custom'
+  ]);
+
+  // Tree type selection
+  TreeTypeComboBox := TLazComboBox.CreateEx(tab, 'Tree Type:', 'Type of tree to chop', 20, 70, 200);
+  TreeTypeComboBox.Items.AddStrings([
+    'Regular Tree', 'Oak', 'Willow', 'Maple',
+    'Yew', 'Magic', 'Redwood', 'Teak', 'Mahogany'
+  ]);
+
+  // Method selection
+  MethodComboBox := TLazComboBox.CreateEx(tab, 'Method:', 'Bank or drop logs', 20, 120, 200);
+  MethodComboBox.Items.AddStrings(['Bank Logs', 'Drop Logs (Power-chop)']);
+
+  // Special attack checkbox
+  UseSpecialCheckBox := TLazCheckBox.CreateEx(tab, 'Use Special Attack', 'Use dragon/infernal axe special', 20, 170);
+
+  // Tree coordinates
+  TreeXSpinEdit := TLazSpinEdit.CreateEx(tab, 'Tree X:', 'X coordinate of trees', 20, 220, 100);
+  TreeXSpinEdit.MinValue := 0;
+  TreeXSpinEdit.MaxValue := 100000;
+
+  TreeYSpinEdit := TLazSpinEdit.CreateEx(tab, 'Tree Y:', 'Y coordinate of trees', 140, 220, 100);
+  TreeYSpinEdit.MinValue := 0;
+  TreeYSpinEdit.MaxValue := 100000;
+
+  // Bank coordinates
+  BankXSpinEdit := TLazSpinEdit.CreateEx(tab, 'Bank X:', 'X coordinate of bank', 20, 270, 100);
+  BankXSpinEdit.MinValue := 0;
+  BankXSpinEdit.MaxValue := 100000;
+
+  BankYSpinEdit := TLazSpinEdit.CreateEx(tab, 'Bank Y:', 'Y coordinate of bank', 140, 270, 100);
+  BankYSpinEdit.MinValue := 0;
+  BankYSpinEdit.MaxValue := 100000;
+
+  // Load saved values
+  if WCConfig.Data.Has('location') then
+    savedLocation := WCConfig.Data.Item['location'].AsInt
+  else
+    savedLocation := 0;
+
+  if WCConfig.Data.Has('treeType') then
+    savedTreeType := WCConfig.Data.Item['treeType'].AsInt
+  else
+    savedTreeType := 0;
+
+  if WCConfig.Data.Has('method') then
+    savedMethod := WCConfig.Data.Item['method'].AsInt
+  else
+    savedMethod := 0;
+
+  if WCConfig.Data.Has('useSpecial') then
+    savedUseSpecial := WCConfig.Data.Item['useSpecial'].AsBool
+  else
+    savedUseSpecial := True;
+
+  LocationComboBox.ItemIndex := savedLocation;
+  TreeTypeComboBox.ItemIndex := savedTreeType;
+  MethodComboBox.ItemIndex := savedMethod;
+  UseSpecialCheckBox.SetChecked(savedUseSpecial);
+
+  Self.CreateAntibanTab();
+  Self.Run();
+end;
+
+begin
+  WCForm.Init();
+  WC.Run();
+end.

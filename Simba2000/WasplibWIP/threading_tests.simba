@@ -1,0 +1,43 @@
+{$INCLUDE_ONCE WaspLib/osrs.simba}
+
+const
+ MAP_CHUNK := ERSChunk.FALADOR; //ERSChunk.FALADOR; //SET THIS YOURSELF
+
+var
+  DebugThread: TThread;
+  MapPos, MapPosLoop: TPoint;
+
+procedure DrawToCanvas();
+begin
+  MapPosLoop := Map.Position;
+
+  RSClient.Canvas.Clear();
+  RSClient.Canvas.DrawColor := Colors.WHITE;
+  RSClient.Canvas.DrawText('Time: ' + ToStr(Logger.TimeRunning.Elapsed), Point(40,40));
+  RSClient.Canvas.DrawText('MapPos: ' + ToStr(MapPosLoop), Point(40,60));
+end;
+
+procedure ThreadLoop;
+begin
+  while not DebugThread.IsTerminated do
+  begin
+    DrawToCanvas();
+    Sleep(20);
+  end;
+end;
+
+var
+ i: Integer;
+
+begin
+  Logger.Setup('ThreadTesting');
+  Map.Setup([MAP_CHUNK]);
+  DebugThread := TThread.Create(@ThreadLoop); //start thread
+  RSClient.EnableRealInput();
+  repeat
+    MapPos := Map.Position;
+    Logger.Info(ToStr(i) + ' - ' + ToStr(MapPos));
+    Sleep(1000);
+    Inc(i, 1);
+  until(false);
+end.

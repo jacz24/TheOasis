@@ -1,0 +1,671 @@
+{$I WaspLib/osrs.simba}
+
+type
+  EFletchState = enum(
+    NONE,
+    LOGIN,
+    LEVEL_UP,
+    WAIT_STATE,
+
+    // Fletching states
+    OPEN_BANK,
+    CLOSE_BANK,
+    DEPOSIT_ITEMS,
+    WITHDRAW_ITEMS,
+    USE_ITEMS,
+    SELECT_OPTION,
+    WAIT_FLETCHING,
+
+    NO_ACTIVITY, MAX_ACTIONS, MAX_TIME, MAX_LEVEL, END_SCRIPT
+  );
+
+  EFletchMethod = enum(
+    // Bow cutting
+    METHOD_SHORTBOW_U,      // Logs -> Shortbow (u)
+    METHOD_LONGBOW_U,       // Logs -> Longbow (u)
+    METHOD_CROSSBOW_STOCK,  // Logs -> Crossbow stock
+
+    // Bow stringing
+    METHOD_STRING_BOW,      // Bow (u) + Bowstring -> Bow
+
+    // Arrows
+    METHOD_ARROW_SHAFT,     // Logs -> Arrow shafts
+    METHOD_HEADLESS_ARROW,  // Arrow shaft + Feather -> Headless arrow
+    METHOD_ARROW,           // Headless arrow + Arrowhead -> Arrow
+
+    // Bolts
+    METHOD_BOLT,            // Unfinished bolt + Feather -> Bolt
+    METHOD_BOLT_TIP,        // Bolt + Bolt tip -> Tipped bolt
+
+    // Darts
+    METHOD_DART             // Dart tip + Feather -> Dart
+  );
+
+  ELogType = enum(
+    LOG_NORMAL,
+    LOG_OAK,
+    LOG_WILLOW,
+    LOG_MAPLE,
+    LOG_YEW,
+    LOG_MAGIC,
+    LOG_REDWOOD
+  );
+
+  EMetalType = enum(
+    METAL_BRONZE,
+    METAL_IRON,
+    METAL_STEEL,
+    METAL_MITHRIL,
+    METAL_ADAMANT,
+    METAL_RUNE,
+    METAL_AMETHYST,
+    METAL_DRAGON
+  );
+
+  TFletching = record
+    State: EFletchState;
+    Actions, MaxTime, MaxActions, MaxLevel: UInt64;
+
+    Method: EFletchMethod;
+    LogType: ELogType;
+    MetalType: EMetalType;
+
+    PrimaryItem: TRSItem;
+    SecondaryItem: TRSItem;
+    ProductItem: TRSItem;
+
+    PrimaryAmount: Integer;
+    SecondaryAmount: Integer;
+
+    MakeOptionIndex: Integer;  // Which option to select in make menu (0-3)
+  end;
+
+const
+  LOG_NAMES: array[ELogType] of String = [
+    'Logs', 'Oak logs', 'Willow logs', 'Maple logs',
+    'Yew logs', 'Magic logs', 'Redwood logs'
+  ];
+
+  METAL_NAMES: array[EMetalType] of String = [
+    'Bronze', 'Iron', 'Steel', 'Mithril',
+    'Adamant', 'Rune', 'Amethyst', 'Dragon'
+  ];
+
+  // Unstrung bows by log type
+  SHORTBOW_U: array[ELogType] of String = [
+    'Shortbow (u)', 'Oak shortbow (u)', 'Willow shortbow (u)', 'Maple shortbow (u)',
+    'Yew shortbow (u)', 'Magic shortbow (u)', ''
+  ];
+
+  LONGBOW_U: array[ELogType] of String = [
+    'Longbow (u)', 'Oak longbow (u)', 'Willow longbow (u)', 'Maple longbow (u)',
+    'Yew longbow (u)', 'Magic longbow (u)', ''
+  ];
+
+  // Strung bows
+  SHORTBOW: array[ELogType] of String = [
+    'Shortbow', 'Oak shortbow', 'Willow shortbow', 'Maple shortbow',
+    'Yew shortbow', 'Magic shortbow', ''
+  ];
+
+  LONGBOW: array[ELogType] of String = [
+    'Longbow', 'Oak longbow', 'Willow longbow', 'Maple longbow',
+    'Yew longbow', 'Magic longbow', ''
+  ];
+
+  // Crossbow stocks
+  CROSSBOW_STOCK: array[ELogType] of String = [
+    'Wooden stock', 'Oak stock', 'Willow stock', 'Maple stock',
+    'Yew stock', 'Magic stock', ''
+  ];
+
+  // Arrows by metal type
+  ARROWHEADS: array[EMetalType] of String = [
+    'Bronze arrowtips', 'Iron arrowtips', 'Steel arrowtips', 'Mithril arrowtips',
+    'Adamant arrowtips', 'Rune arrowtips', 'Amethyst arrowtips', 'Dragon arrowtips'
+  ];
+
+  ARROWS: array[EMetalType] of String = [
+    'Bronze arrow', 'Iron arrow', 'Steel arrow', 'Mithril arrow',
+    'Adamant arrow', 'Rune arrow', 'Amethyst arrow', 'Dragon arrow'
+  ];
+
+  // Dart tips by metal type
+  DART_TIPS: array[EMetalType] of String = [
+    'Bronze dart tip', 'Iron dart tip', 'Steel dart tip', 'Mithril dart tip',
+    'Adamant dart tip', 'Rune dart tip', 'Amethyst dart tip', 'Dragon dart tip'
+  ];
+
+  DARTS: array[EMetalType] of String = [
+    'Bronze dart', 'Iron dart', 'Steel dart', 'Mithril dart',
+    'Adamant dart', 'Rune dart', 'Amethyst dart', 'Dragon dart'
+  ];
+
+function TFletching.GetReportValues(): TStringArray;
+var
+  actionsStr, sleepInfo, methodStr: String;
+begin
+  actionsStr := ToStr(Self.Actions);
+  if Self.MaxActions <> 0 then
+    actionsStr += '/' + ToStr(Self.MaxActions);
+
+  if Antiban.Sleeps = [] then
+    sleepInfo := 'No sleep'
+  else
+    sleepInfo := Antiban.TimeUntilSleep(Antiban.Sleeps.First, TIME_SHORT);
+
+  case Self.Method of
+    EFletchMethod.METHOD_SHORTBOW_U: methodStr := 'Shortbow (u)';
+    EFletchMethod.METHOD_LONGBOW_U: methodStr := 'Longbow (u)';
+    EFletchMethod.METHOD_CROSSBOW_STOCK: methodStr := 'Crossbow Stock';
+    EFletchMethod.METHOD_STRING_BOW: methodStr := 'String Bow';
+    EFletchMethod.METHOD_ARROW_SHAFT: methodStr := 'Arrow Shafts';
+    EFletchMethod.METHOD_HEADLESS_ARROW: methodStr := 'Headless Arrows';
+    EFletchMethod.METHOD_ARROW: methodStr := 'Arrows';
+    EFletchMethod.METHOD_BOLT: methodStr := 'Bolts';
+    EFletchMethod.METHOD_BOLT_TIP: methodStr := 'Tipped Bolts';
+    EFletchMethod.METHOD_DART: methodStr := 'Darts';
+  end;
+
+  Result := [
+    GetTimeStamp(TIME_SHORT),
+    Logger.TimeRunning.ElapsedFmt(TIME_SHORT),
+    Antiban.TimeRunning.ElapsedFmt(TIME_SHORT),
+    sleepInfo,
+    actionsStr,
+    methodStr
+  ];
+end;
+
+procedure TFletching.SetupItems();
+begin
+  // Configure items based on method and material type
+  case Self.Method of
+    EFletchMethod.METHOD_SHORTBOW_U:
+    begin
+      Self.PrimaryItem := LOG_NAMES[Self.LogType];
+      Self.SecondaryItem := 'Knife';
+      Self.ProductItem := SHORTBOW_U[Self.LogType];
+      Self.PrimaryAmount := 27;
+      Self.SecondaryAmount := 1;
+      Self.MakeOptionIndex := 0;  // Shortbow is usually first
+    end;
+
+    EFletchMethod.METHOD_LONGBOW_U:
+    begin
+      Self.PrimaryItem := LOG_NAMES[Self.LogType];
+      Self.SecondaryItem := 'Knife';
+      Self.ProductItem := LONGBOW_U[Self.LogType];
+      Self.PrimaryAmount := 27;
+      Self.SecondaryAmount := 1;
+      Self.MakeOptionIndex := 1;  // Longbow is usually second
+    end;
+
+    EFletchMethod.METHOD_CROSSBOW_STOCK:
+    begin
+      Self.PrimaryItem := LOG_NAMES[Self.LogType];
+      Self.SecondaryItem := 'Knife';
+      Self.ProductItem := CROSSBOW_STOCK[Self.LogType];
+      Self.PrimaryAmount := 27;
+      Self.SecondaryAmount := 1;
+      Self.MakeOptionIndex := 2;  // Stock is usually third
+    end;
+
+    EFletchMethod.METHOD_STRING_BOW:
+    begin
+      Self.PrimaryItem := LONGBOW_U[Self.LogType];  // or shortbow based on config
+      Self.SecondaryItem := 'Bow string';
+      Self.ProductItem := LONGBOW[Self.LogType];
+      Self.PrimaryAmount := 14;
+      Self.SecondaryAmount := 14;
+      Self.MakeOptionIndex := 0;
+    end;
+
+    EFletchMethod.METHOD_ARROW_SHAFT:
+    begin
+      Self.PrimaryItem := LOG_NAMES[Self.LogType];
+      Self.SecondaryItem := 'Knife';
+      Self.ProductItem := 'Arrow shaft';
+      Self.PrimaryAmount := 27;
+      Self.SecondaryAmount := 1;
+      Self.MakeOptionIndex := 3;  // Arrow shafts usually last option
+    end;
+
+    EFletchMethod.METHOD_HEADLESS_ARROW:
+    begin
+      Self.PrimaryItem := 'Arrow shaft';
+      Self.SecondaryItem := 'Feather';
+      Self.ProductItem := 'Headless arrow';
+      Self.PrimaryAmount := 14;
+      Self.SecondaryAmount := 14;
+      Self.MakeOptionIndex := 0;
+    end;
+
+    EFletchMethod.METHOD_ARROW:
+    begin
+      Self.PrimaryItem := 'Headless arrow';
+      Self.SecondaryItem := ARROWHEADS[Self.MetalType];
+      Self.ProductItem := ARROWS[Self.MetalType];
+      Self.PrimaryAmount := 14;
+      Self.SecondaryAmount := 14;
+      Self.MakeOptionIndex := 0;
+    end;
+
+    EFletchMethod.METHOD_DART:
+    begin
+      Self.PrimaryItem := DART_TIPS[Self.MetalType];
+      Self.SecondaryItem := 'Feather';
+      Self.ProductItem := DARTS[Self.MetalType];
+      Self.PrimaryAmount := 14;
+      Self.SecondaryAmount := 14;
+      Self.MakeOptionIndex := 0;
+    end;
+  end;
+end;
+
+procedure TFletching.Init();
+begin
+  // Setup map for bank area (Varrock is common)
+  Map.Setup([ERSChunk.VARROCK]);
+
+  Logger.Setup('GodTier Fletching');
+  ProgressReport.Setup(
+    'GodTier Fletching',
+    [
+      'Script runtime:', 'Botting runtime:', 'Antiban runtime:', 'Next sleep:',
+      'Actions:', 'Method:'
+    ],
+    @Self.GetReportValues
+  );
+
+  Antiban.Zoom.Min := 0;
+  Antiban.Zoom.Max := 30;
+  Antiban.Skills := [ERSSkill.TOTAL, ERSSkill.FLETCHING];
+
+  Self.SetupItems();
+end;
+
+// ============================================================================
+// Utility Functions
+// ============================================================================
+
+function TFletching.HasPrimaryItem(): Boolean;
+begin
+  Result := Inventory.Items.Contains(Self.PrimaryItem);
+end;
+
+function TFletching.HasSecondaryItem(): Boolean;
+begin
+  Result := Inventory.Items.Contains(Self.SecondaryItem);
+end;
+
+function TFletching.HasProduct(): Boolean;
+begin
+  Result := Inventory.Items.Contains(Self.ProductItem);
+end;
+
+function TFletching.HasRequiredItems(): Boolean;
+begin
+  Result := Self.HasPrimaryItem() and Self.HasSecondaryItem();
+end;
+
+function TFletching.IsFletching(): Boolean;
+begin
+  // Check if make interface is open or we're in the middle of fletching
+  Result := Make.IsOpen() or (not Inventory.IsFull() and Self.HasProduct());
+end;
+
+function TFletching.CountPrimaryItem(): Integer;
+begin
+  Result := Inventory.Items.Count(Self.PrimaryItem);
+end;
+
+function TFletching.CountSecondaryItem(): Integer;
+begin
+  Result := Inventory.Items.Count(Self.SecondaryItem);
+end;
+
+// ============================================================================
+// Action Functions
+// ============================================================================
+
+function TFletching.OpenBank(): Boolean;
+begin
+  Result := Bank.Open();
+  if Result then
+    Activity.Restart();
+end;
+
+function TFletching.CloseBank(): Boolean;
+begin
+  Result := Bank.Close();
+  if Result then
+    Activity.Restart();
+end;
+
+function TFletching.DepositItems(): Boolean;
+begin
+  if not Bank.IsOpen() then
+    Exit(False);
+
+  // Deposit products
+  Result := Bank.Deposit(Self.ProductItem);
+
+  // Deposit any leftover primary items if we need exact amounts
+  if Self.HasPrimaryItem() and (Self.CountPrimaryItem() < Self.PrimaryAmount) then
+    Bank.Deposit(Self.PrimaryItem);
+
+  if Result then
+    Activity.Restart();
+end;
+
+function TFletching.WithdrawItems(): Boolean;
+var
+  primaryNeeded, secondaryNeeded: Integer;
+begin
+  if not Bank.IsOpen() then
+    Exit(False);
+
+  // Calculate how many we need
+  primaryNeeded := Self.PrimaryAmount - Self.CountPrimaryItem();
+  secondaryNeeded := Self.SecondaryAmount - Self.CountSecondaryItem();
+
+  // Withdraw primary items
+  if primaryNeeded > 0 then
+  begin
+    if not Bank.Withdraw(Self.PrimaryItem.ToBankItem(primaryNeeded)) then
+      Exit(False);
+  end;
+
+  // Withdraw secondary items (if not knife which stays in inventory)
+  if (secondaryNeeded > 0) and (Self.SecondaryItem <> 'Knife') then
+  begin
+    if not Bank.Withdraw(Self.SecondaryItem.ToBankItem(secondaryNeeded)) then
+      Exit(False);
+  end
+  else if (Self.SecondaryItem = 'Knife') and not Self.HasSecondaryItem() then
+  begin
+    // Withdraw knife if we don't have one
+    if not Bank.Withdraw(TRSItem('Knife').ToBankItem(1)) then
+      Exit(False);
+  end;
+
+  Result := True;
+  if Result then
+    Activity.Restart();
+end;
+
+function TFletching.UseItemsOnEachOther(): Boolean;
+var
+  primarySlot, secondarySlot: Integer;
+begin
+  if not Inventory.Open() then
+    Exit(False);
+
+  // Find items
+  if not Inventory.Items.Find(Self.PrimaryItem, primarySlot) then
+    Exit(False);
+
+  if not Inventory.Items.Find(Self.SecondaryItem, secondarySlot) then
+    Exit(False);
+
+  // Use items on each other
+  Inventory.Items.Interact(primarySlot, 'Use');
+  Sleep(100, 200);
+  Inventory.Items.Interact(secondarySlot);
+
+  // Wait for make interface
+  Result := Make.WaitOpen(3000);
+
+  if Result then
+    Activity.Restart();
+end;
+
+function TFletching.SelectMakeOption(): Boolean;
+begin
+  if not Make.IsOpen() then
+    Exit(False);
+
+  // Select the appropriate option and make all
+  Result := Make.Select(Self.MakeOptionIndex, QUANTITY_ALL);
+
+  if Result then
+  begin
+    Self.Actions += 1;
+    Activity.Restart();
+  end;
+end;
+
+function TFletching.WaitForFletching(): Boolean;
+var
+  startCount: Integer;
+begin
+  startCount := Self.CountPrimaryItem();
+
+  // Wait until we run out of materials or level up interrupts
+  Result := SleepUntil(
+    (Self.CountPrimaryItem() = 0) or
+    (Self.CountPrimaryItem() = startCount) or  // Stuck/no progress
+    Chat.LeveledUp() or
+    not RSClient.IsLoggedIn(),
+    500, 60000
+  );
+
+  Activity.Restart();
+end;
+
+// ============================================================================
+// State Machine
+// ============================================================================
+
+function TFletching.GetCommonState(): EFletchState;
+begin
+  Result := EFletchState.NONE;
+
+  if Activity.IsFinished then
+    Exit(EFletchState.NO_ACTIVITY);
+
+  if (Self.MaxActions > 0) and (Self.Actions >= Self.MaxActions) then
+    Exit(EFletchState.MAX_ACTIONS);
+
+  if (Self.MaxTime > 0) and (Logger.TimeRunning.Elapsed >= Self.MaxTime) then
+    Exit(EFletchState.MAX_TIME);
+
+  if (Self.MaxLevel > 0) and (Stats.GetLevel(ERSSkill.FLETCHING) >= Self.MaxLevel) then
+    Exit(EFletchState.MAX_LEVEL);
+
+  if not RSClient.IsLoggedIn() then
+    Exit(EFletchState.LOGIN);
+
+  if Chat.LeveledUp() then
+    Exit(EFletchState.LEVEL_UP);
+end;
+
+function TFletching.GetState(): EFletchState;
+begin
+  Result := Self.GetCommonState();
+  if Result <> EFletchState.NONE then
+    Exit;
+
+  // If make interface is open, select option
+  if Make.IsOpen() then
+    Exit(EFletchState.SELECT_OPTION);
+
+  // If bank is open
+  if Bank.IsOpen() then
+  begin
+    // Deposit products first
+    if Self.HasProduct() then
+      Exit(EFletchState.DEPOSIT_ITEMS);
+
+    // Withdraw items if needed
+    if not Self.HasRequiredItems() then
+      Exit(EFletchState.WITHDRAW_ITEMS);
+
+    // Close bank when ready
+    Exit(EFletchState.CLOSE_BANK);
+  end;
+
+  // If we have required items, start fletching
+  if Self.HasRequiredItems() then
+    Exit(EFletchState.USE_ITEMS);
+
+  // Need to bank
+  Exit(EFletchState.OPEN_BANK);
+end;
+
+procedure TFletching.Run();
+var
+  state: EFletchState;
+begin
+  Self.Init();
+
+  repeat
+    state := Self.GetState();
+    Logger.Info(ToStr(state));
+    ProgressReport.Print();
+    WaspClient.SubmitStats();
+
+    case state of
+      EFletchState.LOGIN: Login.DoLogin();
+      EFletchState.LEVEL_UP: Chat.HandleLevelUp();
+
+      // Banking
+      EFletchState.OPEN_BANK: Self.OpenBank();
+      EFletchState.CLOSE_BANK: Self.CloseBank();
+      EFletchState.DEPOSIT_ITEMS: Self.DepositItems();
+      EFletchState.WITHDRAW_ITEMS: Self.WithdrawItems();
+
+      // Fletching
+      EFletchState.USE_ITEMS: Self.UseItemsOnEachOther();
+      EFletchState.SELECT_OPTION: Self.SelectMakeOption();
+      EFletchState.WAIT_FLETCHING: Self.WaitForFletching();
+
+      EFletchState.WAIT_STATE: Sleep(500, 1000);
+
+      EFletchState.NO_ACTIVITY, EFletchState.MAX_ACTIONS,
+      EFletchState.MAX_TIME, EFletchState.MAX_LEVEL,
+      EFletchState.END_SCRIPT: Break;
+    end;
+
+    Antiban.DoAntiban();
+  until False;
+
+  Logger.Info('Thank you for using ' + Logger.Name);
+end;
+
+// ============================================================================
+// Form / GUI
+// ============================================================================
+
+var
+  Fletch: TFletching;
+  FletchForm: TScriptForm;
+  FletchConfig: TConfigJSON;
+  MethodComboBox: TLazComboBox;
+  LogTypeComboBox: TLazComboBox;
+  MetalTypeComboBox: TLazComboBox;
+
+procedure TScriptForm.OnStart(sender: TLazObject); override;
+begin
+  inherited;
+
+  // Get settings from form
+  Fletch.Method := EFletchMethod(MethodComboBox.ItemIndex);
+  Fletch.LogType := ELogType(LogTypeComboBox.ItemIndex);
+  Fletch.MetalType := EMetalType(MetalTypeComboBox.ItemIndex);
+
+  // Save to config
+  if FletchConfig.Data.Has('method') then
+    FletchConfig.Data.Item['method'].AsInt := Ord(Fletch.Method)
+  else
+    FletchConfig.Data.AddInt('method', Ord(Fletch.Method));
+
+  if FletchConfig.Data.Has('logType') then
+    FletchConfig.Data.Item['logType'].AsInt := Ord(Fletch.LogType)
+  else
+    FletchConfig.Data.AddInt('logType', Ord(Fletch.LogType));
+
+  if FletchConfig.Data.Has('metalType') then
+    FletchConfig.Data.Item['metalType'].AsInt := Ord(Fletch.MetalType)
+  else
+    FletchConfig.Data.AddInt('metalType', Ord(Fletch.MetalType));
+
+  Fletch.MaxActions := Self.Goals.Actions.Value;
+  Fletch.MaxTime    := Self.Goals.Time.Value * ONE_MINUTE;
+  Fletch.MaxLevel   := Self.Goals.Level.Value;
+
+  FletchConfig.Save();
+end;
+
+procedure TScriptForm.Init();
+var
+  tab: TLazTabSheet;
+  panel: TLazPanel;
+  savedMethod, savedLogType, savedMetalType: Integer;
+begin
+  FletchConfig.Setup('scripts' + PATH_SEP + 'godtier-fletch');
+
+  Self.Setup('GodTier Fletching', FletchConfig.Data);
+
+  tab := Self.CreateTab('Fletching Settings');
+  panel := Self.CreateGoals(tab, True, True, True, EOrientation.HORIZONTAL);
+  panel.Align := ELazAlign.Bottom;
+
+  // Method selection
+  MethodComboBox := TLazComboBox.CreateEx(tab, 'Method:', 'What to fletch', 20, 20, 220);
+  MethodComboBox.Items.AddStrings([
+    'Cut Shortbow (u)',
+    'Cut Longbow (u)',
+    'Cut Crossbow Stock',
+    'String Bow',
+    'Cut Arrow Shafts',
+    'Make Headless Arrows',
+    'Attach Arrowheads',
+    'Feather Bolts',
+    'Attach Bolt Tips',
+    'Make Darts'
+  ]);
+
+  // Log type selection
+  LogTypeComboBox := TLazComboBox.CreateEx(tab, 'Log Type:', 'Type of logs (for cutting)', 20, 70, 200);
+  LogTypeComboBox.Items.AddStrings([
+    'Normal Logs', 'Oak Logs', 'Willow Logs', 'Maple Logs',
+    'Yew Logs', 'Magic Logs', 'Redwood Logs'
+  ]);
+
+  // Metal type selection
+  MetalTypeComboBox := TLazComboBox.CreateEx(tab, 'Metal Type:', 'Type of metal (for arrows/darts)', 20, 120, 200);
+  MetalTypeComboBox.Items.AddStrings([
+    'Bronze', 'Iron', 'Steel', 'Mithril',
+    'Adamant', 'Rune', 'Amethyst', 'Dragon'
+  ]);
+
+  // Load saved values
+  if FletchConfig.Data.Has('method') then
+    savedMethod := FletchConfig.Data.Item['method'].AsInt
+  else
+    savedMethod := 0;
+
+  if FletchConfig.Data.Has('logType') then
+    savedLogType := FletchConfig.Data.Item['logType'].AsInt
+  else
+    savedLogType := 0;
+
+  if FletchConfig.Data.Has('metalType') then
+    savedMetalType := FletchConfig.Data.Item['metalType'].AsInt
+  else
+    savedMetalType := 0;
+
+  MethodComboBox.ItemIndex := savedMethod;
+  LogTypeComboBox.ItemIndex := savedLogType;
+  MetalTypeComboBox.ItemIndex := savedMetalType;
+
+  Self.CreateAntibanTab();
+  Self.Run();
+end;
+
+begin
+  FletchForm.Init();
+  Fletch.Run();
+end.

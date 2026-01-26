@@ -1,0 +1,387 @@
+{$DEFINE WL_BIRDHOUSE_HANDLER_INCLUDED}
+{$IFNDEF WL_OSRS}
+  {$I WaspLib/osrs.simba}
+{$ENDIF}
+
+// Note: MushTree is not available in WaspLib 2.0
+// This handler has been simplified - you may need to manually walk to locations
+// or implement your own mushroom tree teleport system
+
+type
+{$SCOPEDENUMS ON}
+  EBirdHouseWood = (BEST, REGULAR, OAK, WILLOW, TEAK, MAPLE, MAHOGANY, YEW, MAGIC, REDWOOD);
+
+function EBirdHouseWood.GetLogs(): TRSItem;
+begin
+  case Self of
+    EBirdHouseWood.REGULAR:  Result := 'Logs';
+    EBirdHouseWood.OAK:      Result := 'Oak logs';
+    EBirdHouseWood.WILLOW:   Result := 'Willow logs';
+    EBirdHouseWood.TEAK:     Result := 'Teak logs';
+    EBirdHouseWood.MAPLE:    Result := 'Maple logs';
+    EBirdHouseWood.MAHOGANY: Result := 'Mahogany logs';
+    EBirdHouseWood.YEW:      Result := 'Yew logs';
+    EBirdHouseWood.MAGIC:    Result := 'Magic logs';
+    EBirdHouseWood.REDWOOD:  Result := 'Redwood logs';
+  end;
+end;
+
+function EBirdHouseWood.GetHouse(): TRSItem;
+begin
+  case Self of
+    EBirdHouseWood.REGULAR:  Result := 'Bird house';
+    EBirdHouseWood.OAK:      Result := 'Oak bird house';
+    EBirdHouseWood.WILLOW:   Result := 'Willow bird house';
+    EBirdHouseWood.TEAK:     Result := 'Teak bird house';
+    EBirdHouseWood.MAPLE:    Result := 'Maple bird house';
+    EBirdHouseWood.MAHOGANY: Result := 'Mahogany bird house';
+    EBirdHouseWood.YEW:      Result := 'Yew bird house';
+    EBirdHouseWood.MAGIC:    Result := 'Magic bird house';
+    EBirdHouseWood.REDWOOD:  Result := 'Redwood bird house';
+  end;
+end;
+
+type
+  EBirdHouseLocation = (VALLEY_WEST, VALLEY_EAST, FOREST_NORTH, FOREST_SOUTH);
+  EBirdHouseState = (UNKNOWN, NONE, EMPTY, FULL, DONE);
+
+  EBirdHouseHandlerState = (
+    START,
+
+    OPEN_BANK,
+    DEPOSIT_ITEMS,
+    WITHDRAW_LOGS,
+    WITHDRAW_SEEDS,
+    WITHDRAW_PENDANT,
+    WITHDRAW_HOUSETAB,
+    CLOSE_INTERFACE,
+
+    TELEPORT_HOUSE,
+    USE_HOUSE_PENDANT,
+    USE_PENDANT,
+
+    NEXT_LOCATION,
+
+    WALK_TO_LOCATION,
+
+    UPDATE_BIRDHOUSE,
+    EMPTY_BIRDHOUSE,
+    CRAFT_BIRDHOUSE,
+    BUILD_BIRDHOUSE,
+    FILL_BIRDHOUSE,
+
+    FINISH
+  );
+
+  TBirdHouse = record
+    State: EBirdHouseState;
+    Obj: TRSObject;
+  end;
+
+  TBirdHouseHandler = record
+    Name: String;
+    State: EBirdHouseHandlerState;
+
+    Location: EBirdHouseLocation;
+    Houses: array [EBirdHouseLocation] of TBirdHouse;
+    Wood: EBirdHouseWood;
+    Items: record
+      Logs, House, Seeds: TRSItem;
+    end;
+
+    Timer: TCountDown;
+
+    OnStart, OnStop, IsFinished: function (): Boolean of object;
+
+    Position: TPoint;
+  end;
+
+const
+  BIRDHOUSE_COORDINATES: TPointArray = [
+    [10956, 35410], [10976, 35386], [10612, 34902], [10620, 35170]
+  ];
+
+procedure TBirdHouseHandler.DebugLn(msg: String);
+begin
+  WriteLn('[BirdHouseHandler] ' + msg);
+end;
+
+function TBirdHouseHandler._IsFinished(): Boolean;
+begin
+  Result := Self.Houses[EBirdHouseLocation.FOREST_SOUTH].State = EBirdHouseState.FULL;
+end;
+
+function TBirdHouseHandler.GetBestWood(): EBirdHouseWood;
+var
+  a, b: EBirdHouseWood;
+  craft, hunt: Integer;
+begin
+  craft := Stats.GetLevel(ERSSkill.CRAFTING);
+  case craft of
+    0..4: raise 'You can''t build birdhouses with ' + ToStr(craft) + ' crafting.';
+    5..14:  a := EBirdHouseWood.REGULAR;
+    15..24: a := EBirdHouseWood.OAK;
+    25..34: a := EBirdHouseWood.WILLOW;
+    35..44: a := EBirdHouseWood.TEAK;
+    45..49: a := EBirdHouseWood.MAPLE;
+    50..59: a := EBirdHouseWood.MAHOGANY;
+    60..74: a := EBirdHouseWood.YEW;
+    75..89: a := EBirdHouseWood.MAGIC;
+    else    a := EBirdHouseWood.REDWOOD;
+  end;
+
+  hunt := Stats.GetLevel(ERSSkill.HUNTER);
+  case hunt of
+    0..4: raise 'You can''t build birdhouses with ' + ToStr(hunt) + ' hunter.';
+    5..13:  b := EBirdHouseWood.REGULAR;
+    14..23: b := EBirdHouseWood.OAK;
+    24..33: b := EBirdHouseWood.WILLOW;
+    34..43: b := EBirdHouseWood.TEAK;
+    44..48: b := EBirdHouseWood.MAPLE;
+    49..58: b := EBirdHouseWood.MAHOGANY;
+    59..73: b := EBirdHouseWood.YEW;
+    74..88: b := EBirdHouseWood.MAGIC;
+    else    b := EBirdHouseWood.REDWOOD;
+  end;
+
+  Result := EBirdHouseWood(Min(Ord(a), Ord(b)));
+end;
+
+procedure TBirdHouseHandler.Setup(wood: EBirdHouseWood; seeds: TRSItem);
+var
+  loc: EBirdHouseLocation;
+  i: Integer;
+begin
+  Self.Name := 'BirdHouseHandler';
+
+  if @Self.IsFinished = nil then
+    Self.IsFinished := @Self._IsFinished;
+
+  if wood = EBirdHouseWood.BEST then
+    Self.Wood := Self.GetBestWood()
+  else
+    Self.Wood := wood;
+
+  Self.Items.Logs := Self.Wood.GetLogs();
+  Self.Items.House := Self.Wood.GetHouse();
+  Self.Items.Seeds := seeds;
+
+  // Setup birdhouse objects
+  for loc := Low(EBirdHouseLocation) to High(EBirdHouseLocation) do
+  begin
+    i := Ord(loc);
+    Self.Houses[loc].Obj := TRSObject.Create(
+      @Map.Walker,
+      [0.8, 0.8, 5],
+      [BIRDHOUSE_COORDINATES[i]],
+      ['Space', 'house']
+    );
+    // Add finder colors - ground "Spot" and little rocks
+    Self.Houses[loc].Obj.Finder.Colors := [
+      CTS2(1191511, 8, 0.24, 4.86),
+      CTS2(5266787, 21, 0.06, 0.15)
+    ];
+  end;
+end;
+
+procedure TBirdHouseHandler.Start();
+var
+  loc: EBirdHouseLocation;
+begin
+  if @Self.OnStart <> nil then Self.OnStart();
+
+  for loc := Low(EBirdHouseLocation) to High(EBirdHouseLocation) do
+    if Self.Houses[loc].State = EBirdHouseState.FULL then
+      Self.Houses[loc].State := EBirdHouseState.DONE;
+end;
+
+procedure TBirdHouseHandler.Stop();
+begin
+  if @Self.OnStop <> nil then Self.OnStop();
+end;
+
+function TBirdHouseHandler.PendantTeleport(): Boolean;
+begin
+  if Inventory.ClickItem('Digsite pendant (5)', 'Fossil Island') then
+    Result := WaitUntil(Map.InRange(Map.Position(), 50), 300, 5000);
+end;
+
+function TBirdHouseHandler.InLocation(): Boolean;
+begin
+  case Self.Location of
+    EBirdHouseLocation.VALLEY_WEST, EBirdHouseLocation.VALLEY_EAST:
+      Result := Self.Position.InBox([10844, 35294, 11108, 35486]);
+
+    EBirdHouseLocation.FOREST_NORTH, EBirdHouseLocation.FOREST_SOUTH:
+      Result := Self.Position.InBox([10496, 34862, 10776, 35218]);
+  end;
+end;
+
+function TBirdHouseHandler.NextLocation(): EBirdHouseLocation;
+begin
+  if Self.Location = EBirdHouseLocation.FOREST_SOUTH then
+    Exit(EBirdHouseLocation.VALLEY_WEST);
+  Result := EBirdHouseLocation(Ord(Self.Location) + 1);
+end;
+
+procedure TBirdHouseHandler.UpdateHouseState();
+var
+  text: String;
+begin
+  if not Self.Houses[Self.Location].Obj.Hover() then Exit;
+
+  text := MainScreen.GetUpText();
+
+  if text.Contains('(empty)') then
+    Self.Houses[Self.Location].State := EBirdHouseState.EMPTY
+  else if text.Contains('Build') then
+    Self.Houses[Self.Location].State := EBirdHouseState.NONE
+  else if text.Contains('irdhouse') then
+    Self.Houses[Self.Location].State := EBirdHouseState.FULL;
+end;
+
+function TBirdHouseHandler.EmptyHouse(): Boolean;
+var
+  count: Integer;
+begin
+  count := Inventory.Slots.Count();
+  if Self.Houses[Self.Location].Obj.Click() then
+  begin
+    Minimap.WaitMoving();
+    Result := WaitUntil(count < Inventory.Slots.Count(), 300, 3000);
+  end;
+
+  if Result then Self.Houses[Self.Location].State := EBirdHouseState.NONE;
+end;
+
+function TBirdHouseHandler.CraftHouse(): Boolean;
+begin
+  if not Inventory.Combine(Self.Items.Logs, 'Clockwork') then Exit;
+  Result := WaitUntil(Inventory.Items.Contains(Self.Items.House), 300, 3000);
+end;
+
+function TBirdHouseHandler.BuildHouse(): Boolean;
+var
+  count: Integer;
+begin
+  count := Inventory.Slots.Count();
+  if Self.Houses[Self.Location].Obj.Click() then
+  begin
+    Minimap.WaitMoving();
+    Result := WaitUntil(count > Inventory.Slots.Count(), 300, 3000);
+  end;
+
+  if Result then Self.Houses[Self.Location].State := EBirdHouseState.EMPTY;
+end;
+
+function TBirdHouseHandler.FillHouse(): Boolean;
+var
+  slot: Integer;
+  countBefore, countAfter: Integer;
+begin
+  // Find the seeds slot and read stack
+  if not Inventory.Items.Find(Self.Items.Seeds, slot) then Exit;
+  countBefore := Inventory.Slots.ReadStack(slot);
+
+  if not Inventory.ClickItem(Self.Items.Seeds) then Exit;
+  if not Self.Houses[Self.Location].Obj.SelectOption(['Use', '>']) then Exit;
+
+  Minimap.WaitMoving();
+
+  // Check if stack decreased
+  Result := WaitUntil(Inventory.Slots.ReadStack(slot) < countBefore, 300, 3000);
+
+  if Result then Self.Houses[Self.Location].State := EBirdHouseState.FULL;
+end;
+
+function TBirdHouseHandler.WalkToLocation(): Boolean;
+var
+  coord: TPoint;
+begin
+  coord := BIRDHOUSE_COORDINATES[Ord(Self.Location)];
+  Result := Map.Walker.WebWalk(coord, 10);
+end;
+
+function TBirdHouseHandler.GetState(): EBirdHouseHandlerState;
+begin
+  if MSInterface.IsOpen() then
+  begin
+    if Bank.IsOpen() then
+    begin
+      // Handle bank logic - simplified
+      if not Inventory.Items.Contains(Self.Items.Logs) then
+        Exit(EBirdHouseHandlerState.WITHDRAW_LOGS);
+      if not Inventory.Items.Contains(Self.Items.Seeds) then
+        Exit(EBirdHouseHandlerState.WITHDRAW_SEEDS);
+      if not Inventory.Items.Contains('Digsite pendant (5)') then
+        Exit(EBirdHouseHandlerState.WITHDRAW_PENDANT);
+      Exit(EBirdHouseHandlerState.CLOSE_INTERFACE);
+    end;
+
+    Exit(EBirdHouseHandlerState.CLOSE_INTERFACE);
+  end;
+
+  Self.Position := Map.Position();
+
+  if not Self.InLocation() then
+    Exit(EBirdHouseHandlerState.WALK_TO_LOCATION);
+
+  if Self.Houses[Self.Location].State = EBirdHouseState.FULL then
+    Exit(EBirdHouseHandlerState.NEXT_LOCATION);
+
+  if Self.Houses[Self.Location].State = EBirdHouseState.UNKNOWN then
+    Exit(EBirdHouseHandlerState.UPDATE_BIRDHOUSE);
+
+  if Self.Houses[Self.Location].State = EBirdHouseState.DONE then
+    Exit(EBirdHouseHandlerState.EMPTY_BIRDHOUSE);
+
+  if Self.Houses[Self.Location].State = EBirdHouseState.NONE then
+  begin
+    if Inventory.Items.Contains(Self.Items.House) then
+      Exit(EBirdHouseHandlerState.BUILD_BIRDHOUSE);
+    Exit(EBirdHouseHandlerState.CRAFT_BIRDHOUSE);
+  end;
+
+  if Self.Houses[Self.Location].State = EBirdHouseState.EMPTY then
+    Exit(EBirdHouseHandlerState.FILL_BIRDHOUSE);
+
+  Exit(EBirdHouseHandlerState.FINISH);
+end;
+
+procedure TBirdHouseHandler.Run();
+begin
+  Self.Start();
+
+  repeat
+    Self.State := Self.GetState();
+    Self.DebugLn(ToStr(Self.State));
+
+    case Self.State of
+      EBirdHouseHandlerState.START: ;
+      EBirdHouseHandlerState.DEPOSIT_ITEMS: Bank.DepositAll();
+      EBirdHouseHandlerState.WITHDRAW_LOGS: Bank.Withdraw(Self.Items.Logs.ToBankItem(4));
+      EBirdHouseHandlerState.WITHDRAW_SEEDS: Bank.Withdraw(Self.Items.Seeds.ToBankItem(40));
+      EBirdHouseHandlerState.WITHDRAW_PENDANT: Bank.Withdraw(TRSItem('Digsite pendant (5)').ToBankItem(1));
+      EBirdHouseHandlerState.CLOSE_INTERFACE: MSInterface.Close();
+
+      EBirdHouseHandlerState.USE_PENDANT: Self.PendantTeleport();
+
+      EBirdHouseHandlerState.NEXT_LOCATION: Self.Location := Self.NextLocation();
+      EBirdHouseHandlerState.WALK_TO_LOCATION: Self.WalkToLocation();
+
+      EBirdHouseHandlerState.UPDATE_BIRDHOUSE: Self.UpdateHouseState();
+      EBirdHouseHandlerState.EMPTY_BIRDHOUSE: Self.EmptyHouse();
+      EBirdHouseHandlerState.CRAFT_BIRDHOUSE: Self.CraftHouse();
+      EBirdHouseHandlerState.BUILD_BIRDHOUSE: Self.BuildHouse();
+      EBirdHouseHandlerState.FILL_BIRDHOUSE: Self.FillHouse();
+
+      EBirdHouseHandlerState.FINISH: Break;
+    end;
+  until Self.State = EBirdHouseHandlerState.FINISH;
+
+  Self.Stop();
+end;
+
+var
+  BirdHouseHandler: TBirdHouseHandler;
+{$SCOPEDENUMS OFF}
