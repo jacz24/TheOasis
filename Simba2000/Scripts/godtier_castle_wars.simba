@@ -67,17 +67,17 @@ begin
   //Self.Use_Stairs := True;
 
   Self.Castle_Wars_Room := [9752, 38070];
-  Self.Portal := TRSObject.Create(@Map.Walker, [1, 1, 1], [[9746, 38072]], ['Guthix Portal']);
+  Self.Portal := TRSObject.Create(Map.Walker, [1, 1, 1], [[9746, 38072]], ['Guthix Portal']);
 
   // All Saradomin Setup
-  Self.Sara_Stairs := TRSObject.Create(@Map.Walker, [1,2,4], [[60900, 38130]], ['Staircase']);
-  Self.Sara_Ladder := TRSObject.Create(@Map.Walker, [0.6, 0.6, 5], [[35316, 38134]], ['Ladder']);
+  Self.Sara_Stairs := TRSObject.Create(Map.Walker, [1,2,4], [[60900, 38130]], ['Staircase']);
+  Self.Sara_Ladder := TRSObject.Create(Map.Walker, [0.6, 0.6, 5], [[35316, 38134]], ['Ladder']);
   Self.Sara_Waiting_Room := [9516, 12478];
   Self.Sara_Top_Floor := [9328, 12134];
 
   // All Zamorak Setup
-  Self.Zammy_Stairs := TRSObject.Create(@Map.Walker, [1,2,4], [[60696, 37902]], ['Staircase']);
-  Self.Zammy_Ladder := TRSObject.Create(@Map.Walker, [0.6, 0.6, 5], [[35080, 37898]], ['Ladder']);
+  Self.Zammy_Stairs := TRSObject.Create(Map.Walker, [1,2,4], [[60696, 37902]], ['Staircase']);
+  Self.Zammy_Ladder := TRSObject.Create(Map.Walker, [0.6, 0.6, 5], [[35080, 37898]], ['Ladder']);
   Self.Zammy_Waiting_Room := [9680, 12338];
   Self.Zammy_Top_Floor := [9344, 12126];
 
@@ -101,7 +101,7 @@ begin
   ERSSkill.ATTACK, ERSSkill.STRENGTH, ERSSkill.DEFENCE, ERSSkill.HITPOINTS,
   ERSSkill.MAGIC, ERSSkill.RANGED, ERSSkill.SLAYER, ERSSkill.SAILING];
 
-  Antiban.RandomChatTab
+  //Antiban.RandomChatTab
   TerminateScript();
   // Initialize anti-logout timer (starts finished so first check triggers action)
   Self.AFKTimer.Start(Random(180000, 240000));
