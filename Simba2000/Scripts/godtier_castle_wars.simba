@@ -84,7 +84,6 @@ begin
   //Self.Portal.WalkClick();
   //ShowOntarget(Self.Zammy_Ladder);
   //TerminateScript('test');
-
   Logger.Setup('GodTier Castle Wars');
   ProgressReport.Setup(
     'GodTier Castle Wars',
@@ -274,7 +273,7 @@ var
 
 procedure TScriptForm.OnStart(sender: TLazObject); override;
 begin
-  inherited;
+  inherited();
 
   CastleWars.Use_Stairs := UseStairsCheckBox.IsChecked();
   if CastleWarsConfig.Data.Has('use_stairs') then
@@ -311,6 +310,7 @@ begin
     UseStairsCheckBox.SetChecked(True);
 
   Self.CreateAntibanTab();
+  Self.CreateMiscTab();
   Self.Run();
 end;
 
