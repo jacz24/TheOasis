@@ -89,7 +89,7 @@ end;
 
 procedure TTemplate.SaveForTests();
 begin
-  SaveAnonymousScreenshot('C:\Users\irwin\OneDrive\Documents\GitHub\TheOasis\Simba2000\WasplibWIP\tests.png');
+  SaveAnonymousScreenshot('C:\dev\GitHub\TheOasis\Simba2000\WasplibWIP\tests.png');
 end;
 
 procedure TTemplate.SaveForDocs();
@@ -102,7 +102,7 @@ begin
   //img.DrawBoxArray(Make.QuantityButtons, False);
   //Shop.Draw(img);
   img.Crop(Chat.Bounds);
-  img.Save('C:\Users\irwin\OneDrive\Documents\GitHub\TheOasis\Simba2000\WasplibWIP\test.png', true);
+  img.Save('C:\dev\GitHub\TheOasis\Simba2000\WasplibWIP\test.png', true);
 end;
 
 function TTemplate.GetState(): ETemplateState;
