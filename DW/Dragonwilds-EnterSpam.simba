@@ -1,0 +1,90 @@
+program DragonwildsEnterSpam;
+{
+  Spams the ENTER key. For RuneScape: Dragonwilds -- no WaspLib, no OSRS.
+
+  Hotkeys (global -- they work while the game window has focus):
+    F8   toggle the spam ON / OFF
+    F9   stop the script
+
+  Input goes through Simba's native interface. On Windows that is
+  SendInput, so the keystrokes are real OS-level input delivered to
+  whatever window has focus. Nothing is injected into the game process.
+
+  Tune the constants below to change the key, the hotkeys, or the rate.
+}
+
+const
+  SPAM_KEY   : EKeyCode = EKeyCode.RETURN;
+  TOGGLE_KEY : EKeyCode = EKeyCode.F8;
+  QUIT_KEY   : EKeyCode = EKeyCode.F9;
+
+  DELAY_MIN  : Integer = 80;  // milliseconds between presses
+  DELAY_MAX  : Integer = 120;
+  HOLD_MIN   : Integer = 25;   // milliseconds the key stays down
+  HOLD_MAX   : Integer = 60;
+  POLL_MS    : Integer = 10;   // hotkey poll interval
+
+var
+  Spamming: Boolean;
+  ToggleWasDown, QuitWasDown: Boolean;
+  NextPress: Double;
+
+// True only on the transition from up to down, so holding the hotkey
+// toggles once instead of once per poll.
+function RisingEdge(Key: EKeyCode; var WasDown: Boolean): Boolean;
+var
+  IsDown: Boolean;
+begin
+  IsDown := Target.KeyPressed(Key);
+  Result := IsDown and (not WasDown);
+  WasDown := IsDown;
+end;
+
+procedure PressSpamKey;
+begin
+  Target.KeyDown(SPAM_KEY);
+  Sleep(Random(HOLD_MIN, HOLD_MAX));
+  Target.KeyUp(SPAM_KEY);
+end;
+
+begin
+  Target.SetDesktop();
+
+  Spamming := False;
+  ToggleWasDown := False;
+  QuitWasDown := False;
+  NextPress := 0;
+
+  WriteLn('Enter spammer ready.  F8 = toggle on/off.  F9 = quit.');
+
+  try
+    repeat
+      if RisingEdge(TOGGLE_KEY, ToggleWasDown) then
+      begin
+        Spamming := not Spamming;
+        NextPress := PerformanceTime();
+
+        if Spamming then
+          WriteLn('[ON]  spamming ENTER')
+        else
+          WriteLn('[OFF] idle');
+      end;
+
+      if RisingEdge(QUIT_KEY, QuitWasDown) then
+      begin
+        WriteLn('Quit.');
+        Break;
+      end;
+
+      if Spamming and (PerformanceTime() >= NextPress) then
+      begin
+        PressSpamKey();
+        NextPress := PerformanceTime() + Random(DELAY_MIN, DELAY_MAX);
+      end;
+
+      Sleep(POLL_MS);
+    until False;
+  finally
+    Target.KeyUp(SPAM_KEY); // never leave the key stuck down
+  end;
+end.
